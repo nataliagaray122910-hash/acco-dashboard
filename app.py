@@ -82,8 +82,199 @@ if "report3_payload" not in st.session_state:
 if "report4_payload" not in st.session_state:
     st.session_state["report4_payload"] = None
 
+if "currency_mode" not in st.session_state:
+    st.session_state["currency_mode"] = config.DEFAULT_CURRENCY
+
+if "exchange_rate" not in st.session_state:
+    st.session_state["exchange_rate"] = float(config.DEFAULT_EXCHANGE_RATE)
+
 # =========================================================
-# 4. FUNCIONES DE AUTENTICACIÓN
+# 4. CONFIGURACIÓN GLOBAL DE MONEDA
+# =========================================================
+def is_blank_number(value) -> bool:
+    if value is None:
+        return True
+
+    try:
+        numeric_value = float(value)
+        return math.isnan(numeric_value)
+    except (TypeError, ValueError):
+        return True
+
+def normalize_currency_mode(currency_value: str | None) -> str:
+    return "USD" if str(currency_value or "").strip().upper() == "USD" else config.DEFAULT_CURRENCY
+
+def get_active_currency_mode() -> str:
+    return normalize_currency_mode(st.session_state.get("currency_mode", config.DEFAULT_CURRENCY))
+
+def get_active_exchange_rate() -> float:
+    raw_value = st.session_state.get("exchange_rate", config.DEFAULT_EXCHANGE_RATE)
+
+    try:
+        numeric_value = float(raw_value)
+    except (TypeError, ValueError):
+        numeric_value = float(config.DEFAULT_EXCHANGE_RATE)
+
+    if numeric_value <= 0:
+        numeric_value = float(config.DEFAULT_EXCHANGE_RATE)
+
+    return numeric_value
+
+def set_currency_mode(currency_mode: str) -> None:
+    st.session_state["currency_mode"] = normalize_currency_mode(currency_mode)
+
+def get_currency_status_label() -> str:
+    return "USD" if get_active_currency_mode() == "USD" else config.DEFAULT_CURRENCY
+
+def get_currency_kpi_suffix() -> str:
+    return f"K {get_currency_status_label()}"
+
+def convert_monetary_value(value):
+    if is_blank_number(value):
+        return value
+
+    numeric_value = float(value)
+
+    if get_active_currency_mode() == "USD":
+        exchange_rate = get_active_exchange_rate()
+        return numeric_value / exchange_rate
+
+    return numeric_value
+
+def format_monetary_value(
+    value,
+    is_percent: bool = False,
+    allow_blank: bool = False,
+) -> str:
+    if is_blank_number(value):
+        return "" if allow_blank and not is_percent else ("0.00%" if is_percent else ("" if allow_blank else "0"))
+
+    numeric_value = float(value)
+
+    if is_percent:
+        if numeric_value < 0:
+            return f"({abs(numeric_value) * 100:,.2f}%)"
+        return f"{numeric_value * 100:,.2f}%"
+
+    converted_value = convert_monetary_value(numeric_value)
+    value_k = float(converted_value) / 1000
+    rounded_value = round(value_k)
+
+    if rounded_value < 0:
+        return f"({abs(rounded_value):,})"
+    return f"{rounded_value:,}"
+
+def convert_currency_columns_for_display(df_table, monetary_columns: list[str] | None = None):
+    if df_table is None:
+        return df_table
+
+    if get_active_currency_mode() != "USD":
+        return df_table
+
+    df_display = df_table.copy()
+
+    if monetary_columns is None:
+        monetary_columns = [
+            "Actual",
+            "Plan",
+            "PY",
+            "Var VS Plan",
+            "Var VS PY",
+            config.COL_GSNR,
+            config.COL_GROSS_MARGIN,
+            "Importe Vtas Brutas",
+            "Importe Devoluciones",
+            "Importe Fact No Embq",
+            "Costo Vtas Netas",
+        ]
+
+    for column_name in monetary_columns:
+        if column_name in df_display.columns:
+            df_display[column_name] = df_display[column_name].apply(convert_monetary_value)
+
+    return df_display
+
+def convert_report_table_for_export(df_table):
+    return convert_currency_columns_for_display(
+        df_table,
+        monetary_columns=["Actual", "Plan", "PY", "Var VS Plan", "Var VS PY"],
+    )
+
+def build_currency_sidebar_status_html() -> str:
+    active_currency = get_currency_status_label()
+    exchange_rate_value = get_active_exchange_rate()
+
+    currency_usage_text = (
+        "Conversión activa a dólares."
+        if active_currency == "USD"
+        else "Visualización en pesos mexicanos."
+    )
+
+    return (
+        f"<b>Usuario activo:</b> {escape(st.session_state.get('user_role', 'N/A'))}<br>"
+        f"<b>Moneda base:</b> {escape(active_currency)}<br>"
+        f"<b>Tipo de cambio actual:</b> {exchange_rate_value:,.2f} MXN por USD<br>"
+        f"<span style='color:#C8CDD5;'>{currency_usage_text}</span>"
+    )
+
+def render_currency_controls() -> None:
+    st.markdown("### Moneda")
+    st.caption(
+        "Primero eliges si quieres ver la información en MXN o en USD. "
+        "El tipo de cambio solo se aplica cuando la moneda activa es USD."
+    )
+
+    current_currency = get_active_currency_mode()
+
+    st.markdown(
+        styles.build_currency_box(
+            title="Configuración de moneda",
+            subtitle=(
+                f"Moneda activa: {get_currency_status_label()} · "
+                f"Tipo de cambio actual: {get_active_exchange_rate():,.2f} MXN por USD"
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.button(
+            "Usar MXN",
+            key="btn_currency_mxn",
+            on_click=set_currency_mode,
+            args=(config.DEFAULT_CURRENCY,),
+            use_container_width=True,
+            disabled=current_currency == config.DEFAULT_CURRENCY,
+        )
+
+    with col2:
+        st.button(
+            "Cambiar a USD",
+            key="btn_currency_usd",
+            on_click=set_currency_mode,
+            args=("USD",),
+            use_container_width=True,
+            disabled=current_currency == "USD",
+        )
+
+    with st.expander("Configurar tipo de cambio"):
+        st.caption("Este valor solo se usa cuando la moneda activa es USD.")
+
+        new_exchange_rate = st.number_input(
+            "Tipo de cambio (MXN por 1 USD)",
+            min_value=0.01,
+            value=float(get_active_exchange_rate()),
+            step=0.01,
+            format="%.2f",
+            key="exchange_rate_input_display",
+        )
+
+        st.session_state["exchange_rate"] = float(new_exchange_rate)
+
+# =========================================================
+# 5. FUNCIONES DE AUTENTICACIÓN
 # =========================================================
 def check_login() -> None:
     user = st.session_state.get("input_user", "").strip()
@@ -100,9 +291,11 @@ def logout() -> None:
     st.session_state["user_role"] = ""
     st.session_state["input_user"] = ""
     st.session_state["input_password"] = ""
+    st.session_state["currency_mode"] = config.DEFAULT_CURRENCY
+    st.session_state["exchange_rate"] = float(config.DEFAULT_EXCHANGE_RATE)
 
 # =========================================================
-# 5. PANTALLA DE LOGIN
+# 6. PANTALLA DE LOGIN
 # =========================================================
 def render_login_screen() -> None:
     left_col, center_col, right_col = st.columns([1, 1.5, 1])
@@ -118,7 +311,7 @@ def render_login_screen() -> None:
         st.button("Iniciar sesión", on_click=check_login, use_container_width=True)
 
 # =========================================================
-# 6. ENCABEZADO PRINCIPAL
+# 7. ENCABEZADO PRINCIPAL
 # =========================================================
 def render_main_header() -> None:
     st.markdown('<div class="top-header-bar-bg"></div>', unsafe_allow_html=True)
@@ -145,7 +338,7 @@ def render_main_header() -> None:
         st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# 7. HELPERS DE EXPORTACIÓN
+# 8. HELPERS DE EXPORTACIÓN
 # =========================================================
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
@@ -213,10 +406,10 @@ def get_current_report_1_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
-        "mtd_without_kens": filtered_mtd_without_kens,
-        "ytd_without_kens": filtered_ytd_without_kens,
-        "mtd_kens": filtered_mtd_kens,
-        "ytd_kens": filtered_ytd_kens,
+        "mtd_without_kens": convert_report_table_for_export(filtered_mtd_without_kens),
+        "ytd_without_kens": convert_report_table_for_export(filtered_ytd_without_kens),
+        "mtd_kens": convert_report_table_for_export(filtered_mtd_kens),
+        "ytd_kens": convert_report_table_for_export(filtered_ytd_kens),
     }
 
 def get_current_report_2_segment_export_tables() -> dict | None:
@@ -244,8 +437,8 @@ def get_current_report_2_segment_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
-        "mtd": filtered_mtd_segment,
-        "ytd": filtered_ytd_segment,
+        "mtd": convert_report_table_for_export(filtered_mtd_segment),
+        "ytd": convert_report_table_for_export(filtered_ytd_segment),
     }
 
 def get_current_report_2_category_export_tables() -> dict | None:
@@ -273,8 +466,8 @@ def get_current_report_2_category_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
-        "mtd": filtered_mtd_category,
-        "ytd": filtered_ytd_category,
+        "mtd": convert_report_table_for_export(filtered_mtd_category),
+        "ytd": convert_report_table_for_export(filtered_ytd_category),
     }
 
 def get_current_report_3_export_tables() -> dict | None:
@@ -302,8 +495,8 @@ def get_current_report_3_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
-        "mtd": filtered_mtd_channel,
-        "ytd": filtered_ytd_channel,
+        "mtd": convert_report_table_for_export(filtered_mtd_channel),
+        "ytd": convert_report_table_for_export(filtered_ytd_channel),
     }
 
 def get_current_report_4_export_tables() -> dict | None:
@@ -331,8 +524,8 @@ def get_current_report_4_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
-        "mtd": filtered_mtd_clients,
-        "ytd": filtered_ytd_clients,
+        "mtd": convert_report_table_for_export(filtered_mtd_clients),
+        "ytd": convert_report_table_for_export(filtered_ytd_clients),
     }
 
 def get_full_reports_export_bytes() -> bytes:
@@ -351,7 +544,7 @@ def get_full_reports_export_bytes() -> bytes:
     )
 
 # =========================================================
-# 8. SIDEBAR
+# 9. SIDEBAR
 # =========================================================
 def render_sidebar() -> str:
     with st.sidebar:
@@ -367,14 +560,12 @@ def render_sidebar() -> str:
 
         st.markdown("## Panel de navegación")
 
-        sidebar_html = (
-            f"<b>Usuario activo:</b> {escape(st.session_state.get('user_role', 'N/A'))}<br>"
-            f"<b>Moneda base:</b> {escape(config.DEFAULT_CURRENCY)}"
-        )
         st.markdown(
-            styles.build_sidebar_box(sidebar_html),
+            styles.build_sidebar_box(build_currency_sidebar_status_html()),
             unsafe_allow_html=True,
         )
+
+        render_currency_controls()
 
         selected_option = st.radio(
             "Selecciona una sección",
@@ -419,7 +610,7 @@ def render_sidebar() -> str:
         return selected_option
 
 # =========================================================
-# 9. VALIDACIÓN AUXILIAR
+# 10. VALIDACIÓN AUXILIAR
 # =========================================================
 def render_file_validation_result(
     is_valid: bool,
@@ -434,7 +625,7 @@ def render_file_validation_result(
             st.warning(f"Columnas faltantes: {', '.join(missing_columns)}")
 
 # =========================================================
-# 10. HELPERS DE FILTROS DE PERIODO
+# 11. HELPERS DE FILTROS DE PERIODO
 # =========================================================
 def get_available_year_month_options() -> tuple[list[int], int | None, int | None]:
     df_processed = st.session_state.get("df_processed_sales")
@@ -586,7 +777,7 @@ def render_period_filter_block(
     return selected_year, selected_month
 
 # =========================================================
-# 10.1 HELPERS DE FILTROS POR PRIMERA COLUMNA
+# 11.1 HELPERS DE FILTROS POR PRIMERA COLUMNA
 # =========================================================
 def is_special_report_row(row) -> bool:
     return bool(
@@ -1052,7 +1243,7 @@ def filter_report_4_top_clients_table(
     return data_processor.pd.DataFrame(rows)
 
 # =========================================================
-# 11. PROCESAMIENTO DE VENTAS
+# 12. PROCESAMIENTO DE VENTAS
 # =========================================================
 def run_sales_processing() -> None:
     df_sales = st.session_state.get("df_sales")
@@ -1099,9 +1290,6 @@ def render_processed_data_summary() -> None:
         else 0
     )
 
-    total_gsnr_k = total_gsnr / 1000
-    total_gm_k = total_gm / 1000
-
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -1117,8 +1305,8 @@ def render_processed_data_summary() -> None:
     with col2:
         st.markdown(
             styles.build_info_card(
-                "GSNR total (K)",
-                f"{round(total_gsnr_k):,}",
+                f"GSNR total ({get_currency_kpi_suffix()})",
+                format_monetary_value(total_gsnr),
                 "Suma del GSNR contenido en BASE SAP, expresada en miles",
             ),
             unsafe_allow_html=True,
@@ -1127,15 +1315,15 @@ def render_processed_data_summary() -> None:
     with col3:
         st.markdown(
             styles.build_info_card(
-                "Gross Margin total (K)",
-                f"{round(total_gm_k):,}",
+                f"Gross Margin total ({get_currency_kpi_suffix()})",
+                format_monetary_value(total_gm),
                 "GSNR menos Costo Vtas Netas, expresado en miles",
             ),
             unsafe_allow_html=True,
         )
 
 # =========================================================
-# 12. BASE MTD
+# 13. BASE MTD
 # =========================================================
 def run_mtd_build() -> None:
     df_processed_sales = st.session_state.get("df_processed_sales")
@@ -1183,8 +1371,8 @@ def render_mtd_base_summary() -> None:
     with row1[0]:
         st.markdown(
             styles.build_info_card(
-                "MTD ACT TOTAL (K)",
-                f"{round(summary['mtd_act_total_k']):,}",
+                f"MTD ACT TOTAL ({get_currency_kpi_suffix()})",
+                format_monetary_value(summary["mtd_act_total_k"] * 1000),
                 "Valor del último mes real disponible, expresado en miles",
             ),
             unsafe_allow_html=True,
@@ -1193,8 +1381,8 @@ def render_mtd_base_summary() -> None:
     with row1[1]:
         st.markdown(
             styles.build_info_card(
-                "YTD ACT TOTAL (K)",
-                f"{round(summary['ytd_act_total_k']):,}",
+                f"YTD ACT TOTAL ({get_currency_kpi_suffix()})",
+                format_monetary_value(summary["ytd_act_total_k"] * 1000),
                 "Acumulado del año al último mes, expresado en miles",
             ),
             unsafe_allow_html=True,
@@ -1203,8 +1391,8 @@ def render_mtd_base_summary() -> None:
     with row1[2]:
         st.markdown(
             styles.build_info_card(
-                "MTD PLAN TOTAL (K)",
-                f"{round(summary['mtd_plan_total_k']):,}",
+                f"MTD PLAN TOTAL ({get_currency_kpi_suffix()})",
+                format_monetary_value(summary["mtd_plan_total_k"] * 1000),
                 "Plan del último mes disponible, expresado en miles",
             ),
             unsafe_allow_html=True,
@@ -1213,8 +1401,8 @@ def render_mtd_base_summary() -> None:
     with row2[0]:
         st.markdown(
             styles.build_info_card(
-                "YTD PLAN TOTAL (K)",
-                f"{round(summary['ytd_plan_total_k']):,}",
+                f"YTD PLAN TOTAL ({get_currency_kpi_suffix()})",
+                format_monetary_value(summary["ytd_plan_total_k"] * 1000),
                 "Plan acumulado de enero al mes actual, expresado en miles",
             ),
             unsafe_allow_html=True,
@@ -1223,8 +1411,8 @@ def render_mtd_base_summary() -> None:
     with row2[1]:
         st.markdown(
             styles.build_info_card(
-                "BTS ACTUAL (K)",
-                f"{round(bts_summary['bts_actual_k']):,}",
+                f"BTS ACTUAL ({get_currency_kpi_suffix()})",
+                format_monetary_value(bts_summary["bts_actual_k"] * 1000),
                 "BTS real acumulado desde octubre del año previo al mes actual",
             ),
             unsafe_allow_html=True,
@@ -1233,8 +1421,8 @@ def render_mtd_base_summary() -> None:
     with row2[2]:
         st.markdown(
             styles.build_info_card(
-                "BTS PY COMPLETO (K)",
-                f"{round(bts_summary['bts_py_full_k']):,}",
+                f"BTS PY COMPLETO ({get_currency_kpi_suffix()})",
+                format_monetary_value(bts_summary["bts_py_full_k"] * 1000),
                 "BTS del ciclo previo completo, mostrado como dato informativo",
             ),
             unsafe_allow_html=True,
@@ -1245,7 +1433,7 @@ def render_mtd_base_summary() -> None:
     else:
         st.warning(
             "Validación MTD Plan: Plan Cliente y Plan SKU no coinciden. "
-            f"Diferencia detectada: {round(plan_summary['mtd_plan_diff']):,}"
+            f"Diferencia detectada: {round(convert_monetary_value(plan_summary['mtd_plan_diff']) / 1000):,}"
         )
 
     if plan_summary["ytd_plan_match"]:
@@ -1253,23 +1441,11 @@ def render_mtd_base_summary() -> None:
     else:
         st.warning(
             "Validación YTD Plan: Plan Cliente y Plan SKU no coinciden. "
-            f"Diferencia detectada: {round(plan_summary['ytd_plan_diff']):,}"
+            f"Diferencia detectada: {round(convert_monetary_value(plan_summary['ytd_plan_diff']) / 1000):,}"
         )
 
 def format_table_value(value: float, is_percent: bool = False) -> str:
-    if value is None:
-        value = 0.0
-
-    if is_percent:
-        if value < 0:
-            return f"({abs(value) * 100:,.2f}%)"
-        return f"{value * 100:,.2f}%"
-
-    value_k = value / 1000
-
-    if value_k < 0:
-        return f"({abs(round(value_k)):,.0f})"
-    return f"{round(value_k):,.0f}"
+    return format_monetary_value(value, is_percent=is_percent)
 
 def build_mtd_legend_html() -> str:
     return (
@@ -1372,7 +1548,7 @@ def build_bts_table_html(title: str, df_table) -> str:
     )
 
 # =========================================================
-# 13. REPORTE 1
+# 14. REPORTE 1
 # =========================================================
 def run_report_1_build(
     selected_year: int | None = None,
@@ -1420,34 +1596,8 @@ def run_report_1_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}")
 
-def is_blank_number(value) -> bool:
-    if value is None:
-        return True
-
-    try:
-        numeric_value = float(value)
-        return math.isnan(numeric_value)
-    except (TypeError, ValueError):
-        return True
-
 def format_report_1_value(value, is_percent: bool = False, allow_blank: bool = False) -> str:
-    if is_blank_number(value):
-        return "" if allow_blank else ("0.00%" if is_percent else "0")
-
-    numeric_value = float(value)
-
-    if is_percent:
-        if numeric_value < 0:
-            return f"({abs(numeric_value) * 100:,.2f}%)"
-        return f"{numeric_value * 100:,.2f}%"
-
-    value_k = numeric_value / 1000
-
-    rounded_value = round(value_k)
-
-    if rounded_value < 0:
-        return f"({abs(rounded_value):,})"
-    return f"{rounded_value:,}"
+    return format_monetary_value(value, is_percent=is_percent, allow_blank=allow_blank)
 
 def build_report_1_title_box_html() -> str:
     return (
@@ -1657,27 +1807,31 @@ def render_report_1_view() -> None:
     export_col_left, export_col_right = st.columns([12, 1])
     with export_col_right:
         report_1_bytes = exports.build_report_1_excel_bytes(
-            mtd_without_kens_df=filtered_mtd_without_kens,
-            ytd_without_kens_df=filtered_ytd_without_kens,
-            mtd_kens_df=filter_report_1_with_kens_table(
-                payload["mtd_kens_table"],
-                get_valid_applied_filter_values(
-                    "report1_kens_dimension_applied",
-                    get_filter_options_from_table(
-                        payload["mtd_kens_table"],
-                        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+            mtd_without_kens_df=convert_report_table_for_export(filtered_mtd_without_kens),
+            ytd_without_kens_df=convert_report_table_for_export(filtered_ytd_without_kens),
+            mtd_kens_df=convert_report_table_for_export(
+                filter_report_1_with_kens_table(
+                    payload["mtd_kens_table"],
+                    get_valid_applied_filter_values(
+                        "report1_kens_dimension_applied",
+                        get_filter_options_from_table(
+                            payload["mtd_kens_table"],
+                            lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+                        ),
                     ),
-                ),
+                )
             ),
-            ytd_kens_df=filter_report_1_with_kens_table(
-                payload["ytd_kens_table"],
-                get_valid_applied_filter_values(
-                    "report1_kens_dimension_applied",
-                    get_filter_options_from_table(
-                        payload["mtd_kens_table"],
-                        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+            ytd_kens_df=convert_report_table_for_export(
+                filter_report_1_with_kens_table(
+                    payload["ytd_kens_table"],
+                    get_valid_applied_filter_values(
+                        "report1_kens_dimension_applied",
+                        get_filter_options_from_table(
+                            payload["mtd_kens_table"],
+                            lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+                        ),
                     ),
-                ),
+                )
             ),
         )
         render_icon_download_button(
@@ -1797,7 +1951,7 @@ def render_report_1_view() -> None:
         )
 
 # =========================================================
-# 14. REPORTE 2
+# 15. REPORTE 2
 # =========================================================
 def run_report_2_build(
     selected_year: int | None = None,
@@ -1892,22 +2046,7 @@ def run_report_2_category_build(
         st.error(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}")
 
 def format_report_2_value(value, is_percent: bool = False) -> str:
-    if is_blank_number(value):
-        return "0.00%" if is_percent else "0"
-
-    numeric_value = float(value)
-
-    if is_percent:
-        if numeric_value < 0:
-            return f"({abs(numeric_value) * 100:,.2f}%)"
-        return f"{numeric_value * 100:,.2f}%"
-
-    value_k = numeric_value / 1000
-    rounded_value = round(value_k)
-
-    if rounded_value < 0:
-        return f"({abs(rounded_value):,})"
-    return f"{rounded_value:,}"
+    return format_monetary_value(value, is_percent=is_percent)
 
 def build_report_2_title_box_html() -> str:
     return (
@@ -2126,8 +2265,8 @@ def render_report_2_view() -> None:
         export_col_left, export_col_right = st.columns([12, 1])
         with export_col_right:
             segment_bytes = exports.build_report_2_segment_excel_bytes(
-                mtd_segment_df=filtered_mtd_segment,
-                ytd_segment_df=filtered_ytd_segment,
+                mtd_segment_df=convert_report_table_for_export(filtered_mtd_segment),
+                ytd_segment_df=convert_report_table_for_export(filtered_ytd_segment),
             )
             render_icon_download_button(
                 data=segment_bytes,
@@ -2243,8 +2382,8 @@ def render_report_2_view() -> None:
         export_col_left, export_col_right = st.columns([12, 1])
         with export_col_right:
             category_bytes = exports.build_report_2_category_excel_bytes(
-                mtd_category_df=filtered_mtd_category,
-                ytd_category_df=filtered_ytd_category,
+                mtd_category_df=convert_report_table_for_export(filtered_mtd_category),
+                ytd_category_df=convert_report_table_for_export(filtered_ytd_category),
             )
             render_icon_download_button(
                 data=category_bytes,
@@ -2282,7 +2421,7 @@ def render_report_2_view() -> None:
             )
 
 # =========================================================
-# 15. REPORTE 3
+# 16. REPORTE 3
 # =========================================================
 def run_report_3_build(
     selected_year: int | None = None,
@@ -2331,22 +2470,7 @@ def run_report_3_build(
         st.error(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}")
 
 def format_report_3_value(value, is_percent: bool = False) -> str:
-    if is_blank_number(value):
-        return "0.00%" if is_percent else "0"
-
-    numeric_value = float(value)
-
-    if is_percent:
-        if numeric_value < 0:
-            return f"({abs(numeric_value) * 100:,.2f}%)"
-        return f"{numeric_value * 100:,.2f}%"
-
-    value_k = numeric_value / 1000
-    rounded_value = round(value_k)
-
-    if rounded_value < 0:
-        return f"({abs(rounded_value):,})"
-    return f"{rounded_value:,}"
+    return format_monetary_value(value, is_percent=is_percent)
 
 def build_report_3_title_box_html() -> str:
     return (
@@ -2553,8 +2677,8 @@ def render_report_3_view() -> None:
     export_col_left, export_col_right = st.columns([12, 1])
     with export_col_right:
         report_3_bytes = exports.build_report_3_excel_bytes(
-            mtd_channel_df=filtered_mtd_channel,
-            ytd_channel_df=filtered_ytd_channel,
+            mtd_channel_df=convert_report_table_for_export(filtered_mtd_channel),
+            ytd_channel_df=convert_report_table_for_export(filtered_ytd_channel),
         )
         render_icon_download_button(
             data=report_3_bytes,
@@ -2593,7 +2717,7 @@ def render_report_3_view() -> None:
         )
 
 # =========================================================
-# 16. REPORTE 4
+# 17. REPORTE 4
 # =========================================================
 def run_report_4_build(
     selected_year: int | None = None,
@@ -2642,22 +2766,7 @@ def run_report_4_build(
         st.error(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
 
 def format_report_4_value(value, is_percent: bool = False) -> str:
-    if is_blank_number(value):
-        return "0.00%" if is_percent else "0"
-
-    numeric_value = float(value)
-
-    if is_percent:
-        if numeric_value < 0:
-            return f"({abs(numeric_value) * 100:,.2f}%)"
-        return f"{numeric_value * 100:,.2f}%"
-
-    value_k = numeric_value / 1000
-    rounded_value = round(value_k)
-
-    if rounded_value < 0:
-        return f"({abs(rounded_value):,})"
-    return f"{rounded_value:,}"
+    return format_monetary_value(value, is_percent=is_percent)
 
 def build_report_4_title_box_html() -> str:
     return (
@@ -2864,8 +2973,8 @@ def render_report_4_view() -> None:
     export_col_left, export_col_right = st.columns([12, 1])
     with export_col_right:
         report_4_bytes = exports.build_report_4_excel_bytes(
-            mtd_top_clients_df=filtered_mtd_clients,
-            ytd_top_clients_df=filtered_ytd_clients,
+            mtd_top_clients_df=convert_report_table_for_export(filtered_mtd_clients),
+            ytd_top_clients_df=convert_report_table_for_export(filtered_ytd_clients),
         )
         render_icon_download_button(
             data=report_4_bytes,
@@ -2904,7 +3013,7 @@ def render_report_4_view() -> None:
         )
 
 # =========================================================
-# 17. VISTAS PRINCIPALES
+# 18. VISTAS PRINCIPALES
 # =========================================================
 def render_home_view() -> None:
     home_box_html = styles.build_info_box(
@@ -3176,7 +3285,7 @@ def render_overview_view() -> None:
     st.markdown("### 3. Vista previa de la base procesada")
 
     if df_processed is not None and not df_processed.empty:
-        st.dataframe(df_processed.head(20))
+        st.dataframe(convert_currency_columns_for_display(df_processed.head(20)))
     else:
         st.info("Aún no se ha procesado ninguna base.")
 
@@ -3194,7 +3303,7 @@ def render_overview_view() -> None:
         ]
 
         available_columns = [col for col in columns_to_show if col in df_processed.columns]
-        st.dataframe(df_processed[available_columns].head(20))
+        st.dataframe(convert_currency_columns_for_display(df_processed[available_columns].head(20)))
     else:
         st.info("No hay columnas procesadas para mostrar todavía.")
 
@@ -3282,7 +3391,7 @@ def render_placeholder_view(section_name: str) -> None:
     st.markdown(placeholder_box_html, unsafe_allow_html=True)
 
 # =========================================================
-# 18. FLUJO PRINCIPAL
+# 19. FLUJO PRINCIPAL
 # =========================================================
 def main() -> None:
     if not st.session_state["authenticated"]:
@@ -3312,6 +3421,6 @@ def main() -> None:
         render_placeholder_view(selected)
 
 # =========================================================
-# 19. EJECUCIÓN PRINCIPAL
+# 20. EJECUCIÓN PRINCIPAL
 # =========================================================
 main()

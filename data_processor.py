@@ -28,6 +28,28 @@ MONTH_NAME_TO_NUMBER = {
 }
 
 # --------------------------------------------------------------
+# CONSTANTES AUXILIARES:
+# Columnas monetarias comunes de salida
+# Estas funciones se dejan listas para soporte de moneda,
+# pero la app sigue mostrando MXN por defecto y convierte
+# visualmente cuando el usuario cambia a USD.
+# --------------------------------------------------------------
+DEFAULT_MONETARY_COLUMNS = [
+    "Actual",
+    "Plan",
+    "PY",
+    "Var VS Plan",
+    "Var VS PY",
+    "Valor",
+    config.COL_GSNR,
+    config.COL_GROSS_MARGIN,
+    "Importe Vtas Brutas",
+    "Importe Devoluciones",
+    "Importe Fact No Embq",
+    "Costo Vtas Netas",
+]
+
+# --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Limpia nombres de columnas
 # --------------------------------------------------------------
@@ -64,6 +86,92 @@ def clean_numeric_series(series: pd.Series) -> pd.Series:
 # --------------------------------------------------------------
 def normalize_text(text: str) -> str:
     return re.sub(r"[^a-z0-9]", "", str(text).strip().lower())
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza modo de moneda
+# --------------------------------------------------------------
+def normalize_currency_mode(currency_mode: str | None) -> str:
+    return "USD" if str(currency_mode or "").strip().upper() == "USD" else config.DEFAULT_CURRENCY
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Valida tipo de cambio
+# --------------------------------------------------------------
+def get_valid_exchange_rate(exchange_rate: float | int | str | None) -> float:
+    try:
+        numeric_value = float(exchange_rate)
+    except (TypeError, ValueError):
+        numeric_value = float(config.DEFAULT_EXCHANGE_RATE)
+
+    if numeric_value <= 0:
+        numeric_value = float(config.DEFAULT_EXCHANGE_RATE)
+
+    return numeric_value
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Convierte un valor monetario a la moneda solicitada
+# Importante:
+# La base lógica del negocio permanece en MXN.
+# --------------------------------------------------------------
+def convert_monetary_value(
+    value,
+    currency_mode: str = config.DEFAULT_CURRENCY,
+    exchange_rate: float | int | str | None = None,
+):
+    if value is None:
+        return value
+
+    try:
+        numeric_value = float(value)
+    except (TypeError, ValueError):
+        return value
+
+    if pd.isna(numeric_value):
+        return value
+
+    normalized_currency = normalize_currency_mode(currency_mode)
+
+    if normalized_currency == "USD":
+        valid_exchange_rate = get_valid_exchange_rate(exchange_rate)
+        return numeric_value / valid_exchange_rate
+
+    return numeric_value
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Convierte columnas monetarias de un DataFrame
+# --------------------------------------------------------------
+def convert_dataframe_currency(
+    df: pd.DataFrame,
+    currency_mode: str = config.DEFAULT_CURRENCY,
+    exchange_rate: float | int | str | None = None,
+    monetary_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    if df is None:
+        return df
+
+    df_converted = df.copy()
+
+    normalized_currency = normalize_currency_mode(currency_mode)
+    if normalized_currency != "USD":
+        return df_converted
+
+    if monetary_columns is None:
+        monetary_columns = DEFAULT_MONETARY_COLUMNS.copy()
+
+    for column_name in monetary_columns:
+        if column_name in df_converted.columns:
+            df_converted[column_name] = df_converted[column_name].apply(
+                lambda value: convert_monetary_value(
+                    value,
+                    currency_mode=normalized_currency,
+                    exchange_rate=exchange_rate,
+                )
+            )
+
+    return df_converted
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:

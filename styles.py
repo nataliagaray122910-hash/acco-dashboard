@@ -366,6 +366,33 @@ def build_global_css() -> str:
     }}
 
     /* =====================================================
+       BLOQUE DE MONEDA EN SIDEBAR
+       ===================================================== */
+    .currency-box {{
+        background: linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.03) 100%);
+        border: 1px solid rgba(255,255,255,0.12);
+        border-left: 5px solid #E60023;
+        border-radius: 16px;
+        padding: 1rem 1rem 0.85rem 1rem;
+        margin-top: 0.2rem;
+        margin-bottom: 1rem;
+    }}
+
+    .currency-box-title {{
+        font-size: 0.98rem;
+        font-weight: 800;
+        color: #FFFFFF !important;
+        margin-bottom: 0.3rem;
+    }}
+
+    .currency-box-subtitle {{
+        font-size: 0.88rem;
+        color: #C8CDD5 !important;
+        line-height: 1.5;
+        margin-bottom: 0.75rem;
+    }}
+
+    /* =====================================================
        BOTONES
        ===================================================== */
     .stButton > button {{
@@ -387,6 +414,11 @@ def build_global_css() -> str:
     .stButton > button:focus {{
         outline: none !important;
         box-shadow: 0 0 0 0.2rem rgba(230, 0, 35, 0.18) !important;
+    }}
+
+    /* Botones dentro del sidebar */
+    section[data-testid="stSidebar"] .stButton > button {{
+        width: 100% !important;
     }}
 
     /* =====================================================
@@ -430,6 +462,92 @@ def build_global_css() -> str:
     .stMultiSelect div[data-baseweb="select"] > div:focus-within {{
         border-color: #E60023 !important;
         box-shadow: 0 0 0 0.16rem rgba(230, 0, 35, 0.12) !important;
+    }}
+
+    /* =====================================================
+       EXPANDER MONEDA EN SIDEBAR
+       ===================================================== */
+    section[data-testid="stSidebar"] details {{
+        background: rgba(255, 255, 255, 0.05) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 14px !important;
+        margin-top: 0.35rem !important;
+        margin-bottom: 1rem !important;
+        overflow: hidden !important;
+    }}
+
+    section[data-testid="stSidebar"] details summary {{
+        padding: 0.75rem 0.9rem !important;
+        font-weight: 700 !important;
+        color: #FFFFFF !important;
+        background: rgba(255, 255, 255, 0.04) !important;
+    }}
+
+    section[data-testid="stSidebar"] details summary:hover {{
+        background: rgba(255, 255, 255, 0.08) !important;
+    }}
+
+    section[data-testid="stSidebar"] details[open] summary {{
+        border-bottom: 1px solid rgba(255, 255, 255, 0.10) !important;
+    }}
+
+    /* =====================================================
+       NUMBER INPUT DENTRO DEL SIDEBAR
+       Ya no blanco, ya no se pierde el texto
+       ===================================================== */
+    section[data-testid="stSidebar"] .stNumberInput {{
+        margin-top: 0.25rem !important;
+        margin-bottom: 0.2rem !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput label {{
+        color: #FFFFFF !important;
+        font-size: 0.92rem !important;
+        font-weight: 700 !important;
+        margin-bottom: 0.28rem !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"] {{
+        background: rgba(255, 255, 255, 0.08) !important;
+        border: 1px solid rgba(255, 255, 255, 0.16) !important;
+        border-radius: 14px !important;
+        min-height: 46px !important;
+        box-shadow: none !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"]:hover {{
+        border-color: rgba(255, 255, 255, 0.24) !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"]:focus-within {{
+        border-color: #E60023 !important;
+        box-shadow: 0 0 0 0.14rem rgba(230, 0, 35, 0.16) !important;
+        background: rgba(255, 255, 255, 0.10) !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput input {{
+        background: transparent !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        caret-color: #FFFFFF !important;
+        font-weight: 600 !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput input::placeholder {{
+        color: #C8CDD5 !important;
+        opacity: 1 !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput button {{
+        background: transparent !important;
+        border: none !important;
+        color: #FFFFFF !important;
+        box-shadow: none !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput button:hover {{
+        background: rgba(255, 255, 255, 0.08) !important;
     }}
 
     /* =====================================================
@@ -930,5 +1048,22 @@ def build_sidebar_box(text: str) -> str:
     return f"""
     <div class="sidebar-box">
         {text}
+    </div>
+    """
+
+def build_currency_box(title: str, subtitle: str = "") -> str:
+    """
+    Construye una caja visual para el bloque de moneda en sidebar.
+    """
+    subtitle_html = (
+        f'<div class="currency-box-subtitle">{subtitle}</div>'
+        if str(subtitle).strip()
+        else ""
+    )
+
+    return f"""
+    <div class="currency-box">
+        <div class="currency-box-title">{title}</div>
+        {subtitle_html}
     </div>
     """

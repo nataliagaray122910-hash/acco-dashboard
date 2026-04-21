@@ -46,10 +46,28 @@ LOGO_PATH = "assets/logo.png"
 BACKGROUND_PATH = "assets/fondo.jpg"
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN INICIAL DE MÉTRICAS
+# CONFIGURACIÓN GLOBAL DE MONEDA
 # ---------------------------------------------------------
 DEFAULT_CURRENCY = "MXN"
 DEFAULT_EXCHANGE_RATE = 20.00
+
+SUPPORTED_CURRENCIES = [
+    "MXN",
+    "USD",
+]
+
+CURRENCY_LABEL_MXN = "MXN"
+CURRENCY_LABEL_USD = "USD"
+
+CURRENCY_SECTION_TITLE = "Moneda"
+CURRENCY_STATUS_LABEL = "Moneda base"
+CURRENCY_EXCHANGE_RATE_LABEL = "Tipo de cambio (MXN por 1 USD)"
+CURRENCY_BUTTON_USE_MXN = "Usar MXN"
+CURRENCY_BUTTON_USE_USD = "Cambiar a USD"
+CURRENCY_HELP_TEXT = (
+    "Este cambio es global y persistente durante la sesión. "
+    "Todo inicia en MXN y solo cambia cuando el usuario lo decide."
+)
 
 # ---------------------------------------------------------
 # MENÚ PRINCIPAL DE NAVEGACIÓN
