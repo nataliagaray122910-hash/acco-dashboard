@@ -66,6 +66,51 @@ MAIN_MENU_OPTIONS = [
 ]
 
 # =========================================================
+# CONFIGURACIÓN DE EXPORTACIONES
+# =========================================================
+
+# ---------------------------------------------------------
+# FORMATO GENERAL DE EXPORTACIÓN
+# ---------------------------------------------------------
+EXPORT_FILE_EXTENSION = "xlsx"
+EXPORT_EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+EXPORT_ICON_LABEL = "⭳"
+
+# ---------------------------------------------------------
+# BOTÓN GLOBAL
+# ---------------------------------------------------------
+EXPORT_ALL_REPORTS_BUTTON_LABEL = "Descargar todos los reportes"
+EXPORT_ALL_REPORTS_FILE_NAME = "reportes_corporativos.xlsx"
+EXPORT_ALL_REPORTS_HELP = "Descargar todos los reportes construidos en un solo archivo Excel"
+
+# ---------------------------------------------------------
+# NOMBRES DE ARCHIVOS INDIVIDUALES
+# ---------------------------------------------------------
+EXPORT_REPORT_1_FILE_BASE = "reporte_1"
+EXPORT_REPORT_2_SEGMENT_FILE_BASE = "reporte_2_segment_region"
+EXPORT_REPORT_2_CATEGORY_FILE_BASE = "reporte_2_category"
+EXPORT_REPORT_3_FILE_BASE = "reporte_3"
+EXPORT_REPORT_4_FILE_BASE = "reporte_4"
+
+# ---------------------------------------------------------
+# TOOLTIPS DE BOTONES INDIVIDUALES
+# ---------------------------------------------------------
+EXPORT_REPORT_1_HELP = "Descargar Reporte 1"
+EXPORT_REPORT_2_SEGMENT_HELP = "Descargar Segment x Region"
+EXPORT_REPORT_2_CATEGORY_HELP = "Descargar Category"
+EXPORT_REPORT_3_HELP = "Descargar Reporte 3"
+EXPORT_REPORT_4_HELP = "Descargar Reporte 4"
+
+# ---------------------------------------------------------
+# NOMBRES DE HOJAS EXCEL
+# ---------------------------------------------------------
+EXPORT_SHEET_REPORT_1 = "Reporte 1"
+EXPORT_SHEET_REPORT_2_SEGMENT = "Reporte 2 - Segment"
+EXPORT_SHEET_REPORT_2_CATEGORY = "Reporte 2 - Category"
+EXPORT_SHEET_REPORT_3 = "Reporte 3"
+EXPORT_SHEET_REPORT_4 = "Reporte 4"
+
+# =========================================================
 # ETAPA 2: CONFIGURACIÓN DE CARGA Y VALIDACIÓN DE ARCHIVOS
 # =========================================================
 

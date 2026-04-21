@@ -123,6 +123,34 @@ def build_global_css() -> str:
     }}
 
     /* =====================================================
+       BOTÓN DESCARGA GLOBAL SIDEBAR
+       ===================================================== */
+    section[data-testid="stSidebar"] .stDownloadButton > button {{
+        background: rgba(255, 255, 255, 0.10) !important;
+        color: #FFFFFF !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        border-radius: 14px !important;
+        padding: 0.70rem 1.2rem !important;
+        font-weight: 700 !important;
+        box-shadow: none !important;
+        transition: all 0.2s ease !important;
+    }}
+
+    section[data-testid="stSidebar"] .stDownloadButton > button:hover {{
+        background: rgba(255, 255, 255, 0.16) !important;
+        color: #FFFFFF !important;
+        border: 1px solid rgba(255, 255, 255, 0.26) !important;
+        box-shadow: none !important;
+    }}
+
+    section[data-testid="stSidebar"] .stDownloadButton > button:focus {{
+        outline: none !important;
+        color: #FFFFFF !important;
+        border: 1px solid rgba(255, 255, 255, 0.28) !important;
+        box-shadow: 0 0 0 0.12rem rgba(255, 255, 255, 0.08) !important;
+    }}
+
+    /* =====================================================
        HEADER PRINCIPAL CORRIDO
        ===================================================== */
     .top-header-bar-bg {{

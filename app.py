@@ -12,6 +12,7 @@ import streamlit as st
 import config
 import data_loader
 import data_processor
+import exports
 import styles
 import validators
 
@@ -144,7 +145,213 @@ def render_main_header() -> None:
         st.markdown('</div>', unsafe_allow_html=True)
 
 # =========================================================
-# 7. SIDEBAR
+# 7. HELPERS DE EXPORTACIÓN
+# =========================================================
+EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+def build_excel_filename(base_name: str, year: int | None = None, month: int | None = None) -> str:
+    if year is not None and month is not None:
+        return f"{base_name}_{year}_{month:02d}.xlsx"
+    return f"{base_name}.xlsx"
+
+def render_icon_download_button(
+    data: bytes,
+    file_name: str,
+    key: str,
+    help_text: str,
+) -> None:
+    st.download_button(
+        label="⭳",
+        data=data,
+        file_name=file_name,
+        mime=EXCEL_MIME,
+        key=key,
+        help=help_text,
+        use_container_width=False,
+    )
+
+def get_current_report_1_export_tables() -> dict | None:
+    payload = st.session_state.get("report1_payload")
+    if payload is None:
+        return None
+
+    without_kens_options = get_filter_options_from_table(
+        payload["mtd_without_kens_table"],
+        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+    )
+    applied_without_kens_labels = get_valid_applied_filter_values(
+        "report1_without_kens_dimension_applied",
+        without_kens_options,
+    )
+
+    filtered_mtd_without_kens = filter_report_1_without_kens_table(
+        payload["mtd_without_kens_table"],
+        applied_without_kens_labels,
+    )
+    filtered_ytd_without_kens = filter_report_1_without_kens_table(
+        payload["ytd_without_kens_table"],
+        applied_without_kens_labels,
+    )
+
+    kens_options = get_filter_options_from_table(
+        payload["mtd_kens_table"],
+        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+    )
+    applied_kens_labels = get_valid_applied_filter_values(
+        "report1_kens_dimension_applied",
+        kens_options,
+    )
+
+    filtered_mtd_kens = filter_report_1_with_kens_table(
+        payload["mtd_kens_table"],
+        applied_kens_labels,
+    )
+    filtered_ytd_kens = filter_report_1_with_kens_table(
+        payload["ytd_kens_table"],
+        applied_kens_labels,
+    )
+
+    return {
+        "summary": payload["summary"],
+        "mtd_without_kens": filtered_mtd_without_kens,
+        "ytd_without_kens": filtered_ytd_without_kens,
+        "mtd_kens": filtered_mtd_kens,
+        "ytd_kens": filtered_ytd_kens,
+    }
+
+def get_current_report_2_segment_export_tables() -> dict | None:
+    payload = st.session_state.get("report2_payload")
+    if payload is None:
+        return None
+
+    segment_region_options = get_filter_options_from_table(
+        payload["mtd_segment_region_table"],
+        build_report_2_segment_region_display_label,
+    )
+    applied_segment_region_labels = get_valid_applied_filter_values(
+        "report2_segment_dimension_applied",
+        segment_region_options,
+    )
+
+    filtered_mtd_segment = filter_report_2_segment_region_table(
+        payload["mtd_segment_region_table"],
+        applied_segment_region_labels,
+    )
+    filtered_ytd_segment = filter_report_2_segment_region_table(
+        payload["ytd_segment_region_table"],
+        applied_segment_region_labels,
+    )
+
+    return {
+        "summary": payload["summary"],
+        "mtd": filtered_mtd_segment,
+        "ytd": filtered_ytd_segment,
+    }
+
+def get_current_report_2_category_export_tables() -> dict | None:
+    payload = st.session_state.get("report2_category_payload")
+    if payload is None:
+        return None
+
+    category_options = get_filter_options_from_table(
+        payload["mtd_category_table"],
+        lambda row: str(row.get("Category", "")).strip(),
+    )
+    applied_category_labels = get_valid_applied_filter_values(
+        "report2_category_dimension_applied",
+        category_options,
+    )
+
+    filtered_mtd_category = filter_report_2_category_table(
+        payload["mtd_category_table"],
+        applied_category_labels,
+    )
+    filtered_ytd_category = filter_report_2_category_table(
+        payload["ytd_category_table"],
+        applied_category_labels,
+    )
+
+    return {
+        "summary": payload["summary"],
+        "mtd": filtered_mtd_category,
+        "ytd": filtered_ytd_category,
+    }
+
+def get_current_report_3_export_tables() -> dict | None:
+    payload = st.session_state.get("report3_payload")
+    if payload is None:
+        return None
+
+    channel_options = get_filter_options_from_table(
+        payload["mtd_channel_table"],
+        build_report_3_display_label,
+    )
+    applied_channel_labels = get_valid_applied_filter_values(
+        "report3_channel_dimension_applied",
+        channel_options,
+    )
+
+    filtered_mtd_channel = filter_report_3_channel_table(
+        payload["mtd_channel_table"],
+        applied_channel_labels,
+    )
+    filtered_ytd_channel = filter_report_3_channel_table(
+        payload["ytd_channel_table"],
+        applied_channel_labels,
+    )
+
+    return {
+        "summary": payload["summary"],
+        "mtd": filtered_mtd_channel,
+        "ytd": filtered_ytd_channel,
+    }
+
+def get_current_report_4_export_tables() -> dict | None:
+    payload = st.session_state.get("report4_payload")
+    if payload is None:
+        return None
+
+    client_options = get_filter_options_from_table(
+        payload["mtd_top_clients_table"],
+        lambda row: str(row.get("Client Name", "")).strip(),
+    )
+    applied_client_labels = get_valid_applied_filter_values(
+        "report4_clients_dimension_applied",
+        client_options,
+    )
+
+    filtered_mtd_clients = filter_report_4_top_clients_table(
+        payload["mtd_top_clients_table"],
+        applied_client_labels,
+    )
+    filtered_ytd_clients = filter_report_4_top_clients_table(
+        payload["ytd_top_clients_table"],
+        applied_client_labels,
+    )
+
+    return {
+        "summary": payload["summary"],
+        "mtd": filtered_mtd_clients,
+        "ytd": filtered_ytd_clients,
+    }
+
+def get_full_reports_export_bytes() -> bytes:
+    report_1_tables = get_current_report_1_export_tables()
+    report_2_segment_tables = get_current_report_2_segment_export_tables()
+    report_2_category_tables = get_current_report_2_category_export_tables()
+    report_3_tables = get_current_report_3_export_tables()
+    report_4_tables = get_current_report_4_export_tables()
+
+    return exports.build_full_reports_excel_bytes(
+        report_1_tables=report_1_tables,
+        report_2_segment_tables=report_2_segment_tables,
+        report_2_category_tables=report_2_category_tables,
+        report_3_tables=report_3_tables,
+        report_4_tables=report_4_tables,
+    )
+
+# =========================================================
+# 8. SIDEBAR
 # =========================================================
 def render_sidebar() -> str:
     with st.sidebar:
@@ -176,17 +383,43 @@ def render_sidebar() -> str:
         )
 
         st.markdown("---")
+        st.markdown("### Descarga global")
+
+        has_any_report = any(
+            [
+                st.session_state.get("report1_payload") is not None,
+                st.session_state.get("report2_payload") is not None,
+                st.session_state.get("report2_category_payload") is not None,
+                st.session_state.get("report3_payload") is not None,
+                st.session_state.get("report4_payload") is not None,
+            ]
+        )
+
+        if has_any_report:
+            all_reports_bytes = get_full_reports_export_bytes()
+            st.download_button(
+                label="Descargar todos los reportes",
+                data=all_reports_bytes,
+                file_name="reportes_corporativos.xlsx",
+                mime=EXCEL_MIME,
+                key="btn_sidebar_download_all_reports",
+                use_container_width=True,
+            )
+        else:
+            st.caption("Construye al menos un reporte para habilitar la descarga global.")
+
+        st.markdown("---")
         st.markdown("### Estado del proyecto")
         st.caption("Etapa actual: Etapa 8")
         st.caption(
             "Módulos activos: config.py, styles.py, data_loader.py, "
-            "validators.py, data_processor.py y app.py"
+            "validators.py, data_processor.py, exports.py y app.py"
         )
 
         return selected_option
 
 # =========================================================
-# 8. VALIDACIÓN AUXILIAR
+# 9. VALIDACIÓN AUXILIAR
 # =========================================================
 def render_file_validation_result(
     is_valid: bool,
@@ -201,7 +434,7 @@ def render_file_validation_result(
             st.warning(f"Columnas faltantes: {', '.join(missing_columns)}")
 
 # =========================================================
-# 9. HELPERS DE FILTROS DE PERIODO
+# 10. HELPERS DE FILTROS DE PERIODO
 # =========================================================
 def get_available_year_month_options() -> tuple[list[int], int | None, int | None]:
     df_processed = st.session_state.get("df_processed_sales")
@@ -353,7 +586,7 @@ def render_period_filter_block(
     return selected_year, selected_month
 
 # =========================================================
-# 9.1 HELPERS DE FILTROS POR PRIMERA COLUMNA
+# 10.1 HELPERS DE FILTROS POR PRIMERA COLUMNA
 # =========================================================
 def is_special_report_row(row) -> bool:
     return bool(
@@ -506,7 +739,6 @@ def render_dimension_filter_block(
     st.multiselect(
         filter_label,
         options=available_options,
-        default=st.session_state[widget_key],
         key=widget_key,
         placeholder="Selecciona uno o varios valores",
     )
@@ -820,7 +1052,7 @@ def filter_report_4_top_clients_table(
     return data_processor.pd.DataFrame(rows)
 
 # =========================================================
-# 10. PROCESAMIENTO DE VENTAS
+# 11. PROCESAMIENTO DE VENTAS
 # =========================================================
 def run_sales_processing() -> None:
     df_sales = st.session_state.get("df_sales")
@@ -903,7 +1135,7 @@ def render_processed_data_summary() -> None:
         )
 
 # =========================================================
-# 11. BASE MTD
+# 12. BASE MTD
 # =========================================================
 def run_mtd_build() -> None:
     df_processed_sales = st.session_state.get("df_processed_sales")
@@ -1140,7 +1372,7 @@ def build_bts_table_html(title: str, df_table) -> str:
     )
 
 # =========================================================
-# 12. REPORTE 1
+# 13. REPORTE 1
 # =========================================================
 def run_report_1_build(
     selected_year: int | None = None,
@@ -1383,7 +1615,7 @@ def render_report_1_view() -> None:
         lambda row: str(row.get("Oficina de Ventas", "")).strip(),
     )
 
-    selected_without_kens_labels = render_dimension_filter_block(
+    render_dimension_filter_block(
         "OFICINA DE VENTAS",
         "report1_without_kens_dimension_widget",
         "report1_without_kens_dimension_applied",
@@ -1421,6 +1653,43 @@ def render_report_1_view() -> None:
         payload["ytd_without_kens_table"],
         applied_without_kens_labels,
     )
+
+    export_col_left, export_col_right = st.columns([12, 1])
+    with export_col_right:
+        report_1_bytes = exports.build_report_1_excel_bytes(
+            mtd_without_kens_df=filtered_mtd_without_kens,
+            ytd_without_kens_df=filtered_ytd_without_kens,
+            mtd_kens_df=filter_report_1_with_kens_table(
+                payload["mtd_kens_table"],
+                get_valid_applied_filter_values(
+                    "report1_kens_dimension_applied",
+                    get_filter_options_from_table(
+                        payload["mtd_kens_table"],
+                        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+                    ),
+                ),
+            ),
+            ytd_kens_df=filter_report_1_with_kens_table(
+                payload["ytd_kens_table"],
+                get_valid_applied_filter_values(
+                    "report1_kens_dimension_applied",
+                    get_filter_options_from_table(
+                        payload["mtd_kens_table"],
+                        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+                    ),
+                ),
+            ),
+        )
+        render_icon_download_button(
+            data=report_1_bytes,
+            file_name=build_excel_filename(
+                "reporte_1",
+                selected_year_without_kens,
+                selected_month_without_kens,
+            ),
+            key="download_report_1_icon_top",
+            help_text="Descargar Reporte 1",
+        )
 
     st.markdown(
         '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
@@ -1463,7 +1732,7 @@ def render_report_1_view() -> None:
         lambda row: str(row.get("Oficina de Ventas", "")).strip(),
     )
 
-    selected_kens_labels = render_dimension_filter_block(
+    render_dimension_filter_block(
         "OFICINA DE VENTAS",
         "report1_kens_dimension_widget",
         "report1_kens_dimension_applied",
@@ -1528,7 +1797,7 @@ def render_report_1_view() -> None:
         )
 
 # =========================================================
-# 13. REPORTE 2
+# 14. REPORTE 2
 # =========================================================
 def run_report_2_build(
     selected_year: int | None = None,
@@ -1854,6 +2123,23 @@ def render_report_2_view() -> None:
             applied_segment_region_labels,
         )
 
+        export_col_left, export_col_right = st.columns([12, 1])
+        with export_col_right:
+            segment_bytes = exports.build_report_2_segment_excel_bytes(
+                mtd_segment_df=filtered_mtd_segment,
+                ytd_segment_df=filtered_ytd_segment,
+            )
+            render_icon_download_button(
+                data=segment_bytes,
+                file_name=build_excel_filename(
+                    "reporte_2_segment_region",
+                    selected_year_segment,
+                    selected_month_segment,
+                ),
+                key="download_report_2_segment_icon",
+                help_text="Descargar Segment x Region",
+            )
+
         left_col, right_col = st.columns(2)
 
         with left_col:
@@ -1954,6 +2240,23 @@ def render_report_2_view() -> None:
             applied_category_labels,
         )
 
+        export_col_left, export_col_right = st.columns([12, 1])
+        with export_col_right:
+            category_bytes = exports.build_report_2_category_excel_bytes(
+                mtd_category_df=filtered_mtd_category,
+                ytd_category_df=filtered_ytd_category,
+            )
+            render_icon_download_button(
+                data=category_bytes,
+                file_name=build_excel_filename(
+                    "reporte_2_category",
+                    selected_year_category,
+                    selected_month_category,
+                ),
+                key="download_report_2_category_icon",
+                help_text="Descargar Category",
+            )
+
         left_col, right_col = st.columns(2)
 
         with left_col:
@@ -1979,7 +2282,7 @@ def render_report_2_view() -> None:
             )
 
 # =========================================================
-# 14. REPORTE 3
+# 15. REPORTE 3
 # =========================================================
 def run_report_3_build(
     selected_year: int | None = None,
@@ -2247,6 +2550,23 @@ def render_report_3_view() -> None:
         applied_channel_labels,
     )
 
+    export_col_left, export_col_right = st.columns([12, 1])
+    with export_col_right:
+        report_3_bytes = exports.build_report_3_excel_bytes(
+            mtd_channel_df=filtered_mtd_channel,
+            ytd_channel_df=filtered_ytd_channel,
+        )
+        render_icon_download_button(
+            data=report_3_bytes,
+            file_name=build_excel_filename(
+                "reporte_3",
+                selected_year_channel,
+                selected_month_channel,
+            ),
+            key="download_report_3_icon",
+            help_text="Descargar Reporte 3",
+        )
+
     st.markdown(
         '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva. El Total General permanece visible y se recalcula conforme al filtro seleccionado.</div>',
         unsafe_allow_html=True,
@@ -2273,7 +2593,7 @@ def render_report_3_view() -> None:
         )
 
 # =========================================================
-# 15. REPORTE 4
+# 16. REPORTE 4
 # =========================================================
 def run_report_4_build(
     selected_year: int | None = None,
@@ -2541,6 +2861,23 @@ def render_report_4_view() -> None:
         applied_client_labels,
     )
 
+    export_col_left, export_col_right = st.columns([12, 1])
+    with export_col_right:
+        report_4_bytes = exports.build_report_4_excel_bytes(
+            mtd_top_clients_df=filtered_mtd_clients,
+            ytd_top_clients_df=filtered_ytd_clients,
+        )
+        render_icon_download_button(
+            data=report_4_bytes,
+            file_name=build_excel_filename(
+                "reporte_4",
+                selected_year_clients,
+                selected_month_clients,
+            ),
+            key="download_report_4_icon",
+            help_text="Descargar Reporte 4",
+        )
+
     st.markdown(
         '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva. El Total General permanece visible y se recalcula conforme al filtro seleccionado.</div>',
         unsafe_allow_html=True,
@@ -2567,7 +2904,7 @@ def render_report_4_view() -> None:
         )
 
 # =========================================================
-# 16. VISTAS PRINCIPALES
+# 17. VISTAS PRINCIPALES
 # =========================================================
 def render_home_view() -> None:
     home_box_html = styles.build_info_box(
@@ -2585,9 +2922,9 @@ def render_home_view() -> None:
         st.markdown(
             styles.build_info_card(
                 "Módulos base",
-                "6",
+                "7",
                 "config.py, styles.py, data_loader.py, validators.py, "
-                "data_processor.py y app.py",
+                "data_processor.py, exports.py y app.py",
             ),
             unsafe_allow_html=True,
         )
@@ -2635,6 +2972,8 @@ def render_home_view() -> None:
         - segundo reporte ejecutivo MTD / YTD por Segmento, Región y Categoría
         - tercer reporte ejecutivo MTD / YTD por Channel
         - cuarto reporte ejecutivo MTD / YTD por Top 15 clientes
+        - exportación individual por reporte en Excel
+        - exportación global de reportes en Excel
 
         En la siguiente etapa se continuará con el refinamiento visual final
         y la corrección de alertas en pantalla.
@@ -2943,7 +3282,7 @@ def render_placeholder_view(section_name: str) -> None:
     st.markdown(placeholder_box_html, unsafe_allow_html=True)
 
 # =========================================================
-# 17. FLUJO PRINCIPAL
+# 18. FLUJO PRINCIPAL
 # =========================================================
 def main() -> None:
     if not st.session_state["authenticated"]:
@@ -2973,6 +3312,6 @@ def main() -> None:
         render_placeholder_view(selected)
 
 # =========================================================
-# 18. EJECUCIÓN PRINCIPAL
+# 19. EJECUCIÓN PRINCIPAL
 # =========================================================
 main()
