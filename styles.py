@@ -493,7 +493,7 @@ def build_global_css() -> str:
 
     /* =====================================================
        NUMBER INPUT DENTRO DEL SIDEBAR
-       Ya no blanco, ya no se pierde el texto
+       Corregido para que el texto se vea negro
        ===================================================== */
     section[data-testid="stSidebar"] .stNumberInput {{
         margin-top: 0.25rem !important;
@@ -508,7 +508,7 @@ def build_global_css() -> str:
     }}
 
     section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"] {{
-        background: rgba(255, 255, 255, 0.08) !important;
+        background: #FFFFFF !important;
         border: 1px solid rgba(255, 255, 255, 0.16) !important;
         border-radius: 14px !important;
         min-height: 46px !important;
@@ -517,37 +517,43 @@ def build_global_css() -> str:
 
     section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"]:hover {{
         border-color: rgba(255, 255, 255, 0.24) !important;
-        background: rgba(255, 255, 255, 0.10) !important;
+        background: #FFFFFF !important;
     }}
 
     section[data-testid="stSidebar"] .stNumberInput div[data-baseweb="input"]:focus-within {{
         border-color: #E60023 !important;
         box-shadow: 0 0 0 0.14rem rgba(230, 0, 35, 0.16) !important;
-        background: rgba(255, 255, 255, 0.10) !important;
+        background: #FFFFFF !important;
     }}
 
     section[data-testid="stSidebar"] .stNumberInput input {{
         background: transparent !important;
-        color: #FFFFFF !important;
+        color: #000000 !important;
+        -webkit-text-fill-color: #000000 !important;
         border: none !important;
-        caret-color: #FFFFFF !important;
+        caret-color: #000000 !important;
         font-weight: 600 !important;
     }}
 
     section[data-testid="stSidebar"] .stNumberInput input::placeholder {{
-        color: #C8CDD5 !important;
+        color: #6B7280 !important;
         opacity: 1 !important;
     }}
 
     section[data-testid="stSidebar"] .stNumberInput button {{
         background: transparent !important;
         border: none !important;
-        color: #FFFFFF !important;
+        color: #000000 !important;
         box-shadow: none !important;
     }}
 
     section[data-testid="stSidebar"] .stNumberInput button:hover {{
-        background: rgba(255, 255, 255, 0.08) !important;
+        background: rgba(0, 0, 0, 0.06) !important;
+    }}
+
+    section[data-testid="stSidebar"] .stNumberInput svg {{
+        color: #000000 !important;
+        fill: #000000 !important;
     }}
 
     /* =====================================================

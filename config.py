@@ -373,7 +373,7 @@ REPORT_1_CHANNEL_LABELS = {
 }
 
 REPORT_1_TOTAL_LABEL = "Total"
-REPORT_1_KENS_TOTAL_LABEL = "IT: IT Distributors"
+REPORT_1_KENS_TOTAL_LABEL = "Total KENS"
 
 # ---------------------------------------------------------
 # MENSAJES DE REPORTE 1
@@ -736,3 +736,4 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "Para construir el Reporte 4 primero debes tener ventas procesadas "
     "y plan por cliente cargado."
 )
+

@@ -1099,11 +1099,10 @@ def build_report_1_with_kens_table(
     py_dict: dict[str, float],
 ) -> pd.DataFrame:
     detail_codes_present = set(actual_dict.keys()) | set(py_dict.keys())
-    detail_codes_present.discard("IT")
 
     ordered_detail_codes = [
         code for code in config.REPORT_1_CHANNEL_ORDER
-        if code in detail_codes_present and code != "IT"
+        if code in detail_codes_present
     ]
 
     rows = []

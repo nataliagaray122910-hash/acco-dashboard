@@ -88,6 +88,9 @@ if "currency_mode" not in st.session_state:
 if "exchange_rate" not in st.session_state:
     st.session_state["exchange_rate"] = float(config.DEFAULT_EXCHANGE_RATE)
 
+if "exchange_rate_input_display" not in st.session_state:
+    st.session_state["exchange_rate_input_display"] = round(float(config.DEFAULT_EXCHANGE_RATE), 4)
+
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================
@@ -101,11 +104,16 @@ def is_blank_number(value) -> bool:
     except (TypeError, ValueError):
         return True
 
+
 def normalize_currency_mode(currency_value: str | None) -> str:
     return "USD" if str(currency_value or "").strip().upper() == "USD" else config.DEFAULT_CURRENCY
 
+
 def get_active_currency_mode() -> str:
-    return normalize_currency_mode(st.session_state.get("currency_mode", config.DEFAULT_CURRENCY))
+    return normalize_currency_mode(
+        st.session_state.get("currency_mode", config.DEFAULT_CURRENCY)
+    )
+
 
 def get_active_exchange_rate() -> float:
     raw_value = st.session_state.get("exchange_rate", config.DEFAULT_EXCHANGE_RATE)
@@ -120,14 +128,22 @@ def get_active_exchange_rate() -> float:
 
     return numeric_value
 
+
+def get_normalized_exchange_rate_4() -> float:
+    return round(float(get_active_exchange_rate()), 4)
+
+
 def set_currency_mode(currency_mode: str) -> None:
     st.session_state["currency_mode"] = normalize_currency_mode(currency_mode)
+
 
 def get_currency_status_label() -> str:
     return "USD" if get_active_currency_mode() == "USD" else config.DEFAULT_CURRENCY
 
+
 def get_currency_kpi_suffix() -> str:
     return f"K {get_currency_status_label()}"
+
 
 def convert_monetary_value(value):
     if is_blank_number(value):
@@ -141,13 +157,16 @@ def convert_monetary_value(value):
 
     return numeric_value
 
+
 def format_monetary_value(
     value,
     is_percent: bool = False,
     allow_blank: bool = False,
 ) -> str:
     if is_blank_number(value):
-        return "" if allow_blank and not is_percent else ("0.00%" if is_percent else ("" if allow_blank else "0"))
+        return "" if allow_blank and not is_percent else (
+            "0.00%" if is_percent else ("" if allow_blank else "0")
+        )
 
     numeric_value = float(value)
 
@@ -163,6 +182,7 @@ def format_monetary_value(
     if rounded_value < 0:
         return f"({abs(rounded_value):,})"
     return f"{rounded_value:,}"
+
 
 def convert_currency_columns_for_display(df_table, monetary_columns: list[str] | None = None):
     if df_table is None:
@@ -194,15 +214,17 @@ def convert_currency_columns_for_display(df_table, monetary_columns: list[str] |
 
     return df_display
 
+
 def convert_report_table_for_export(df_table):
     return convert_currency_columns_for_display(
         df_table,
         monetary_columns=["Actual", "Plan", "PY", "Var VS Plan", "Var VS PY"],
     )
 
+
 def build_currency_sidebar_status_html() -> str:
     active_currency = get_currency_status_label()
-    exchange_rate_value = get_active_exchange_rate()
+    exchange_rate_value = get_normalized_exchange_rate_4()
 
     currency_usage_text = (
         "Conversión activa a dólares."
@@ -213,9 +235,10 @@ def build_currency_sidebar_status_html() -> str:
     return (
         f"<b>Usuario activo:</b> {escape(st.session_state.get('user_role', 'N/A'))}<br>"
         f"<b>Moneda base:</b> {escape(active_currency)}<br>"
-        f"<b>Tipo de cambio actual:</b> {exchange_rate_value:,.2f} MXN por USD<br>"
+        f"<b>Tipo de cambio actual:</b> {exchange_rate_value:,.4f} MXN por USD<br>"
         f"<span style='color:#C8CDD5;'>{currency_usage_text}</span>"
     )
+
 
 def render_currency_controls() -> None:
     st.markdown("### Moneda")
@@ -231,7 +254,7 @@ def render_currency_controls() -> None:
             title="Configuración de moneda",
             subtitle=(
                 f"Moneda activa: {get_currency_status_label()} · "
-                f"Tipo de cambio actual: {get_active_exchange_rate():,.2f} MXN por USD"
+                f"Tipo de cambio actual: {get_normalized_exchange_rate_4():,.4f} MXN por USD"
             ),
         ),
         unsafe_allow_html=True,
@@ -262,16 +285,41 @@ def render_currency_controls() -> None:
     with st.expander("Configurar tipo de cambio"):
         st.caption("Este valor solo se usa cuando la moneda activa es USD.")
 
-        new_exchange_rate = st.number_input(
+        raw_exchange_rate = st.number_input(
             "Tipo de cambio (MXN por 1 USD)",
-            min_value=0.01,
-            value=float(get_active_exchange_rate()),
-            step=0.01,
-            format="%.2f",
+            min_value=0.0001,
+            value=float(get_normalized_exchange_rate_4()),
+            step=0.0001,
+            format="%.4f",
             key="exchange_rate_input_display",
         )
 
-        st.session_state["exchange_rate"] = float(new_exchange_rate)
+        clean_exchange_rate = round(float(raw_exchange_rate), 4)
+
+        if clean_exchange_rate <= 0:
+            clean_exchange_rate = float(config.DEFAULT_EXCHANGE_RATE)
+
+        st.session_state["exchange_rate"] = clean_exchange_rate
+
+# =========================================================
+# 4.1 HELPER DE VISTA PREVIA
+# =========================================================
+def render_preview_expander(
+    title: str,
+    df_preview,
+    rows: int = 10,
+    convert_currency: bool = False,
+) -> None:
+    if df_preview is None or df_preview.empty:
+        return
+
+    preview_df = df_preview.head(rows).copy()
+
+    if convert_currency:
+        preview_df = convert_currency_columns_for_display(preview_df)
+
+    with st.expander(title, expanded=False):
+        st.dataframe(preview_df, use_container_width=True)
 
 # =========================================================
 # 5. FUNCIONES DE AUTENTICACIÓN
@@ -286,6 +334,7 @@ def check_login() -> None:
     else:
         st.error("Credenciales incorrectas. Verifica usuario y contraseña.")
 
+
 def logout() -> None:
     st.session_state["authenticated"] = False
     st.session_state["user_role"] = ""
@@ -293,6 +342,7 @@ def logout() -> None:
     st.session_state["input_password"] = ""
     st.session_state["currency_mode"] = config.DEFAULT_CURRENCY
     st.session_state["exchange_rate"] = float(config.DEFAULT_EXCHANGE_RATE)
+    st.session_state.pop("exchange_rate_input_display", None)
 
 # =========================================================
 # 6. PANTALLA DE LOGIN
@@ -335,17 +385,19 @@ def render_main_header() -> None:
     with col2:
         st.markdown('<div class="header-logout-wrap">', unsafe_allow_html=True)
         st.button("Cerrar sesión", on_click=logout, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
 # =========================================================
 # 8. HELPERS DE EXPORTACIÓN
 # =========================================================
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
+
 def build_excel_filename(base_name: str, year: int | None = None, month: int | None = None) -> str:
     if year is not None and month is not None:
         return f"{base_name}_{year}_{month:02d}.xlsx"
     return f"{base_name}.xlsx"
+
 
 def render_icon_download_button(
     data: bytes,
@@ -362,6 +414,7 @@ def render_icon_download_button(
         help=help_text,
         use_container_width=False,
     )
+
 
 def get_current_report_1_export_tables() -> dict | None:
     payload = st.session_state.get("report1_payload")
@@ -386,8 +439,11 @@ def get_current_report_1_export_tables() -> dict | None:
         applied_without_kens_labels,
     )
 
-    kens_options = get_filter_options_from_table(
-        payload["mtd_kens_table"],
+    kens_options = get_filter_options_from_multiple_tables(
+        [
+            payload["mtd_kens_table"],
+            payload["ytd_kens_table"],
+        ],
         lambda row: str(row.get("Oficina de Ventas", "")).strip(),
     )
     applied_kens_labels = get_valid_applied_filter_values(
@@ -411,6 +467,7 @@ def get_current_report_1_export_tables() -> dict | None:
         "mtd_kens": convert_report_table_for_export(filtered_mtd_kens),
         "ytd_kens": convert_report_table_for_export(filtered_ytd_kens),
     }
+
 
 def get_current_report_2_segment_export_tables() -> dict | None:
     payload = st.session_state.get("report2_payload")
@@ -441,6 +498,7 @@ def get_current_report_2_segment_export_tables() -> dict | None:
         "ytd": convert_report_table_for_export(filtered_ytd_segment),
     }
 
+
 def get_current_report_2_category_export_tables() -> dict | None:
     payload = st.session_state.get("report2_category_payload")
     if payload is None:
@@ -469,6 +527,7 @@ def get_current_report_2_category_export_tables() -> dict | None:
         "mtd": convert_report_table_for_export(filtered_mtd_category),
         "ytd": convert_report_table_for_export(filtered_ytd_category),
     }
+
 
 def get_current_report_3_export_tables() -> dict | None:
     payload = st.session_state.get("report3_payload")
@@ -499,6 +558,7 @@ def get_current_report_3_export_tables() -> dict | None:
         "ytd": convert_report_table_for_export(filtered_ytd_channel),
     }
 
+
 def get_current_report_4_export_tables() -> dict | None:
     payload = st.session_state.get("report4_payload")
     if payload is None:
@@ -527,6 +587,7 @@ def get_current_report_4_export_tables() -> dict | None:
         "mtd": convert_report_table_for_export(filtered_mtd_clients),
         "ytd": convert_report_table_for_export(filtered_ytd_clients),
     }
+
 
 def get_full_reports_export_bytes() -> bytes:
     report_1_tables = get_current_report_1_export_tables()
@@ -666,6 +727,7 @@ def get_available_year_month_options() -> tuple[list[int], int | None, int | Non
 
     return years, latest_year, latest_month
 
+
 def get_available_months_for_year(selected_year: int) -> list[int]:
     df_processed = st.session_state.get("df_processed_sales")
 
@@ -688,6 +750,7 @@ def get_available_months_for_year(selected_year: int) -> list[int]:
     valid_months = sorted({month for month in valid_months if 1 <= month <= 12})
     return valid_months
 
+
 def get_month_label(month_number: int) -> str:
     month_labels = {
         1: "Enero",
@@ -704,6 +767,7 @@ def get_month_label(month_number: int) -> str:
         12: "Diciembre",
     }
     return month_labels.get(month_number, str(month_number))
+
 
 def render_period_filter_block(
     block_title: str,
@@ -786,6 +850,7 @@ def is_special_report_row(row) -> bool:
         or row.get("__is_highlight__", False)
     )
 
+
 def safe_float(value, default: float = 0.0) -> float:
     if value is None:
         return default
@@ -797,6 +862,7 @@ def safe_float(value, default: float = 0.0) -> float:
         return numeric_value
     except (TypeError, ValueError):
         return default
+
 
 def recalculate_row_metrics(
     template_row,
@@ -816,9 +882,7 @@ def recalculate_row_metrics(
     else:
         plan_value = safe_float(plan)
         var_vs_plan = actual_value - plan_value
-        pct_var_vs_plan = (
-            0.0 if plan_value == 0 else (actual_value - plan_value) / plan_value
-        )
+        pct_var_vs_plan = 0.0 if plan_value == 0 else (actual_value - plan_value) / plan_value
 
     var_vs_py = actual_value - py_value
     pct_var_vs_py = 0.0 if py_value == 0 else (actual_value - py_value) / py_value
@@ -833,6 +897,7 @@ def recalculate_row_metrics(
 
     return row
 
+
 def build_report_2_segment_region_display_label(row) -> str:
     is_grand_total = bool(row.get("__is_grand_total__", False))
     segment_value = str(row.get("Segmento", "")).strip()
@@ -846,11 +911,13 @@ def build_report_2_segment_region_display_label(row) -> str:
 
     return segment_value
 
+
 def build_report_3_display_label(row) -> str:
     channel_value = str(row.get("Channel", "")).strip()
     if channel_value == "GOBA":
         return "BARRILITO"
     return channel_value
+
 
 def get_filter_options_from_table(
     df_table,
@@ -871,6 +938,28 @@ def get_filter_options_from_table(
 
     return sorted(set(options))
 
+
+def get_filter_options_from_multiple_tables(
+    tables: list,
+    label_builder,
+) -> list[str]:
+    options: list[str] = []
+
+    for df_table in tables:
+        if df_table is None or df_table.empty:
+            continue
+
+        for _, row in df_table.iterrows():
+            if is_special_report_row(row):
+                continue
+
+            label_value = str(label_builder(row)).strip()
+            if label_value:
+                options.append(label_value)
+
+    return sorted(set(options))
+
+
 def get_valid_applied_filter_values(
     applied_key: str,
     available_options: list[str],
@@ -890,6 +979,7 @@ def get_valid_applied_filter_values(
 
     return valid_values
 
+
 def sync_dimension_filter_to_applied_state(
     widget_key: str,
     applied_key: str,
@@ -903,6 +993,7 @@ def sync_dimension_filter_to_applied_state(
         valid_values = available_options.copy()
 
     st.session_state[applied_key] = valid_values
+
 
 def render_dimension_filter_block(
     filter_label: str,
@@ -935,6 +1026,7 @@ def render_dimension_filter_block(
     )
 
     return get_valid_applied_filter_values(applied_key, available_options)
+
 
 def filter_report_1_without_kens_table(
     df_table,
@@ -979,6 +1071,7 @@ def filter_report_1_without_kens_table(
         )
 
     return data_processor.pd.DataFrame(rows)
+
 
 def filter_report_1_with_kens_table(
     df_table,
@@ -1025,6 +1118,7 @@ def filter_report_1_with_kens_table(
         )
 
     return data_processor.pd.DataFrame(rows)
+
 
 def filter_report_2_segment_region_table(
     df_table,
@@ -1098,6 +1192,7 @@ def filter_report_2_segment_region_table(
 
     return data_processor.pd.DataFrame(rows)
 
+
 def filter_report_2_category_table(
     df_table,
     selected_labels: list[str],
@@ -1143,6 +1238,7 @@ def filter_report_2_category_table(
             )
 
     return data_processor.pd.DataFrame(rows)
+
 
 def filter_report_3_channel_table(
     df_table,
@@ -1195,6 +1291,7 @@ def filter_report_3_channel_table(
             )
 
     return data_processor.pd.DataFrame(rows)
+
 
 def filter_report_4_top_clients_table(
     df_table,
@@ -1270,6 +1367,7 @@ def run_sales_processing() -> None:
         st.success(config.MSG_PROCESSING_SUCCESS)
     except Exception as exc:
         st.error(f"{config.MSG_PROCESSING_ERROR} Detalle: {exc}")
+
 
 def render_processed_data_summary() -> None:
     df_processed = st.session_state.get("df_processed_sales")
@@ -1349,6 +1447,7 @@ def run_mtd_build() -> None:
         st.success(config.MSG_MTD_BUILD_SUCCESS)
     except Exception as exc:
         st.error(f"{config.MSG_MTD_BUILD_ERROR} Detalle: {exc}")
+
 
 def render_mtd_base_summary() -> None:
     payload = st.session_state.get("mtd_payload")
@@ -1444,8 +1543,10 @@ def render_mtd_base_summary() -> None:
             f"Diferencia detectada: {round(convert_monetary_value(plan_summary['ytd_plan_diff']) / 1000):,}"
         )
 
+
 def format_table_value(value: float, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
+
 
 def build_mtd_legend_html() -> str:
     return (
@@ -1453,8 +1554,9 @@ def build_mtd_legend_html() -> str:
         '<span class="metric-chip chip-real">REAL (BASE SAP)</span>'
         '<span class="metric-chip chip-client">Plan2026 by Client</span>'
         '<span class="metric-chip chip-sku">Plan2026 by SKU</span>'
-        '</div>'
+        "</div>"
     )
+
 
 def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) -> str:
     plan_header_class = "plan-header-client" if plan_variant == "client" else "plan-header-sku"
@@ -1469,7 +1571,7 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
         '<div class="h-cell h-header h-header-neutral">%Var VS Plan</div>'
         '<div class="h-cell h-header h-header-neutral">Var VS PY</div>'
         '<div class="h-cell h-header h-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -1493,7 +1595,7 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
             f'<div class="h-cell h-value {"negative-value" if pct_plan_value < 0 else "neutral-value"}">{format_table_value(pct_plan_value, True)}</div>'
             f'<div class="h-cell h-value {"negative-value" if var_py_value < 0 else "neutral-value"}">{format_table_value(var_py_value)}</div>'
             f'<div class="h-cell h-value {"negative-value" if pct_py_value < 0 else "neutral-value"}">{format_table_value(pct_py_value, True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -1502,10 +1604,11 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
     return (
         '<div class="horizontal-table-card">'
         f'<div class="horizontal-table-title">{escape(title)}</div>'
-        f'{header_html}'
-        f'{rows_html}'
-        '</div>'
+        f"{header_html}"
+        f"{rows_html}"
+        "</div>"
     )
+
 
 def build_bts_table_html(title: str, df_table) -> str:
     header_html = (
@@ -1515,7 +1618,7 @@ def build_bts_table_html(title: str, df_table) -> str:
         '<div class="h-cell h-header h-header-real">PY</div>'
         '<div class="h-cell h-header h-header-neutral">Var VS PY</div>'
         '<div class="h-cell h-header h-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -1533,7 +1636,7 @@ def build_bts_table_html(title: str, df_table) -> str:
             f'<div class="h-cell h-value {"negative-value" if py_value < 0 else "neutral-value"}">{format_table_value(py_value)}</div>'
             f'<div class="h-cell h-value {"negative-value" if var_py_value < 0 else "neutral-value"}">{format_table_value(var_py_value)}</div>'
             f'<div class="h-cell h-value {"negative-value" if pct_py_value < 0 else "neutral-value"}">{format_table_value(pct_py_value, True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -1542,9 +1645,9 @@ def build_bts_table_html(title: str, df_table) -> str:
     return (
         '<div class="horizontal-table-card">'
         f'<div class="horizontal-table-title">{escape(title)}</div>'
-        f'{header_html}'
-        f'{rows_html}'
-        '</div>'
+        f"{header_html}"
+        f"{rows_html}"
+        "</div>"
     )
 
 # =========================================================
@@ -1596,16 +1699,19 @@ def run_report_1_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}")
 
+
 def format_report_1_value(value, is_percent: bool = False, allow_blank: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent, allow_blank=allow_blank)
+
 
 def build_report_1_title_box_html() -> str:
     return (
         '<div class="report-title-box">'
         f'<div class="report-title-main">{escape(config.REPORT_1_MAIN_HEADING)}</div>'
         f'<div class="report-title-sub">{escape(config.REPORT_1_SUBHEADING)}</div>'
-        '</div>'
+        "</div>"
     )
+
 
 def build_report_1_table_html(title: str, df_table) -> str:
     header_html = (
@@ -1618,7 +1724,7 @@ def build_report_1_table_html(title: str, df_table) -> str:
         '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
         '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
         '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -1659,7 +1765,7 @@ def build_report_1_table_html(title: str, df_table) -> str:
             f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_1_value(pct_plan_value, is_percent=True, allow_blank=True)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_1_value(var_py_value, allow_blank=True)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_1_value(pct_py_value, is_percent=True, allow_blank=True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -1669,11 +1775,12 @@ def build_report_1_table_html(title: str, df_table) -> str:
         '<div class="report-table-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
         '<div class="report-table-scroll">'
-        f'{header_html}'
+        f"{header_html}"
         f'<div class="report-grid report-grid-8">{rows_html}</div>'
-        '</div>'
-        '</div>'
+        "</div>"
+        "</div>"
     )
+
 
 def render_report_1_view() -> None:
     st.markdown(
@@ -1694,7 +1801,7 @@ def render_report_1_view() -> None:
 
     st.markdown("### 1. Construir Reporte 1")
     st.markdown(
-        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna de cada bloque.</div>',
+        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del bloque superior. En el bloque WITH KENS solo se conserva el filtro de oficina de ventas.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1806,6 +1913,14 @@ def render_report_1_view() -> None:
 
     export_col_left, export_col_right = st.columns([12, 1])
     with export_col_right:
+        kens_export_options = get_filter_options_from_multiple_tables(
+            [
+                payload["mtd_kens_table"],
+                payload["ytd_kens_table"],
+            ],
+            lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+        )
+
         report_1_bytes = exports.build_report_1_excel_bytes(
             mtd_without_kens_df=convert_report_table_for_export(filtered_mtd_without_kens),
             ytd_without_kens_df=convert_report_table_for_export(filtered_ytd_without_kens),
@@ -1814,10 +1929,7 @@ def render_report_1_view() -> None:
                     payload["mtd_kens_table"],
                     get_valid_applied_filter_values(
                         "report1_kens_dimension_applied",
-                        get_filter_options_from_table(
-                            payload["mtd_kens_table"],
-                            lambda row: str(row.get("Oficina de Ventas", "")).strip(),
-                        ),
+                        kens_export_options,
                     ),
                 )
             ),
@@ -1826,10 +1938,7 @@ def render_report_1_view() -> None:
                     payload["ytd_kens_table"],
                     get_valid_applied_filter_values(
                         "report1_kens_dimension_applied",
-                        get_filter_options_from_table(
-                            payload["mtd_kens_table"],
-                            lambda row: str(row.get("Oficina de Ventas", "")).strip(),
-                        ),
+                        kens_export_options,
                     ),
                 )
             ),
@@ -1873,16 +1982,13 @@ def render_report_1_view() -> None:
     st.markdown("---")
     st.markdown("### 4. Channel Corp MTD / YTD WITH KENS")
 
-    selected_year_kens, selected_month_kens = render_period_filter_block(
-        "Filtro del bloque: Channel Corp WITH KENS",
-        "report1_kens_year",
-        "report1_kens_month",
-    )
-
     payload = st.session_state.get("report1_payload")
 
-    kens_options = get_filter_options_from_table(
-        payload["mtd_kens_table"],
+    kens_options = get_filter_options_from_multiple_tables(
+        [
+            payload["mtd_kens_table"],
+            payload["ytd_kens_table"],
+        ],
         lambda row: str(row.get("Oficina de Ventas", "")).strip(),
     )
 
@@ -1893,21 +1999,16 @@ def render_report_1_view() -> None:
         kens_options,
     )
 
-    if selected_year_kens is not None and selected_month_kens is not None:
-        if st.button(
-            "Aplicar filtro - Channel Corp WITH KENS",
-            key="btn_report1_kens",
-            use_container_width=True,
-        ):
-            sync_dimension_filter_to_applied_state(
-                "report1_kens_dimension_widget",
-                "report1_kens_dimension_applied",
-                kens_options,
-            )
-            run_report_1_build(
-                selected_year=selected_year_kens,
-                selected_month=selected_month_kens,
-            )
+    if st.button(
+        "Aplicar filtro - Channel Corp WITH KENS",
+        key="btn_report1_kens_dimension_only",
+        use_container_width=True,
+    ):
+        sync_dimension_filter_to_applied_state(
+            "report1_kens_dimension_widget",
+            "report1_kens_dimension_applied",
+            kens_options,
+        )
 
     payload = st.session_state.get("report1_payload")
 
@@ -1999,6 +2100,7 @@ def run_report_2_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_2_BUILD_ERROR} Detalle: {exc}")
 
+
 def run_report_2_category_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
@@ -2045,16 +2147,19 @@ def run_report_2_category_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}")
 
+
 def format_report_2_value(value, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
+
 
 def build_report_2_title_box_html() -> str:
     return (
         '<div class="report-title-box">'
         f'<div class="report-title-main">{escape(config.REPORT_2_MAIN_HEADING)}</div>'
         f'<div class="report-title-sub">{escape(config.REPORT_2_SUBHEADING)}</div>'
-        '</div>'
+        "</div>"
     )
+
 
 def build_report_2_table_html(title: str, df_table, first_header: str, view_type: str) -> str:
     header_html = (
@@ -2067,7 +2172,7 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
         '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
         '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
         '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -2113,7 +2218,7 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
             f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_2_value(pct_plan_value, is_percent=True)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_2_value(var_py_value)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_2_value(pct_py_value, is_percent=True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -2123,11 +2228,12 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
         '<div class="report-table-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
         '<div class="report-table-scroll">'
-        f'{header_html}'
+        f"{header_html}"
         f'<div class="report-grid report-grid-8">{rows_html}</div>'
-        '</div>'
-        '</div>'
+        "</div>"
+        "</div>"
     )
+
 
 def render_report_2_view() -> None:
     st.markdown(
@@ -2199,55 +2305,47 @@ def render_report_2_view() -> None:
     st.markdown("---")
     st.markdown("### 3. Segment x Region MTD / YTD")
 
-    selected_year_segment, selected_month_segment = render_period_filter_block(
-        "Filtro del bloque: Segment x Region",
-        "report2_segment_year",
-        "report2_segment_month",
-    )
-
     payload = st.session_state.get("report2_payload")
-
-    if payload is not None:
-        segment_region_options = get_filter_options_from_table(
-            payload["mtd_segment_region_table"],
-            build_report_2_segment_region_display_label,
-        )
-    else:
-        segment_region_options = []
-
-    render_dimension_filter_block(
-        "SEGMENTO / REGIÓN",
-        "report2_segment_dimension_widget",
-        "report2_segment_dimension_applied",
-        segment_region_options,
-    )
-
-    if selected_year_segment is not None and selected_month_segment is not None:
-        if st.button(
-            "Aplicar filtro - Segment x Region",
-            key="btn_report2_segment",
-            use_container_width=True,
-        ):
-            sync_dimension_filter_to_applied_state(
-                "report2_segment_dimension_widget",
-                "report2_segment_dimension_applied",
-                segment_region_options,
-            )
-            run_report_2_build(
-                selected_year=selected_year_segment,
-                selected_month=selected_month_segment,
-            )
-
-    payload = st.session_state.get("report2_payload")
-
-    st.markdown(
-        '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
-        unsafe_allow_html=True,
-    )
 
     if payload is None:
         st.info("Aún no se ha construido el bloque Segment x Region.")
     else:
+        selected_year_segment, selected_month_segment = render_period_filter_block(
+            "Filtro del bloque: Segment x Region",
+            "report2_segment_year",
+            "report2_segment_month",
+        )
+
+        segment_region_options = get_filter_options_from_table(
+            payload["mtd_segment_region_table"],
+            build_report_2_segment_region_display_label,
+        )
+
+        render_dimension_filter_block(
+            "SEGMENTO / REGIÓN",
+            "report2_segment_dimension_widget",
+            "report2_segment_dimension_applied",
+            segment_region_options,
+        )
+
+        if selected_year_segment is not None and selected_month_segment is not None:
+            if st.button(
+                "Aplicar filtro - Segment x Region",
+                key="btn_report2_segment",
+                use_container_width=True,
+            ):
+                sync_dimension_filter_to_applied_state(
+                    "report2_segment_dimension_widget",
+                    "report2_segment_dimension_applied",
+                    segment_region_options,
+                )
+                run_report_2_build(
+                    selected_year=selected_year_segment,
+                    selected_month=selected_month_segment,
+                )
+
+        payload = st.session_state.get("report2_payload")
+
         applied_segment_region_labels = get_valid_applied_filter_values(
             "report2_segment_dimension_applied",
             segment_region_options,
@@ -2278,6 +2376,11 @@ def render_report_2_view() -> None:
                 key="download_report_2_segment_icon",
                 help_text="Descargar Segment x Region",
             )
+
+        st.markdown(
+            '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
+            unsafe_allow_html=True,
+        )
 
         left_col, right_col = st.columns(2)
 
@@ -2316,55 +2419,50 @@ def render_report_2_view() -> None:
     st.markdown("---")
     st.markdown("### 5. Category MTD / YTD")
 
-    selected_year_category, selected_month_category = render_period_filter_block(
-        "Filtro del bloque: Category",
-        "report2_category_year",
-        "report2_category_month",
-    )
+    if payload_category is None:
+        st.info("Aún no se ha construido el Reporte Category.")
+    else:
+        selected_year_category, selected_month_category = render_period_filter_block(
+            "Filtro del bloque: Category",
+            "report2_category_year",
+            "report2_category_month",
+        )
 
-    payload_category = st.session_state.get("report2_category_payload")
-
-    if payload_category is not None:
         category_options = get_filter_options_from_table(
             payload_category["mtd_category_table"],
             lambda row: str(row.get("Category", "")).strip(),
         )
-    else:
-        category_options = []
 
-    render_dimension_filter_block(
-        "CATEGORY",
-        "report2_category_dimension_widget",
-        "report2_category_dimension_applied",
-        category_options,
-    )
+        render_dimension_filter_block(
+            "CATEGORY",
+            "report2_category_dimension_widget",
+            "report2_category_dimension_applied",
+            category_options,
+        )
 
-    if selected_year_category is not None and selected_month_category is not None:
-        if st.button(
-            "Aplicar filtro - Category",
-            key="btn_report2_category",
-            use_container_width=True,
-        ):
-            sync_dimension_filter_to_applied_state(
-                "report2_category_dimension_widget",
-                "report2_category_dimension_applied",
-                category_options,
-            )
-            run_report_2_category_build(
-                selected_year=selected_year_category,
-                selected_month=selected_month_category,
-            )
+        if selected_year_category is not None and selected_month_category is not None:
+            if st.button(
+                "Aplicar filtro - Category",
+                key="btn_report2_category",
+                use_container_width=True,
+            ):
+                sync_dimension_filter_to_applied_state(
+                    "report2_category_dimension_widget",
+                    "report2_category_dimension_applied",
+                    category_options,
+                )
+                run_report_2_category_build(
+                    selected_year=selected_year_category,
+                    selected_month=selected_month_category,
+                )
 
-    payload_category = st.session_state.get("report2_category_payload")
+        payload_category = st.session_state.get("report2_category_payload")
 
-    st.markdown(
-        '<div class="report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            '<div class="report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
+            unsafe_allow_html=True,
+        )
 
-    if payload_category is None:
-        st.info("Aún no se ha construido el Reporte Category.")
-    else:
         applied_category_labels = get_valid_applied_filter_values(
             "report2_category_dimension_applied",
             category_options,
@@ -2469,16 +2567,19 @@ def run_report_3_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}")
 
+
 def format_report_3_value(value, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
+
 
 def build_report_3_title_box_html() -> str:
     return (
         '<div class="report-title-box">'
         f'<div class="report-title-main">{escape(config.REPORT_3_MAIN_HEADING)}</div>'
         f'<div class="report-title-sub">{escape(config.REPORT_3_SUBHEADING)}</div>'
-        '</div>'
+        "</div>"
     )
+
 
 def build_report_3_table_html(title: str, df_table) -> str:
     header_html = (
@@ -2491,7 +2592,7 @@ def build_report_3_table_html(title: str, df_table) -> str:
         '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
         '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
         '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -2534,7 +2635,7 @@ def build_report_3_table_html(title: str, df_table) -> str:
             f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_3_value(pct_plan_value, is_percent=True)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_3_value(var_py_value)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_3_value(pct_py_value, is_percent=True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -2544,11 +2645,12 @@ def build_report_3_table_html(title: str, df_table) -> str:
         '<div class="report-table-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
         '<div class="report-table-scroll">'
-        f'{header_html}'
+        f"{header_html}"
         f'<div class="report-grid report-grid-8">{rows_html}</div>'
-        '</div>'
-        '</div>'
+        "</div>"
+        "</div>"
     )
+
 
 def render_report_3_view() -> None:
     st.markdown(
@@ -2612,9 +2714,9 @@ def render_report_3_view() -> None:
     with col3:
         st.markdown(
             styles.build_info_card(
-                "Regla aplicada",
-                "AFI excluido",
-                "Se excluye AFI: Afiliadas en la construcción del reporte",
+                "Fuente de plan",
+                "Plan SKU",
+                "Comparativo contra Plan2026 by SKU",
             ),
             unsafe_allow_html=True,
         )
@@ -2765,16 +2867,19 @@ def run_report_4_build(
     except Exception as exc:
         st.error(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
 
+
 def format_report_4_value(value, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
+
 
 def build_report_4_title_box_html() -> str:
     return (
         '<div class="report-title-box">'
         f'<div class="report-title-main">{escape(config.REPORT_4_MAIN_HEADING)}</div>'
         f'<div class="report-title-sub">{escape(config.REPORT_4_SUBHEADING)}</div>'
-        '</div>'
+        "</div>"
     )
+
 
 def build_report_4_table_html(title: str, df_table) -> str:
     header_html = (
@@ -2787,7 +2892,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
         '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
         '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
         '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        '</div>'
+        "</div>"
     )
 
     rows_html_parts: list[str] = []
@@ -2802,7 +2907,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
         if is_grand_total:
             row_class += " report-highlight"
 
-        client_value = str(row.get("Client Name", "")).strip()
+        client_name = str(row.get("Client Name", "")).strip()
 
         actual_value = row["Actual"]
         plan_value = row["Plan"]
@@ -2822,7 +2927,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
 
         row_html = (
             f'<div class="{row_class}">'
-            f'<div class="report-cell report-label-cell">{escape(client_value)}</div>'
+            f'<div class="report-cell report-label-cell">{escape(client_name)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_4_value(actual_value)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_4_value(plan_value)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_4_value(py_value)}</div>'
@@ -2830,7 +2935,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
             f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_4_value(pct_plan_value, is_percent=True)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_4_value(var_py_value)}</div>'
             f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_4_value(pct_py_value, is_percent=True)}</div>'
-            '</div>'
+            "</div>"
         )
         rows_html_parts.append(row_html)
 
@@ -2840,11 +2945,12 @@ def build_report_4_table_html(title: str, df_table) -> str:
         '<div class="report-table-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
         '<div class="report-table-scroll">'
-        f'{header_html}'
+        f"{header_html}"
         f'<div class="report-grid report-grid-8">{rows_html}</div>'
-        '</div>'
-        '</div>'
+        "</div>"
+        "</div>"
     )
+
 
 def render_report_4_view() -> None:
     st.markdown(
@@ -3089,6 +3195,7 @@ def render_home_view() -> None:
         """
     )
 
+
 def render_upload_view() -> None:
     st.markdown(
         '<div class="section-title">Carga de datos</div>',
@@ -3104,6 +3211,9 @@ def render_upload_view() -> None:
     )
     st.markdown(upload_box_html, unsafe_allow_html=True)
 
+    # =====================================================
+    # 1. ARCHIVO DE VENTAS
+    # =====================================================
     st.markdown("### 1. Archivo de ventas")
     uploaded_sales = st.file_uploader(
         "Carga el archivo de ventas",
@@ -3121,29 +3231,38 @@ def render_upload_view() -> None:
 
             st.session_state["df_sales"] = df_sales
             st.session_state["sales_valid"] = is_valid_sales
-
-            render_file_validation_result(
-                is_valid_sales,
-                missing_sales,
-                f"{config.MSG_UPLOAD_SUCCESS} Ventas: {config.MSG_VALIDATION_OK}",
-            )
-
-            with st.expander("Vista previa de ventas"):
-                st.dataframe(df_sales.head())
+            st.session_state["sales_missing_columns"] = missing_sales
+            st.session_state["sales_file_name"] = uploaded_sales.name
 
         except Exception as exc:
             st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
 
-    elif st.session_state.get("df_sales") is not None:
-        st.success("Archivo de ventas ya cargado en sesión.")
-        with st.expander("Vista previa de ventas"):
-            st.dataframe(st.session_state["df_sales"].head())
+    if st.session_state.get("df_sales") is not None:
+        sales_missing = st.session_state.get("sales_missing_columns", [])
+        render_file_validation_result(
+            is_valid=st.session_state.get("sales_valid", False),
+            missing_columns=sales_missing,
+            success_message=config.MSG_VALIDATION_OK,
+        )
+
+        sales_file_name = st.session_state.get("sales_file_name", "Archivo cargado en sesión")
+        st.caption(f"Archivo en sesión: {sales_file_name}")
+
+        render_preview_expander(
+            "Vista previa - Archivo de ventas",
+            st.session_state.get("df_sales"),
+            rows=10,
+            convert_currency=False,
+        )
 
     st.markdown("---")
 
-    st.markdown("### 2. Archivo Plan por Cliente")
+    # =====================================================
+    # 2. ARCHIVO DE PLAN POR CLIENTE
+    # =====================================================
+    st.markdown("### 2. Archivo de plan por cliente")
     uploaded_plan_client = st.file_uploader(
-        "Carga el archivo comparativo por cliente",
+        "Carga el archivo Plan2026 by Client",
         type=config.ALLOWED_FILE_TYPES,
         key=config.FILE_KEY_PLAN_CLIENT,
     )
@@ -3158,29 +3277,38 @@ def render_upload_view() -> None:
 
             st.session_state["df_plan_client"] = df_plan_client
             st.session_state["plan_client_valid"] = is_valid_plan_client
-
-            render_file_validation_result(
-                is_valid_plan_client,
-                missing_plan_client,
-                f"{config.MSG_UPLOAD_SUCCESS} Plan por Cliente: {config.MSG_VALIDATION_OK}",
-            )
-
-            with st.expander("Vista previa de plan por cliente"):
-                st.dataframe(df_plan_client.head())
+            st.session_state["plan_client_missing_columns"] = missing_plan_client
+            st.session_state["plan_client_file_name"] = uploaded_plan_client.name
 
         except Exception as exc:
             st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
 
-    elif st.session_state.get("df_plan_client") is not None:
-        st.success("Archivo de plan por cliente ya cargado en sesión.")
-        with st.expander("Vista previa de plan por cliente"):
-            st.dataframe(st.session_state["df_plan_client"].head())
+    if st.session_state.get("df_plan_client") is not None:
+        plan_client_missing = st.session_state.get("plan_client_missing_columns", [])
+        render_file_validation_result(
+            is_valid=st.session_state.get("plan_client_valid", False),
+            missing_columns=plan_client_missing,
+            success_message=config.MSG_VALIDATION_OK,
+        )
+
+        plan_client_file_name = st.session_state.get("plan_client_file_name", "Archivo cargado en sesión")
+        st.caption(f"Archivo en sesión: {plan_client_file_name}")
+
+        render_preview_expander(
+            "Vista previa - Plan2026 by Client",
+            st.session_state.get("df_plan_client"),
+            rows=10,
+            convert_currency=False,
+        )
 
     st.markdown("---")
 
-    st.markdown("### 3. Archivo Plan por SKU")
+    # =====================================================
+    # 3. ARCHIVO DE PLAN POR SKU
+    # =====================================================
+    st.markdown("### 3. Archivo de plan por SKU")
     uploaded_plan_sku = st.file_uploader(
-        "Carga el archivo comparativo por material",
+        "Carga el archivo Plan2026 by SKU",
         type=config.ALLOWED_FILE_TYPES,
         key=config.FILE_KEY_PLAN_SKU,
     )
@@ -3195,31 +3323,40 @@ def render_upload_view() -> None:
 
             st.session_state["df_plan_sku"] = df_plan_sku
             st.session_state["plan_sku_valid"] = is_valid_plan_sku
-
-            render_file_validation_result(
-                is_valid_plan_sku,
-                missing_plan_sku,
-                f"{config.MSG_UPLOAD_SUCCESS} Plan por SKU: {config.MSG_VALIDATION_OK}",
-            )
-
-            with st.expander("Vista previa de plan por SKU"):
-                st.dataframe(df_plan_sku.head())
+            st.session_state["plan_sku_missing_columns"] = missing_plan_sku
+            st.session_state["plan_sku_file_name"] = uploaded_plan_sku.name
 
         except Exception as exc:
             st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
 
-    elif st.session_state.get("df_plan_sku") is not None:
-        st.success("Archivo de plan por SKU ya cargado en sesión.")
-        with st.expander("Vista previa de plan por SKU"):
-            st.dataframe(st.session_state["df_plan_sku"].head())
+    if st.session_state.get("df_plan_sku") is not None:
+        plan_sku_missing = st.session_state.get("plan_sku_missing_columns", [])
+        render_file_validation_result(
+            is_valid=st.session_state.get("plan_sku_valid", False),
+            missing_columns=plan_sku_missing,
+            success_message=config.MSG_VALIDATION_OK,
+        )
+
+        plan_sku_file_name = st.session_state.get("plan_sku_file_name", "Archivo cargado en sesión")
+        st.caption(f"Archivo en sesión: {plan_sku_file_name}")
+
+        render_preview_expander(
+            "Vista previa - Plan2026 by SKU",
+            st.session_state.get("df_plan_sku"),
+            rows=10,
+            convert_currency=False,
+        )
 
     st.markdown("---")
 
+    # =====================================================
+    # RESUMEN
+    # =====================================================
     st.markdown("### 4. Resumen del estado de carga")
 
-    sales_loaded = st.session_state["df_sales"] is not None
-    plan_client_loaded = st.session_state["df_plan_client"] is not None
-    plan_sku_loaded = st.session_state["df_plan_sku"] is not None
+    sales_loaded = st.session_state.get("df_sales") is not None
+    plan_client_loaded = st.session_state.get("df_plan_client") is not None
+    plan_sku_loaded = st.session_state.get("df_plan_sku") is not None
 
     col1, col2, col3 = st.columns(3)
 
@@ -3253,6 +3390,7 @@ def render_upload_view() -> None:
             unsafe_allow_html=True,
         )
 
+
 def render_overview_view() -> None:
     st.markdown(
         '<div class="section-title">Visión general</div>',
@@ -3285,7 +3423,12 @@ def render_overview_view() -> None:
     st.markdown("### 3. Vista previa de la base procesada")
 
     if df_processed is not None and not df_processed.empty:
-        st.dataframe(convert_currency_columns_for_display(df_processed.head(20)))
+        render_preview_expander(
+            "Vista previa - Base procesada",
+            df_processed,
+            rows=20,
+            convert_currency=True,
+        )
     else:
         st.info("Aún no se ha procesado ninguna base.")
 
@@ -3303,9 +3446,16 @@ def render_overview_view() -> None:
         ]
 
         available_columns = [col for col in columns_to_show if col in df_processed.columns]
-        st.dataframe(convert_currency_columns_for_display(df_processed[available_columns].head(20)))
+
+        render_preview_expander(
+            "Vista previa - Columnas clave",
+            df_processed[available_columns],
+            rows=20,
+            convert_currency=True,
+        )
     else:
         st.info("No hay columnas procesadas para mostrar todavía.")
+
 
 def render_mtd_base_view() -> None:
     st.markdown(
@@ -3375,6 +3525,7 @@ def render_mtd_base_view() -> None:
         ),
         unsafe_allow_html=True,
     )
+
 
 def render_placeholder_view(section_name: str) -> None:
     st.markdown(
