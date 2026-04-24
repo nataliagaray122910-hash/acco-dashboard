@@ -5,7 +5,10 @@
 # =========================================================
 
 from html import escape
+from pathlib import Path
+from datetime import datetime
 import math
+import pickle
 
 import streamlit as st
 
@@ -90,6 +93,21 @@ if "exchange_rate" not in st.session_state:
 
 if "exchange_rate_input_display" not in st.session_state:
     st.session_state["exchange_rate_input_display"] = round(float(config.DEFAULT_EXCHANGE_RATE), 4)
+
+if "mensaje_exito" not in st.session_state:
+    st.session_state["mensaje_exito"] = None
+
+if "mensaje_error" not in st.session_state:
+    st.session_state["mensaje_error"] = None
+
+if "mensaje_warning" not in st.session_state:
+    st.session_state["mensaje_warning"] = None
+
+if "persistent_data_loaded" not in st.session_state:
+    st.session_state["persistent_data_loaded"] = False
+
+if "persistent_data_metadata" not in st.session_state:
+    st.session_state["persistent_data_metadata"] = None
 
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
@@ -322,17 +340,245 @@ def render_preview_expander(
         st.dataframe(preview_df, use_container_width=True)
 
 # =========================================================
+# 4.2 HELPERS DE ALERTAS VISUALES
+# =========================================================
+def set_success_message(message: str) -> None:
+    st.session_state["mensaje_exito"] = message
+
+
+def set_error_message(message: str) -> None:
+    st.session_state["mensaje_error"] = message
+
+
+def set_warning_message(message: str) -> None:
+    st.session_state["mensaje_warning"] = message
+
+
+def render_global_alerts() -> None:
+    if st.session_state.get("mensaje_exito"):
+        st.success(st.session_state["mensaje_exito"])
+        st.session_state["mensaje_exito"] = None
+
+    if st.session_state.get("mensaje_error"):
+        st.error(st.session_state["mensaje_error"])
+        st.session_state["mensaje_error"] = None
+
+    if st.session_state.get("mensaje_warning"):
+        st.warning(st.session_state["mensaje_warning"])
+        st.session_state["mensaje_warning"] = None
+
+# =========================================================
+
+# =========================================================
+# 4.3 HELPERS DE ROLES Y PERSISTENCIA TEMPORAL
+# =========================================================
+def is_admin_user() -> bool:
+    """
+    Identifica si el usuario actual puede cargar y guardar archivos.
+    Para esta fase, admin / admin será el perfil de carga.
+    """
+    current_user = str(st.session_state.get("user_role", "")).strip()
+    admin_users = getattr(config, "ADMIN_USERS", ["admin"])
+    return current_user in admin_users
+
+
+def get_persistent_data_folder() -> Path:
+    """
+    Carpeta temporal dentro del entorno de la app.
+    En Streamlit Cloud puede perderse si la app reinicia; sirve para Fase 1.
+    """
+    folder_name = getattr(config, "PERSISTENT_DATA_PATH", "persistent_data")
+    folder = Path(folder_name)
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def get_persistent_data_file() -> Path:
+    return get_persistent_data_folder() / "latest_dashboard_data.pkl"
+
+
+def persistent_data_exists() -> bool:
+    return get_persistent_data_file().exists()
+
+
+def clear_report_payloads() -> None:
+    """
+    Limpia reportes construidos cuando cambia la fuente de datos.
+    No borra archivos cargados ni vistas previas.
+    """
+    for key in [
+        "mtd_payload",
+        "df_mtd_base",
+        "report1_payload",
+        "report2_payload",
+        "report2_category_payload",
+        "report3_payload",
+        "report4_payload",
+    ]:
+        st.session_state[key] = None
+
+
+def build_persistent_metadata() -> dict:
+    return {
+        "updated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
+        "updated_by": st.session_state.get("user_role", "admin"),
+        "sales_file_name": st.session_state.get("sales_file_name", "Archivo de ventas"),
+        "plan_client_file_name": st.session_state.get("plan_client_file_name", "Plan2026 by Client"),
+        "plan_sku_file_name": st.session_state.get("plan_sku_file_name", "Plan2026 by SKU"),
+    }
+
+
+def save_current_data_for_viewers() -> bool:
+    """
+    Guarda la carga actual para que usuarios viewer puedan consultarla
+    sin subir archivos. Es persistencia temporal de Fase 1.
+    """
+    required_data_loaded = all(
+        [
+            st.session_state.get("df_sales") is not None,
+            st.session_state.get("df_plan_client") is not None,
+            st.session_state.get("df_plan_sku") is not None,
+        ]
+    )
+
+    required_data_valid = all(
+        [
+            st.session_state.get("sales_valid", False),
+            st.session_state.get("plan_client_valid", False),
+            st.session_state.get("plan_sku_valid", False),
+        ]
+    )
+
+    if not required_data_loaded or not required_data_valid:
+        set_warning_message(
+            "Para guardar la carga administrativa, primero deben estar cargados y validados los tres archivos."
+        )
+        return False
+
+    metadata = build_persistent_metadata()
+
+    payload = {
+        "metadata": metadata,
+        "df_sales": st.session_state.get("df_sales"),
+        "df_plan_client": st.session_state.get("df_plan_client"),
+        "df_plan_sku": st.session_state.get("df_plan_sku"),
+        "df_processed_sales": st.session_state.get("df_processed_sales"),
+        "sales_valid": st.session_state.get("sales_valid", False),
+        "plan_client_valid": st.session_state.get("plan_client_valid", False),
+        "plan_sku_valid": st.session_state.get("plan_sku_valid", False),
+        "sales_missing_columns": st.session_state.get("sales_missing_columns", []),
+        "plan_client_missing_columns": st.session_state.get("plan_client_missing_columns", []),
+        "plan_sku_missing_columns": st.session_state.get("plan_sku_missing_columns", []),
+        "sales_file_name": st.session_state.get("sales_file_name", "Archivo cargado por administrador"),
+        "plan_client_file_name": st.session_state.get("plan_client_file_name", "Archivo cargado por administrador"),
+        "plan_sku_file_name": st.session_state.get("plan_sku_file_name", "Archivo cargado por administrador"),
+    }
+
+    try:
+        with open(get_persistent_data_file(), "wb") as file:
+            pickle.dump(payload, file)
+
+        st.session_state["persistent_data_loaded"] = True
+        st.session_state["persistent_data_metadata"] = metadata
+        set_success_message(
+            "Carga administrativa guardada correctamente. Ya está disponible para usuarios viewer."
+        )
+        return True
+    except Exception as exc:
+        set_error_message(f"No fue posible guardar la carga administrativa. Detalle: {exc}")
+        return False
+
+
+def load_persistent_data_to_session(show_message: bool = False) -> bool:
+    """
+    Carga en la sesión actual la última información guardada por admin.
+    Esto permite que viewers consulten reportes sin cargar archivos.
+    """
+    if st.session_state.get("persistent_data_loaded"):
+        return True
+
+    if not persistent_data_exists():
+        return False
+
+    try:
+        with open(get_persistent_data_file(), "rb") as file:
+            payload = pickle.load(file)
+
+        st.session_state["df_sales"] = payload.get("df_sales")
+        st.session_state["df_plan_client"] = payload.get("df_plan_client")
+        st.session_state["df_plan_sku"] = payload.get("df_plan_sku")
+        st.session_state["df_processed_sales"] = payload.get("df_processed_sales")
+
+        st.session_state["sales_valid"] = payload.get("sales_valid", True)
+        st.session_state["plan_client_valid"] = payload.get("plan_client_valid", True)
+        st.session_state["plan_sku_valid"] = payload.get("plan_sku_valid", True)
+
+        st.session_state["sales_missing_columns"] = payload.get("sales_missing_columns", [])
+        st.session_state["plan_client_missing_columns"] = payload.get("plan_client_missing_columns", [])
+        st.session_state["plan_sku_missing_columns"] = payload.get("plan_sku_missing_columns", [])
+
+        st.session_state["sales_file_name"] = payload.get("sales_file_name", "Archivo cargado por administrador")
+        st.session_state["plan_client_file_name"] = payload.get("plan_client_file_name", "Archivo cargado por administrador")
+        st.session_state["plan_sku_file_name"] = payload.get("plan_sku_file_name", "Archivo cargado por administrador")
+
+        metadata = payload.get("metadata", {})
+        st.session_state["persistent_data_metadata"] = metadata
+        st.session_state["persistent_data_loaded"] = True
+
+        clear_report_payloads()
+
+        if show_message:
+            set_success_message("Información cargada automáticamente desde la última carga administrativa.")
+
+        return True
+    except Exception as exc:
+        set_error_message(f"No fue posible cargar la información guardada. Detalle: {exc}")
+        return False
+
+
+def get_menu_options_for_current_user() -> list[str]:
+    """
+    Admin ve todo. Viewer no ve Carga de datos.
+    """
+    if is_admin_user():
+        return config.MAIN_MENU_OPTIONS
+
+    return [option for option in config.MAIN_MENU_OPTIONS if option != "Carga de datos"]
+
+
+def render_persistent_data_status() -> None:
+    metadata = st.session_state.get("persistent_data_metadata")
+
+    if st.session_state.get("df_sales") is not None:
+        if metadata:
+            updated_at = metadata.get("updated_at", "fecha no disponible")
+            updated_by = metadata.get("updated_by", "administrador")
+            st.success(
+                f"Información disponible para consulta. Última carga administrativa: {updated_at} por {updated_by}."
+            )
+        else:
+            st.success("Información disponible en sesión para consulta.")
+        return
+
+    if not is_admin_user():
+        st.warning(
+            "Todavía no hay información cargada por administrador. Solicita que un usuario admin realice la carga inicial."
+        )
 # 5. FUNCIONES DE AUTENTICACIÓN
 # =========================================================
 def check_login() -> None:
     user = st.session_state.get("input_user", "").strip()
     password = st.session_state.get("input_password", "").strip()
 
-    if user in config.VALID_USERS and config.VALID_USERS[user] == password:
+    valid_users = dict(getattr(config, "VALID_USERS", {"admin": "admin"}))
+    valid_users.setdefault("admin", "admin")
+    valid_users.setdefault("viewer", "viewer")
+
+    if user in valid_users and valid_users[user] == password:
         st.session_state["authenticated"] = True
         st.session_state["user_role"] = user
     else:
-        st.error("Credenciales incorrectas. Verifica usuario y contraseña.")
+        set_error_message("Credenciales incorrectas. Verifica usuario y contraseña.")
 
 
 def logout() -> None:
@@ -393,10 +639,31 @@ def render_main_header() -> None:
 EXCEL_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+def build_report_context_title(report_name: str, year: int | None, month: int | None) -> str:
+    if year is None or month is None:
+        period_text = "Periodo no especificado"
+    else:
+        period_text = f"{get_month_label(int(month))} {int(year)}"
+
+    currency_label = get_currency_status_label()
+
+    if currency_label == "USD":
+        return (
+            f"{report_name} | {period_text} | USD | "
+            f"TC: {get_normalized_exchange_rate_4():,.4f} MXN/USD"
+        )
+
+    return f"{report_name} | {period_text} | MXN"
+
+
 def build_excel_filename(base_name: str, year: int | None = None, month: int | None = None) -> str:
+    currency_label = get_currency_status_label().lower()
+
     if year is not None and month is not None:
-        return f"{base_name}_{year}_{month:02d}.xlsx"
-    return f"{base_name}.xlsx"
+        month_label = get_month_label(int(month)).lower()
+        return f"{base_name}_{month_label}_{int(year)}_{currency_label}.xlsx"
+
+    return f"{base_name}_{currency_label}.xlsx"
 
 
 def render_icon_download_button(
@@ -462,6 +729,11 @@ def get_current_report_1_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
+        "report_title": build_report_context_title(
+            "Reporte 1 - Channel Corp",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
         "mtd_without_kens": convert_report_table_for_export(filtered_mtd_without_kens),
         "ytd_without_kens": convert_report_table_for_export(filtered_ytd_without_kens),
         "mtd_kens": convert_report_table_for_export(filtered_mtd_kens),
@@ -494,6 +766,11 @@ def get_current_report_2_segment_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
+        "report_title": build_report_context_title(
+            "Reporte 2 - Segment x Region",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
         "mtd": convert_report_table_for_export(filtered_mtd_segment),
         "ytd": convert_report_table_for_export(filtered_ytd_segment),
     }
@@ -524,6 +801,11 @@ def get_current_report_2_category_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
+        "report_title": build_report_context_title(
+            "Reporte 2 - Category",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
         "mtd": convert_report_table_for_export(filtered_mtd_category),
         "ytd": convert_report_table_for_export(filtered_ytd_category),
     }
@@ -554,6 +836,11 @@ def get_current_report_3_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
+        "report_title": build_report_context_title(
+            "Reporte 3 - Channel",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
         "mtd": convert_report_table_for_export(filtered_mtd_channel),
         "ytd": convert_report_table_for_export(filtered_ytd_channel),
     }
@@ -584,6 +871,11 @@ def get_current_report_4_export_tables() -> dict | None:
 
     return {
         "summary": payload["summary"],
+        "report_title": build_report_context_title(
+            "Reporte 4 - Top 15 Clients",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
         "mtd": convert_report_table_for_export(filtered_mtd_clients),
         "ytd": convert_report_table_for_export(filtered_ytd_clients),
     }
@@ -628,9 +920,11 @@ def render_sidebar() -> str:
 
         render_currency_controls()
 
+        menu_options = get_menu_options_for_current_user()
+
         selected_option = st.radio(
             "Selecciona una sección",
-            config.MAIN_MENU_OPTIONS,
+            menu_options,
             index=0,
         )
 
@@ -652,7 +946,7 @@ def render_sidebar() -> str:
             st.download_button(
                 label="Descargar todos los reportes",
                 data=all_reports_bytes,
-                file_name="reportes_corporativos.xlsx",
+                file_name=build_excel_filename("reportes_corporativos"),
                 mime=EXCEL_MIME,
                 key="btn_sidebar_download_all_reports",
                 use_container_width=True,
@@ -1346,7 +1640,7 @@ def run_sales_processing() -> None:
     df_sales = st.session_state.get("df_sales")
 
     if df_sales is None:
-        st.error(config.MSG_PROCESSING_MISSING_FILES)
+        set_error_message(config.MSG_PROCESSING_MISSING_FILES)
         return
 
     is_ready, missing_columns = validators.validate_dataframe_for_processing(
@@ -1355,8 +1649,8 @@ def run_sales_processing() -> None:
     )
 
     if not is_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para procesar ventas: {', '.join(missing_columns)}"
         )
         return
@@ -1364,9 +1658,9 @@ def run_sales_processing() -> None:
     try:
         df_processed = data_processor.process_sales_data(df_sales)
         st.session_state["df_processed_sales"] = df_processed
-        st.success(config.MSG_PROCESSING_SUCCESS)
+        set_success_message(config.MSG_PROCESSING_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_PROCESSING_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_PROCESSING_ERROR} Detalle: {exc}")
 
 
 def render_processed_data_summary() -> None:
@@ -1433,7 +1727,7 @@ def run_mtd_build() -> None:
         or df_plan_client is None
         or df_plan_sku is None
     ):
-        st.error(config.MSG_MTD_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_MTD_BUILD_MISSING_FILES)
         return
 
     try:
@@ -1444,9 +1738,9 @@ def run_mtd_build() -> None:
         )
         st.session_state["mtd_payload"] = payload
         st.session_state["df_mtd_base"] = None
-        st.success(config.MSG_MTD_BUILD_SUCCESS)
+        set_success_message(config.MSG_MTD_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_MTD_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_MTD_BUILD_ERROR} Detalle: {exc}")
 
 
 def render_mtd_base_summary() -> None:
@@ -1661,7 +1955,7 @@ def run_report_1_build(
     df_plan_client = st.session_state.get("df_plan_client")
 
     if df_processed_sales is None or df_plan_client is None:
-        st.error(config.MSG_REPORT_1_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_REPORT_1_BUILD_MISSING_FILES)
         return
 
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
@@ -1674,15 +1968,15 @@ def run_report_1_build(
     )
 
     if not is_sales_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 1 en ventas: {', '.join(missing_sales)}"
         )
         return
 
     if not is_plan_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 1 en plan por cliente: {', '.join(missing_plan)}"
         )
         return
@@ -1695,9 +1989,9 @@ def run_report_1_build(
             selected_month=selected_month,
         )
         st.session_state["report1_payload"] = payload
-        st.success(config.MSG_REPORT_1_BUILD_SUCCESS)
+        set_success_message(config.MSG_REPORT_1_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}")
 
 
 def format_report_1_value(value, is_percent: bool = False, allow_blank: bool = False) -> str:
@@ -1942,6 +2236,11 @@ def render_report_1_view() -> None:
                     ),
                 )
             ),
+            report_title=build_report_context_title(
+                "Reporte 1 - Channel Corp",
+                selected_year_without_kens,
+                selected_month_without_kens,
+            ),
         )
         render_icon_download_button(
             data=report_1_bytes,
@@ -1964,7 +2263,11 @@ def render_report_1_view() -> None:
     with top_left:
         st.markdown(
             build_report_1_table_html(
-                "MTD Channel CORP WITHOUT KENS",
+                build_report_context_title(
+                    "MTD Channel CORP WITHOUT KENS",
+                    selected_year_without_kens,
+                    selected_month_without_kens,
+                ),
                 filtered_mtd_without_kens,
             ),
             unsafe_allow_html=True,
@@ -1973,7 +2276,11 @@ def render_report_1_view() -> None:
     with top_right:
         st.markdown(
             build_report_1_table_html(
-                "YTD Channel CORP WITHOUT KENS",
+                build_report_context_title(
+                    "YTD Channel CORP WITHOUT KENS",
+                    selected_year_without_kens,
+                    selected_month_without_kens,
+                ),
                 filtered_ytd_without_kens,
             ),
             unsafe_allow_html=True,
@@ -2036,7 +2343,11 @@ def render_report_1_view() -> None:
     with bottom_left:
         st.markdown(
             build_report_1_table_html(
-                "MTD Channel CORP WITH KENS",
+                build_report_context_title(
+                    "MTD Channel CORP WITH KENS",
+                    selected_year_without_kens,
+                    selected_month_without_kens,
+                ),
                 filtered_mtd_kens,
             ),
             unsafe_allow_html=True,
@@ -2045,7 +2356,11 @@ def render_report_1_view() -> None:
     with bottom_right:
         st.markdown(
             build_report_1_table_html(
-                "YTD Channel CORP WITH KENS",
+                build_report_context_title(
+                    "YTD Channel CORP WITH KENS",
+                    selected_year_without_kens,
+                    selected_month_without_kens,
+                ),
                 filtered_ytd_kens,
             ),
             unsafe_allow_html=True,
@@ -2062,7 +2377,7 @@ def run_report_2_build(
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
-        st.error(config.MSG_REPORT_2_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_REPORT_2_BUILD_MISSING_FILES)
         return
 
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
@@ -2075,15 +2390,15 @@ def run_report_2_build(
     )
 
     if not is_sales_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 2 en ventas: {', '.join(missing_sales)}"
         )
         return
 
     if not is_plan_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 2 en plan por SKU: {', '.join(missing_plan)}"
         )
         return
@@ -2096,9 +2411,9 @@ def run_report_2_build(
             selected_month=selected_month,
         )
         st.session_state["report2_payload"] = payload
-        st.success(config.MSG_REPORT_2_BUILD_SUCCESS)
+        set_success_message(config.MSG_REPORT_2_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_REPORT_2_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_REPORT_2_BUILD_ERROR} Detalle: {exc}")
 
 
 def run_report_2_category_build(
@@ -2109,7 +2424,7 @@ def run_report_2_category_build(
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
-        st.error(config.MSG_REPORT_2_CATEGORY_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_REPORT_2_CATEGORY_BUILD_MISSING_FILES)
         return
 
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
@@ -2122,15 +2437,15 @@ def run_report_2_category_build(
     )
 
     if not is_sales_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte Category en ventas: {', '.join(missing_sales)}"
         )
         return
 
     if not is_plan_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte Category en plan por SKU: {', '.join(missing_plan)}"
         )
         return
@@ -2143,9 +2458,9 @@ def run_report_2_category_build(
             selected_month=selected_month,
         )
         st.session_state["report2_category_payload"] = payload
-        st.success(config.MSG_REPORT_2_CATEGORY_BUILD_SUCCESS)
+        set_success_message(config.MSG_REPORT_2_CATEGORY_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}")
 
 
 def format_report_2_value(value, is_percent: bool = False) -> str:
@@ -2365,6 +2680,11 @@ def render_report_2_view() -> None:
             segment_bytes = exports.build_report_2_segment_excel_bytes(
                 mtd_segment_df=convert_report_table_for_export(filtered_mtd_segment),
                 ytd_segment_df=convert_report_table_for_export(filtered_ytd_segment),
+                report_title=build_report_context_title(
+                    "Reporte 2 - Segment x Region",
+                    selected_year_segment,
+                    selected_month_segment,
+                ),
             )
             render_icon_download_button(
                 data=segment_bytes,
@@ -2387,7 +2707,11 @@ def render_report_2_view() -> None:
         with left_col:
             st.markdown(
                 build_report_2_table_html(
-                    "MTD Segment x Region",
+                    build_report_context_title(
+                        "MTD Segment x Region",
+                        selected_year_segment,
+                        selected_month_segment,
+                    ),
                     filtered_mtd_segment,
                     "SEGMENTO / REGIÓN",
                     "segment_region",
@@ -2398,7 +2722,11 @@ def render_report_2_view() -> None:
         with right_col:
             st.markdown(
                 build_report_2_table_html(
-                    "YTD Segment x Region",
+                    build_report_context_title(
+                        "YTD Segment x Region",
+                        selected_year_segment,
+                        selected_month_segment,
+                    ),
                     filtered_ytd_segment,
                     "SEGMENTO / REGIÓN",
                     "segment_region",
@@ -2482,6 +2810,11 @@ def render_report_2_view() -> None:
             category_bytes = exports.build_report_2_category_excel_bytes(
                 mtd_category_df=convert_report_table_for_export(filtered_mtd_category),
                 ytd_category_df=convert_report_table_for_export(filtered_ytd_category),
+                report_title=build_report_context_title(
+                    "Reporte 2 - Category",
+                    selected_year_category,
+                    selected_month_category,
+                ),
             )
             render_icon_download_button(
                 data=category_bytes,
@@ -2499,7 +2832,11 @@ def render_report_2_view() -> None:
         with left_col:
             st.markdown(
                 build_report_2_table_html(
-                    "MTD Category",
+                    build_report_context_title(
+                        "MTD Category",
+                        selected_year_category,
+                        selected_month_category,
+                    ),
                     filtered_mtd_category,
                     "CATEGORY",
                     "category",
@@ -2510,7 +2847,11 @@ def render_report_2_view() -> None:
         with right_col:
             st.markdown(
                 build_report_2_table_html(
-                    "YTD Category",
+                    build_report_context_title(
+                        "YTD Category",
+                        selected_year_category,
+                        selected_month_category,
+                    ),
                     filtered_ytd_category,
                     "CATEGORY",
                     "category",
@@ -2529,7 +2870,7 @@ def run_report_3_build(
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
-        st.error(config.MSG_REPORT_3_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_REPORT_3_BUILD_MISSING_FILES)
         return
 
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
@@ -2542,15 +2883,15 @@ def run_report_3_build(
     )
 
     if not is_sales_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 3 en ventas: {', '.join(missing_sales)}"
         )
         return
 
     if not is_plan_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 3 en plan por SKU: {', '.join(missing_plan)}"
         )
         return
@@ -2563,9 +2904,9 @@ def run_report_3_build(
             selected_month=selected_month,
         )
         st.session_state["report3_payload"] = payload
-        st.success(config.MSG_REPORT_3_BUILD_SUCCESS)
+        set_success_message(config.MSG_REPORT_3_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}")
 
 
 def format_report_3_value(value, is_percent: bool = False) -> str:
@@ -2781,6 +3122,11 @@ def render_report_3_view() -> None:
         report_3_bytes = exports.build_report_3_excel_bytes(
             mtd_channel_df=convert_report_table_for_export(filtered_mtd_channel),
             ytd_channel_df=convert_report_table_for_export(filtered_ytd_channel),
+            report_title=build_report_context_title(
+                "Reporte 3 - Channel",
+                selected_year_channel,
+                selected_month_channel,
+            ),
         )
         render_icon_download_button(
             data=report_3_bytes,
@@ -2803,7 +3149,11 @@ def render_report_3_view() -> None:
     with left_col:
         st.markdown(
             build_report_3_table_html(
-                "MTD Channel",
+                build_report_context_title(
+                    "MTD Channel",
+                    selected_year_channel,
+                    selected_month_channel,
+                ),
                 filtered_mtd_channel,
             ),
             unsafe_allow_html=True,
@@ -2812,7 +3162,11 @@ def render_report_3_view() -> None:
     with right_col:
         st.markdown(
             build_report_3_table_html(
-                "YTD Channel",
+                build_report_context_title(
+                    "YTD Channel",
+                    selected_year_channel,
+                    selected_month_channel,
+                ),
                 filtered_ytd_channel,
             ),
             unsafe_allow_html=True,
@@ -2829,7 +3183,7 @@ def run_report_4_build(
     df_plan_client = st.session_state.get("df_plan_client")
 
     if df_processed_sales is None or df_plan_client is None:
-        st.error(config.MSG_REPORT_4_BUILD_MISSING_FILES)
+        set_error_message(config.MSG_REPORT_4_BUILD_MISSING_FILES)
         return
 
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
@@ -2842,15 +3196,15 @@ def run_report_4_build(
     )
 
     if not is_sales_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 4 en ventas: {', '.join(missing_sales)}"
         )
         return
 
     if not is_plan_ready:
-        st.error(config.MSG_VALIDATION_FAIL)
-        st.warning(
+        set_error_message(config.MSG_VALIDATION_FAIL)
+        set_warning_message(
             f"Columnas faltantes para Reporte 4 en plan por cliente: {', '.join(missing_plan)}"
         )
         return
@@ -2863,9 +3217,9 @@ def run_report_4_build(
             selected_month=selected_month,
         )
         st.session_state["report4_payload"] = payload
-        st.success(config.MSG_REPORT_4_BUILD_SUCCESS)
+        set_success_message(config.MSG_REPORT_4_BUILD_SUCCESS)
     except Exception as exc:
-        st.error(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
+        set_error_message(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
 
 
 def format_report_4_value(value, is_percent: bool = False) -> str:
@@ -3081,6 +3435,11 @@ def render_report_4_view() -> None:
         report_4_bytes = exports.build_report_4_excel_bytes(
             mtd_top_clients_df=convert_report_table_for_export(filtered_mtd_clients),
             ytd_top_clients_df=convert_report_table_for_export(filtered_ytd_clients),
+            report_title=build_report_context_title(
+                "Reporte 4 - Top 15 Clients",
+                selected_year_clients,
+                selected_month_clients,
+            ),
         )
         render_icon_download_button(
             data=report_4_bytes,
@@ -3103,7 +3462,11 @@ def render_report_4_view() -> None:
     with left_col:
         st.markdown(
             build_report_4_table_html(
-                "MTD Top 15 Clients",
+                build_report_context_title(
+                    "MTD Top 15 Clients",
+                    selected_year_clients,
+                    selected_month_clients,
+                ),
                 filtered_mtd_clients,
             ),
             unsafe_allow_html=True,
@@ -3112,7 +3475,11 @@ def render_report_4_view() -> None:
     with right_col:
         st.markdown(
             build_report_4_table_html(
-                "YTD Top 15 Clients",
+                build_report_context_title(
+                    "YTD Top 15 Clients",
+                    selected_year_clients,
+                    selected_month_clients,
+                ),
                 filtered_ytd_clients,
             ),
             unsafe_allow_html=True,
@@ -3130,6 +3497,8 @@ def render_home_view() -> None:
         """
     )
     st.markdown(home_box_html, unsafe_allow_html=True)
+
+    render_persistent_data_status()
 
     col1, col2, col3 = st.columns(3)
 
@@ -3197,6 +3566,15 @@ def render_home_view() -> None:
 
 
 def render_upload_view() -> None:
+    if not is_admin_user():
+        st.markdown(
+            '<div class="section-title">Acceso restringido</div>',
+            unsafe_allow_html=True,
+        )
+        st.warning("Esta sección solo está disponible para usuarios administradores.")
+        render_persistent_data_status()
+        return
+
     st.markdown(
         '<div class="section-title">Carga de datos</div>',
         unsafe_allow_html=True,
@@ -3391,6 +3769,24 @@ def render_upload_view() -> None:
         )
 
 
+
+    st.markdown("---")
+    st.markdown("### 5. Guardar carga para usuarios viewer")
+
+    if sales_loaded and plan_client_loaded and plan_sku_loaded:
+        st.info(
+            "Cuando los tres archivos estén validados, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
+        )
+        st.button(
+            "Guardar carga administrativa para viewers",
+            on_click=save_current_data_for_viewers,
+            use_container_width=True,
+        )
+    else:
+        st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
+
+    render_persistent_data_status()
+
 def render_overview_view() -> None:
     st.markdown(
         '<div class="section-title">Visión general</div>',
@@ -3549,13 +3945,20 @@ def main() -> None:
         render_login_screen()
         return
 
+    if st.session_state.get("df_sales") is None:
+        load_persistent_data_to_session(show_message=False)
+
     render_main_header()
+    render_global_alerts()
     selected = render_sidebar()
 
     if selected == "Inicio":
         render_home_view()
     elif selected == "Carga de datos":
-        render_upload_view()
+        if is_admin_user():
+            render_upload_view()
+        else:
+            render_home_view()
     elif selected == "Visión general":
         render_overview_view()
     elif selected == "Reporte 1":

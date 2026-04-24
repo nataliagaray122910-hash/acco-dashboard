@@ -1073,3 +1073,4 @@ def build_currency_box(title: str, subtitle: str = "") -> str:
         {subtitle_html}
     </div>
     """
+

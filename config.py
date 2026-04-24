@@ -19,11 +19,22 @@ SUBTITLE = "REPORTES CORPORATIVOS"
 WELCOME_MESSAGE = "Dashboard ejecutivo para análisis comercial y financiero"
 
 # ---------------------------------------------------------
-# CONFIGURACIÓN DE LOGIN TEMPORAL
+# CONFIGURACIÓN DE LOGIN Y ROLES
 # ---------------------------------------------------------
+# Usuarios autorizados para entrar a la app.
+# - admin/admin: usuario para Natalia y jefa; puede cargar y guardar datos.
+# - viewer/viewer: usuario de consulta; no ve la carga de datos.
 VALID_USERS = {
-    "admin": "admin"
+    "admin": "admin",
+    "viewer": "viewer",
 }
+
+# Usuarios con permiso para cargar/actualizar información.
+ADMIN_USERS = ["admin"]
+
+# Carpeta temporal donde Streamlit guardará la última carga administrativa.
+# Nota: en Streamlit Cloud esta persistencia es útil para pruebas, pero puede perderse si la app reinicia.
+PERSISTENT_DATA_PATH = "persistent_data"
 
 # ---------------------------------------------------------
 # PALETA DE COLORES CORPORATIVA
@@ -736,4 +747,3 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "Para construir el Reporte 4 primero debes tener ventas procesadas "
     "y plan por cliente cargado."
 )
-

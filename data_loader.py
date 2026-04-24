@@ -189,5 +189,3 @@ def load_plan_sku_file(uploaded_file):
         header=7,
     )
     return standardize_columns(df)
-
-

@@ -2996,3 +2996,4 @@ def build_report_4_top_clients_payload(
         "mtd_top_clients_table": mtd_table,
         "ytd_top_clients_table": ytd_table,
     }
+

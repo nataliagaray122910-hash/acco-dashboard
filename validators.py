@@ -38,3 +38,4 @@ def validate_dataframe_for_processing(df, required_columns: Iterable[str]) -> tu
         return False, ["El archivo está vacío"]
 
     return validate_required_columns(df, required_columns)
+

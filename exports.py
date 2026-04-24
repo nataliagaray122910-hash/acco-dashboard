@@ -20,6 +20,7 @@ THIN_BORDER = Border(
 )
 
 TITLE_FILL = PatternFill(fill_type="solid", fgColor="1F2A44")
+GLOBAL_TITLE_FILL = PatternFill(fill_type="solid", fgColor="000000")
 HEADER_NEUTRAL_FILL = PatternFill(fill_type="solid", fgColor="1F2A44")
 HEADER_ACTUAL_FILL = PatternFill(fill_type="solid", fgColor="0B5A7A")
 HEADER_PLAN_FILL = PatternFill(fill_type="solid", fgColor="D4A017")
@@ -31,6 +32,7 @@ HIGHLIGHT_FILL = PatternFill(fill_type="solid", fgColor="E8F3E6")
 HIGHLIGHT_LABEL_FILL = PatternFill(fill_type="solid", fgColor="DCEFD8")
 
 TITLE_FONT = Font(color="FFFFFF", bold=True, size=12)
+GLOBAL_TITLE_FONT = Font(color="FFFFFF", bold=True, size=14)
 HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
 BODY_FONT = Font(color="1E1E1E", bold=False, size=10)
 BODY_BOLD_FONT = Font(color="1E1E1E", bold=True, size=10)
@@ -46,6 +48,7 @@ RIGHT_ALIGNMENT = Alignment(horizontal="right", vertical="center")
 DEFAULT_TABLE_SPACING_COLUMNS = 2
 DEFAULT_BLOCK_SPACING_ROWS = 3
 DEFAULT_SHEET_TITLE_ROW_HEIGHT = 22
+DEFAULT_GLOBAL_TITLE_ROW_HEIGHT = 28
 DEFAULT_HEADER_ROW_HEIGHT = 20
 DEFAULT_BODY_ROW_HEIGHT = 19
 
@@ -81,7 +84,7 @@ INTERNAL_COLUMNS_PREFIX = "__"
 # HELPERS GENERALES
 # ---------------------------------------------------------
 def sanitize_sheet_name(sheet_name: str) -> str:
-    invalid_chars = ['\\', '/', '*', '?', ':', '[', ']']
+    invalid_chars = ["\\", "/", "*", "?", ":", "[", "]"]
     cleaned = str(sheet_name).strip()
 
     for char in invalid_chars:
@@ -146,12 +149,12 @@ def estimate_column_width(series: pd.Series, header_text: str) -> int:
 
 def excel_number_format_for_column(column_name: str) -> str:
     if is_percent_column(column_name):
-        return '0.00%;[Red](0.00%)'
+        return "0.00%;[Red](0.00%)"
 
     if is_numeric_column(column_name):
-        return '#,##0;[Red](#,##0)'
+        return "#,##0;[Red](#,##0)"
 
-    return '@'
+    return "@"
 
 def scale_value_for_export(column_name: str, value):
     numeric_value = safe_float(value)
@@ -233,6 +236,37 @@ def get_header_fill(column_name: str):
         return HEADER_PY_FILL
 
     return HEADER_NEUTRAL_FILL
+
+def write_global_title(
+    worksheet,
+    report_title: str | None,
+    start_row: int = 1,
+    start_col: int = 1,
+    width: int = 8,
+) -> int:
+    """
+    Escribe un encabezado general del reporte en Excel.
+    Devuelve la siguiente fila disponible.
+    """
+    if not report_title:
+        return start_row
+
+    worksheet.merge_cells(
+        start_row=start_row,
+        start_column=start_col,
+        end_row=start_row,
+        end_column=start_col + width - 1,
+    )
+
+    title_cell = worksheet.cell(row=start_row, column=start_col, value=report_title)
+    title_cell.font = GLOBAL_TITLE_FONT
+    title_cell.alignment = CENTER_ALIGNMENT
+    title_cell.border = THIN_BORDER
+    title_cell.fill = GLOBAL_TITLE_FILL
+
+    worksheet.row_dimensions[start_row].height = DEFAULT_GLOBAL_TITLE_ROW_HEIGHT
+
+    return start_row + 2
 
 # ---------------------------------------------------------
 # ESCRITURA DE TABLAS
@@ -402,6 +436,11 @@ def remove_default_sheet_if_needed(writer) -> None:
         default_sheet = writer.book["Sheet"]
         writer.book.remove(default_sheet)
 
+def get_report_title_from_tables(tables: dict | None, fallback: str | None = None) -> str | None:
+    if isinstance(tables, dict):
+        return tables.get("report_title") or tables.get("__report_title__") or fallback
+    return fallback
+
 # ---------------------------------------------------------
 # EXPORTACIÓN REPORTE 1
 # ---------------------------------------------------------
@@ -410,12 +449,19 @@ def build_report_1_excel_bytes(
     ytd_without_kens_df: pd.DataFrame,
     mtd_kens_df: pd.DataFrame,
     ytd_kens_df: pd.DataFrame,
+    report_title: str | None = None,
     sheet_name: str = "Reporte 1",
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
-    current_row = 1
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
 
     block_last_row, _ = write_two_tables_side_by_side(
         worksheet=worksheet,
@@ -446,10 +492,19 @@ def build_report_1_excel_bytes(
 def build_report_2_segment_excel_bytes(
     mtd_segment_df: pd.DataFrame,
     ytd_segment_df: pd.DataFrame,
+    report_title: str | None = None,
     sheet_name: str = "Reporte 2 - Segment",
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
+
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
 
     write_two_tables_side_by_side(
         worksheet=worksheet,
@@ -457,7 +512,7 @@ def build_report_2_segment_excel_bytes(
         right_df=ytd_segment_df,
         left_title="MTD Segment x Region",
         right_title="YTD Segment x Region",
-        start_row=1,
+        start_row=current_row,
     )
 
     remove_default_sheet_if_needed(writer)
@@ -469,10 +524,19 @@ def build_report_2_segment_excel_bytes(
 def build_report_2_category_excel_bytes(
     mtd_category_df: pd.DataFrame,
     ytd_category_df: pd.DataFrame,
+    report_title: str | None = None,
     sheet_name: str = "Reporte 2 - Category",
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
+
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
 
     write_two_tables_side_by_side(
         worksheet=worksheet,
@@ -480,7 +544,7 @@ def build_report_2_category_excel_bytes(
         right_df=ytd_category_df,
         left_title="MTD Category",
         right_title="YTD Category",
-        start_row=1,
+        start_row=current_row,
     )
 
     remove_default_sheet_if_needed(writer)
@@ -492,10 +556,19 @@ def build_report_2_category_excel_bytes(
 def build_report_3_excel_bytes(
     mtd_channel_df: pd.DataFrame,
     ytd_channel_df: pd.DataFrame,
+    report_title: str | None = None,
     sheet_name: str = "Reporte 3",
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
+
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
 
     write_two_tables_side_by_side(
         worksheet=worksheet,
@@ -503,7 +576,7 @@ def build_report_3_excel_bytes(
         right_df=ytd_channel_df,
         left_title="MTD Channel",
         right_title="YTD Channel",
-        start_row=1,
+        start_row=current_row,
     )
 
     remove_default_sheet_if_needed(writer)
@@ -515,10 +588,19 @@ def build_report_3_excel_bytes(
 def build_report_4_excel_bytes(
     mtd_top_clients_df: pd.DataFrame,
     ytd_top_clients_df: pd.DataFrame,
+    report_title: str | None = None,
     sheet_name: str = "Reporte 4",
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
+
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
 
     write_two_tables_side_by_side(
         worksheet=worksheet,
@@ -526,7 +608,7 @@ def build_report_4_excel_bytes(
         right_df=ytd_top_clients_df,
         left_title="MTD Top 15 Clients",
         right_title="YTD Top 15 Clients",
-        start_row=1,
+        start_row=current_row,
     )
 
     remove_default_sheet_if_needed(writer)
@@ -548,7 +630,13 @@ def build_full_reports_excel_bytes(
     if report_1_tables:
         ws = ensure_sheet_exists(writer, "Reporte 1")
 
-        current_row = 1
+        current_row = write_global_title(
+            worksheet=ws,
+            report_title=get_report_title_from_tables(report_1_tables),
+            start_row=1,
+            start_col=1,
+            width=8,
+        )
 
         block_last_row, _ = write_two_tables_side_by_side(
             worksheet=ws,
@@ -575,13 +663,21 @@ def build_full_reports_excel_bytes(
     if report_2_segment_tables:
         ws = ensure_sheet_exists(writer, "Reporte 2 - Segment")
 
+        current_row = write_global_title(
+            worksheet=ws,
+            report_title=get_report_title_from_tables(report_2_segment_tables),
+            start_row=1,
+            start_col=1,
+            width=8,
+        )
+
         write_two_tables_side_by_side(
             worksheet=ws,
             left_df=report_2_segment_tables["mtd"],
             right_df=report_2_segment_tables["ytd"],
             left_title="MTD Segment x Region",
             right_title="YTD Segment x Region",
-            start_row=1,
+            start_row=current_row,
         )
 
         workbook_created = True
@@ -589,13 +685,21 @@ def build_full_reports_excel_bytes(
     if report_2_category_tables:
         ws = ensure_sheet_exists(writer, "Reporte 2 - Category")
 
+        current_row = write_global_title(
+            worksheet=ws,
+            report_title=get_report_title_from_tables(report_2_category_tables),
+            start_row=1,
+            start_col=1,
+            width=8,
+        )
+
         write_two_tables_side_by_side(
             worksheet=ws,
             left_df=report_2_category_tables["mtd"],
             right_df=report_2_category_tables["ytd"],
             left_title="MTD Category",
             right_title="YTD Category",
-            start_row=1,
+            start_row=current_row,
         )
 
         workbook_created = True
@@ -603,13 +707,21 @@ def build_full_reports_excel_bytes(
     if report_3_tables:
         ws = ensure_sheet_exists(writer, "Reporte 3")
 
+        current_row = write_global_title(
+            worksheet=ws,
+            report_title=get_report_title_from_tables(report_3_tables),
+            start_row=1,
+            start_col=1,
+            width=8,
+        )
+
         write_two_tables_side_by_side(
             worksheet=ws,
             left_df=report_3_tables["mtd"],
             right_df=report_3_tables["ytd"],
             left_title="MTD Channel",
             right_title="YTD Channel",
-            start_row=1,
+            start_row=current_row,
         )
 
         workbook_created = True
@@ -617,13 +729,21 @@ def build_full_reports_excel_bytes(
     if report_4_tables:
         ws = ensure_sheet_exists(writer, "Reporte 4")
 
+        current_row = write_global_title(
+            worksheet=ws,
+            report_title=get_report_title_from_tables(report_4_tables),
+            start_row=1,
+            start_col=1,
+            width=8,
+        )
+
         write_two_tables_side_by_side(
             worksheet=ws,
             left_df=report_4_tables["mtd"],
             right_df=report_4_tables["ytd"],
             left_title="MTD Top 15 Clients",
             right_title="YTD Top 15 Clients",
-            start_row=1,
+            start_row=current_row,
         )
 
         workbook_created = True
@@ -634,4 +754,3 @@ def build_full_reports_excel_bytes(
 
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
-
