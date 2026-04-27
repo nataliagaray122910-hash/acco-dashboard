@@ -345,6 +345,49 @@ def render_preview_expander(
     with st.expander(title, expanded=False):
         st.dataframe(preview_df, use_container_width=True)
 
+
+def render_debug_dataframe_info(label: str, df_debug, file_name_key: str | None = None) -> None:
+    """
+    Diagnóstico temporal para comparar localhost vs Streamlit Cloud.
+    No modifica datos; solo muestra cómo está entrando cada archivo a la sesión.
+    """
+    if df_debug is None:
+        return
+
+    with st.expander(f"DEBUG - {label}", expanded=False):
+        if file_name_key:
+            st.write("Archivo en sesión:", st.session_state.get(file_name_key, ""))
+
+        st.write("Filas, columnas:", df_debug.shape)
+        st.write("Columnas:", [str(col) for col in df_debug.columns])
+
+        try:
+            duplicated_rows = int(df_debug.duplicated().sum())
+            st.write("Filas duplicadas completas:", duplicated_rows)
+        except Exception as exc:
+            st.write(f"No se pudieron calcular duplicados completos: {exc}")
+
+        try:
+            numeric_columns = df_debug.select_dtypes(include="number").columns.tolist()
+            st.write("Columnas numéricas detectadas:", [str(col) for col in numeric_columns])
+
+            if numeric_columns:
+                numeric_summary = (
+                    df_debug[numeric_columns]
+                    .sum(numeric_only=True)
+                    .reset_index()
+                )
+                numeric_summary.columns = ["Columna", "Suma bruta"]
+                st.dataframe(numeric_summary, use_container_width=True)
+        except Exception as exc:
+            st.write(f"No se pudo calcular resumen numérico: {exc}")
+
+        try:
+            st.write("Vista rápida DEBUG:")
+            st.dataframe(df_debug.head(5), use_container_width=True)
+        except Exception as exc:
+            st.write(f"No se pudo mostrar vista rápida: {exc}")
+
 # =========================================================
 # 4.2 HELPERS DE ALERTAS VISUALES
 # =========================================================
@@ -3714,6 +3757,12 @@ def render_upload_view() -> None:
             convert_currency=False,
         )
 
+        render_debug_dataframe_info(
+            "Archivo de ventas",
+            st.session_state.get("df_sales"),
+            "sales_file_name",
+        )
+
     st.markdown("---")
 
     # =====================================================
@@ -3761,6 +3810,12 @@ def render_upload_view() -> None:
             convert_currency=False,
         )
 
+        render_debug_dataframe_info(
+            "Plan Cliente",
+            st.session_state.get("df_plan_client"),
+            "plan_client_file_name",
+        )
+
     st.markdown("---")
 
     # =====================================================
@@ -3806,6 +3861,12 @@ def render_upload_view() -> None:
             st.session_state.get("df_plan_sku"),
             rows=10,
             convert_currency=False,
+        )
+
+        render_debug_dataframe_info(
+            "Plan SKU",
+            st.session_state.get("df_plan_sku"),
+            "plan_sku_file_name",
         )
 
     st.markdown("---")
@@ -3867,32 +3928,6 @@ def render_upload_view() -> None:
         )
     else:
         st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
-
-    # =====================================================
-    # LIMPIEZA DE SESIÓN Y CARGA GUARDADA
-    # =====================================================
-    st.markdown("---")
-    st.markdown("### 6. Limpieza de carga guardada")
-    st.caption(
-        "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores "
-        "o si necesitas empezar una carga completamente desde cero."
-    )
-
-    col_clear_session, col_clear_persistent = st.columns(2)
-
-    with col_clear_session:
-        st.button(
-            "Limpiar sesión actual",
-            on_click=clear_current_session_data,
-            use_container_width=True,
-        )
-
-    with col_clear_persistent:
-        st.button(
-            "Borrar carga guardada para viewers",
-            on_click=delete_persistent_data,
-            use_container_width=True,
-        )
 
     render_persistent_data_status()
 
@@ -3994,6 +4029,14 @@ def render_mtd_base_view() -> None:
         st.markdown("---")
         st.info("Aún no se ha construido la Base MTD.")
         return
+
+    with st.expander("DEBUG - Resultado Base MTD", expanded=False):
+        st.write("Resumen:", payload.get("summary", {}))
+        st.write("Plan summary:", payload.get("plan_summary", {}))
+        st.write("Client table:")
+        st.dataframe(payload.get("client_table"), use_container_width=True)
+        st.write("SKU table:")
+        st.dataframe(payload.get("sku_table"), use_container_width=True)
 
     st.markdown("---")
     st.markdown("### 3. Comparativos MTD / YTD")
