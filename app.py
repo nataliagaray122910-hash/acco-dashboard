@@ -418,6 +418,50 @@ def clear_report_payloads() -> None:
         st.session_state[key] = None
 
 
+def get_uploaded_file_signature(uploaded_file) -> str:
+    """
+    Genera una firma simple del archivo cargado.
+    Sirve para detectar si el usuario realmente reemplazó el archivo
+    y evitar limpiar/reprocesar en cada rerun normal de Streamlit.
+    """
+    if uploaded_file is None:
+        return ""
+
+    file_name = str(getattr(uploaded_file, "name", "archivo"))
+    file_size = getattr(uploaded_file, "size", None)
+
+    if file_size is None:
+        try:
+            file_size = len(uploaded_file.getvalue())
+        except Exception:
+            file_size = "unknown"
+
+    return f"{file_name}|{file_size}"
+
+
+def clear_derived_data_after_upload(signature_key: str, uploaded_file) -> None:
+    """
+    Limpia únicamente datos calculados cuando se carga o reemplaza un archivo.
+
+    Importante:
+    - No borra df_sales, df_plan_client ni df_plan_sku.
+    - Solo elimina base procesada, Base MTD y reportes ya construidos.
+    - Evita que Streamlit Cloud conserve resultados viejos o duplicados.
+    - Solo se ejecuta cuando cambia la firma del archivo, no en cada rerun.
+    """
+    current_signature = get_uploaded_file_signature(uploaded_file)
+    previous_signature = st.session_state.get(signature_key)
+
+    if previous_signature == current_signature:
+        return
+
+    st.session_state[signature_key] = current_signature
+    st.session_state["df_processed_sales"] = None
+    clear_report_payloads()
+    st.session_state["persistent_data_loaded"] = False
+    st.session_state["persistent_data_metadata"] = None
+
+
 def build_persistent_metadata() -> dict:
     return {
         "updated_at": datetime.now().strftime("%d/%m/%Y %H:%M"),
@@ -3601,6 +3645,7 @@ def render_upload_view() -> None:
 
     if uploaded_sales is not None:
         try:
+            clear_derived_data_after_upload("sales_upload_signature", uploaded_sales)
             df_sales = data_loader.load_sales_file(uploaded_sales)
             is_valid_sales, missing_sales = validators.validate_required_columns(
                 df_sales,
@@ -3647,6 +3692,7 @@ def render_upload_view() -> None:
 
     if uploaded_plan_client is not None:
         try:
+            clear_derived_data_after_upload("plan_client_upload_signature", uploaded_plan_client)
             df_plan_client = data_loader.load_plan_client_file(uploaded_plan_client)
             is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
                 df_plan_client,
@@ -3693,6 +3739,7 @@ def render_upload_view() -> None:
 
     if uploaded_plan_sku is not None:
         try:
+            clear_derived_data_after_upload("plan_sku_upload_signature", uploaded_plan_sku)
             df_plan_sku = data_loader.load_plan_sku_file(uploaded_plan_sku)
             is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
                 df_plan_sku,
