@@ -397,6 +397,71 @@ def get_persistent_data_file() -> Path:
     return get_persistent_data_folder() / "latest_dashboard_data.pkl"
 
 
+def delete_persistent_data() -> bool:
+    """
+    Borra la carga administrativa guardada para viewers y limpia datos calculados
+    de la sesión actual.
+    """
+    try:
+        persistent_file = get_persistent_data_file()
+
+        if persistent_file.exists():
+            persistent_file.unlink()
+
+        st.session_state["persistent_data_loaded"] = False
+        st.session_state["persistent_data_metadata"] = None
+
+        # Limpia datos calculados para obligar a reconstruir con la nueva carga.
+        st.session_state["df_processed_sales"] = None
+        clear_report_payloads()
+
+        set_success_message("Carga guardada para viewers eliminada correctamente.")
+        return True
+
+    except Exception as exc:
+        set_error_message(f"No fue posible borrar la carga guardada. Detalle: {exc}")
+        return False
+
+
+def clear_current_session_data() -> bool:
+    """
+    Limpia la carga actual de la sesión admin.
+    Sirve para empezar desde cero sin que se mezclen archivos anteriores.
+    """
+    try:
+        keys_to_reset = {
+            "df_sales": None,
+            "df_plan_client": None,
+            "df_plan_sku": None,
+            "df_processed_sales": None,
+            "sales_valid": False,
+            "plan_client_valid": False,
+            "plan_sku_valid": False,
+            "sales_missing_columns": [],
+            "plan_client_missing_columns": [],
+            "plan_sku_missing_columns": [],
+            "sales_file_name": "",
+            "plan_client_file_name": "",
+            "plan_sku_file_name": "",
+            "persistent_data_loaded": False,
+            "persistent_data_metadata": None,
+            "sales_upload_signature": "",
+            "plan_client_upload_signature": "",
+            "plan_sku_upload_signature": "",
+        }
+
+        for key, value in keys_to_reset.items():
+            st.session_state[key] = value
+
+        clear_report_payloads()
+        set_success_message("Sesión limpiada correctamente. Puedes volver a cargar los archivos desde cero.")
+        return True
+
+    except Exception as exc:
+        set_error_message(f"No fue posible limpiar la sesión. Detalle: {exc}")
+        return False
+
+
 def persistent_data_exists() -> bool:
     return get_persistent_data_file().exists()
 
@@ -416,50 +481,6 @@ def clear_report_payloads() -> None:
         "report4_payload",
     ]:
         st.session_state[key] = None
-
-
-def get_uploaded_file_signature(uploaded_file) -> str:
-    """
-    Genera una firma simple del archivo cargado.
-    Sirve para detectar si el usuario realmente reemplazó el archivo
-    y evitar limpiar/reprocesar en cada rerun normal de Streamlit.
-    """
-    if uploaded_file is None:
-        return ""
-
-    file_name = str(getattr(uploaded_file, "name", "archivo"))
-    file_size = getattr(uploaded_file, "size", None)
-
-    if file_size is None:
-        try:
-            file_size = len(uploaded_file.getvalue())
-        except Exception:
-            file_size = "unknown"
-
-    return f"{file_name}|{file_size}"
-
-
-def clear_derived_data_after_upload(signature_key: str, uploaded_file) -> None:
-    """
-    Limpia únicamente datos calculados cuando se carga o reemplaza un archivo.
-
-    Importante:
-    - No borra df_sales, df_plan_client ni df_plan_sku.
-    - Solo elimina base procesada, Base MTD y reportes ya construidos.
-    - Evita que Streamlit Cloud conserve resultados viejos o duplicados.
-    - Solo se ejecuta cuando cambia la firma del archivo, no en cada rerun.
-    """
-    current_signature = get_uploaded_file_signature(uploaded_file)
-    previous_signature = st.session_state.get(signature_key)
-
-    if previous_signature == current_signature:
-        return
-
-    st.session_state[signature_key] = current_signature
-    st.session_state["df_processed_sales"] = None
-    clear_report_payloads()
-    st.session_state["persistent_data_loaded"] = False
-    st.session_state["persistent_data_metadata"] = None
 
 
 def build_persistent_metadata() -> dict:
@@ -3645,7 +3666,6 @@ def render_upload_view() -> None:
 
     if uploaded_sales is not None:
         try:
-            clear_derived_data_after_upload("sales_upload_signature", uploaded_sales)
             df_sales = data_loader.load_sales_file(uploaded_sales)
             is_valid_sales, missing_sales = validators.validate_required_columns(
                 df_sales,
@@ -3692,7 +3712,6 @@ def render_upload_view() -> None:
 
     if uploaded_plan_client is not None:
         try:
-            clear_derived_data_after_upload("plan_client_upload_signature", uploaded_plan_client)
             df_plan_client = data_loader.load_plan_client_file(uploaded_plan_client)
             is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
                 df_plan_client,
@@ -3739,7 +3758,6 @@ def render_upload_view() -> None:
 
     if uploaded_plan_sku is not None:
         try:
-            clear_derived_data_after_upload("plan_sku_upload_signature", uploaded_plan_sku)
             df_plan_sku = data_loader.load_plan_sku_file(uploaded_plan_sku)
             is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
                 df_plan_sku,
@@ -3831,6 +3849,28 @@ def render_upload_view() -> None:
         )
     else:
         st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
+
+    st.markdown("---")
+    st.markdown("### 6. Limpieza de carga guardada")
+    st.caption(
+        "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores o diferencias de plan después de actualizar archivos."
+    )
+
+    col_clear_session, col_clear_persistent = st.columns(2)
+
+    with col_clear_session:
+        st.button(
+            "Limpiar sesión actual",
+            on_click=clear_current_session_data,
+            use_container_width=True,
+        )
+
+    with col_clear_persistent:
+        st.button(
+            "Borrar carga guardada para viewers",
+            on_click=delete_persistent_data,
+            use_container_width=True,
+        )
 
     render_persistent_data_status()
 
