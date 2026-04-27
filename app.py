@@ -3868,6 +3868,32 @@ def render_upload_view() -> None:
     else:
         st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
 
+    # =====================================================
+    # LIMPIEZA DE SESIÓN Y CARGA GUARDADA
+    # =====================================================
+    st.markdown("---")
+    st.markdown("### 6. Limpieza de carga guardada")
+    st.caption(
+        "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores "
+        "o si necesitas empezar una carga completamente desde cero."
+    )
+
+    col_clear_session, col_clear_persistent = st.columns(2)
+
+    with col_clear_session:
+        st.button(
+            "Limpiar sesión actual",
+            on_click=clear_current_session_data,
+            use_container_width=True,
+        )
+
+    with col_clear_persistent:
+        st.button(
+            "Borrar carga guardada para viewers",
+            on_click=delete_persistent_data,
+            use_container_width=True,
+        )
+
     render_persistent_data_status()
 
 def render_overview_view() -> None:
