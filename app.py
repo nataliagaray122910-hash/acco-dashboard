@@ -109,6 +109,12 @@ if "persistent_data_loaded" not in st.session_state:
 if "persistent_data_metadata" not in st.session_state:
     st.session_state["persistent_data_metadata"] = None
 
+if "upload_reset_counter" not in st.session_state:
+    st.session_state["upload_reset_counter"] = 0
+
+if "suppress_persistent_autoload" not in st.session_state:
+    st.session_state["suppress_persistent_autoload"] = False
+
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================
@@ -410,8 +416,8 @@ def delete_persistent_data() -> bool:
 
         st.session_state["persistent_data_loaded"] = False
         st.session_state["persistent_data_metadata"] = None
+        st.session_state["suppress_persistent_autoload"] = True
 
-        # Limpia datos calculados para obligar a reconstruir con la nueva carga.
         st.session_state["df_processed_sales"] = None
         clear_report_payloads()
 
@@ -425,7 +431,7 @@ def delete_persistent_data() -> bool:
 
 def clear_current_session_data() -> bool:
     """
-    Limpia la carga actual de la sesión admin.
+    Limpia la carga actual de la sesión admin y reinicia visualmente los file_uploader.
     Sirve para empezar desde cero sin que se mezclen archivos anteriores.
     """
     try:
@@ -445,6 +451,7 @@ def clear_current_session_data() -> bool:
             "plan_sku_file_name": "",
             "persistent_data_loaded": False,
             "persistent_data_metadata": None,
+            "suppress_persistent_autoload": True,
             "sales_upload_signature": "",
             "plan_client_upload_signature": "",
             "plan_sku_upload_signature": "",
@@ -452,6 +459,12 @@ def clear_current_session_data() -> bool:
 
         for key, value in keys_to_reset.items():
             st.session_state[key] = value
+
+        # Cambia las llaves de los file_uploader para que Streamlit Cloud
+        # olvide visualmente los archivos que seguían seleccionados en el navegador.
+        st.session_state["upload_reset_counter"] = int(
+            st.session_state.get("upload_reset_counter", 0)
+        ) + 1
 
         clear_report_payloads()
         set_success_message("Sesión limpiada correctamente. Puedes volver a cargar los archivos desde cero.")
@@ -545,6 +558,7 @@ def save_current_data_for_viewers() -> bool:
 
         st.session_state["persistent_data_loaded"] = True
         st.session_state["persistent_data_metadata"] = metadata
+        st.session_state["suppress_persistent_autoload"] = False
         set_success_message(
             "Carga administrativa guardada correctamente. Ya está disponible para usuarios viewer."
         )
@@ -589,6 +603,7 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         metadata = payload.get("metadata", {})
         st.session_state["persistent_data_metadata"] = metadata
         st.session_state["persistent_data_loaded"] = True
+        st.session_state["suppress_persistent_autoload"] = False
 
         clear_report_payloads()
 
@@ -3661,11 +3676,12 @@ def render_upload_view() -> None:
     uploaded_sales = st.file_uploader(
         "Carga el archivo de ventas",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_SALES,
+        key=f"{config.FILE_KEY_SALES}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_sales is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_sales = data_loader.load_sales_file(uploaded_sales)
             is_valid_sales, missing_sales = validators.validate_required_columns(
                 df_sales,
@@ -3707,11 +3723,12 @@ def render_upload_view() -> None:
     uploaded_plan_client = st.file_uploader(
         "Carga el archivo Plan2026 by Client",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_PLAN_CLIENT,
+        key=f"{config.FILE_KEY_PLAN_CLIENT}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_plan_client is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_plan_client = data_loader.load_plan_client_file(uploaded_plan_client)
             is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
                 df_plan_client,
@@ -3753,11 +3770,12 @@ def render_upload_view() -> None:
     uploaded_plan_sku = st.file_uploader(
         "Carga el archivo Plan2026 by SKU",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_PLAN_SKU,
+        key=f"{config.FILE_KEY_PLAN_SKU}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_plan_sku is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_plan_sku = data_loader.load_plan_sku_file(uploaded_plan_sku)
             is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
                 df_plan_sku,
@@ -3849,28 +3867,6 @@ def render_upload_view() -> None:
         )
     else:
         st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
-
-    st.markdown("---")
-    st.markdown("### 6. Limpieza de carga guardada")
-    st.caption(
-        "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores o diferencias de plan después de actualizar archivos."
-    )
-
-    col_clear_session, col_clear_persistent = st.columns(2)
-
-    with col_clear_session:
-        st.button(
-            "Limpiar sesión actual",
-            on_click=clear_current_session_data,
-            use_container_width=True,
-        )
-
-    with col_clear_persistent:
-        st.button(
-            "Borrar carga guardada para viewers",
-            on_click=delete_persistent_data,
-            use_container_width=True,
-        )
 
     render_persistent_data_status()
 
@@ -4032,7 +4028,10 @@ def main() -> None:
         render_login_screen()
         return
 
-    if st.session_state.get("df_sales") is None:
+    if (
+        st.session_state.get("df_sales") is None
+        and not st.session_state.get("suppress_persistent_autoload", False)
+    ):
         load_persistent_data_to_session(show_message=False)
 
     render_main_header()
