@@ -9,6 +9,8 @@ import pandas as pd
 
 import config
 
+PROCESSOR_VERSION = "FIX_PLAN_CLIENT_DETAIL_SUM_V1_2026_04_28"
+
 # --------------------------------------------------------------
 # CONSTANTES AUXILIARES
 # --------------------------------------------------------------
@@ -2992,4 +2994,5 @@ def build_report_4_top_clients_payload(
         "mtd_top_clients_table": mtd_table,
         "ytd_top_clients_table": ytd_table,
     }
+
 
