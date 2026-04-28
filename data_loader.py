@@ -51,8 +51,6 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     - se toman columnas A:T
     - una vez iniciada la tabla, si aparece una fila completamente vacía
       en las columnas base de identificación, se corta ahí
-    - se eliminan filas sin Client real para evitar que Streamlit Cloud
-      conserve filas residuales que Excel/localhost puede interpretar como vacías
     """
     df = df.copy()
     df = standardize_columns(df)
@@ -107,18 +105,7 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     if stop_idx is not None:
         df = df.iloc[:stop_idx].copy()
 
-    df = df.dropna(how="all")
-
-    if "Client" in df.columns:
-        client_values = (
-            df["Client"]
-            .astype(str)
-            .str.strip()
-            .replace({"nan": "", "None": "", "NaN": "", "NONE": ""})
-        )
-        df = df[client_values != ""].copy()
-
-    df = df.reset_index(drop=True)
+    df = df.dropna(how="all").reset_index(drop=True)
 
     return df
 
