@@ -9,8 +9,6 @@ import pandas as pd
 
 import config
 
-PROCESSOR_VERSION = "FIX_PLAN_CLIENT_DETAIL_SUM_V1_2026_04_28"
-
 # --------------------------------------------------------------
 # CONSTANTES AUXILIARES
 # --------------------------------------------------------------
@@ -535,18 +533,22 @@ def get_plan_client_totals(
 
     month_col = month_columns[latest_month]
     months_to_sum = [month_columns[m] for m in sorted(month_columns.keys()) if m <= latest_month]
+    total_row_idx = find_first_total_row(df)
 
-    # Corrección quirúrgica para Streamlit Cloud:
-    # No se usa una fila detectada como "Total" para calcular el plan general.
-    # Se suma el detalle real de la tabla y se excluyen únicamente renglones
-    # que contengan una etiqueta total/subtotal/grand total en columnas de texto.
-    df_detail = remove_total_like_rows(df)
+    if total_row_idx is not None:
+        mtd_plan_client = clean_numeric_series(
+            pd.Series([df.loc[total_row_idx, month_col]])
+        ).iloc[0] * 1000
 
-    mtd_plan_client = clean_numeric_series(df_detail[month_col]).sum() * 1000
-    ytd_plan_client = sum(
-        clean_numeric_series(df_detail[col]).sum()
-        for col in months_to_sum
-    ) * 1000
+        ytd_plan_client = (
+            sum(
+                clean_numeric_series(pd.Series([df.loc[total_row_idx, col]])).iloc[0]
+                for col in months_to_sum
+            ) * 1000
+        )
+    else:
+        mtd_plan_client = clean_numeric_series(df[month_col]).sum() * 1000
+        ytd_plan_client = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum) * 1000
 
     return float(mtd_plan_client), float(ytd_plan_client)
 
@@ -2994,5 +2996,4 @@ def build_report_4_top_clients_payload(
         "mtd_top_clients_table": mtd_table,
         "ytd_top_clients_table": ytd_table,
     }
-
 

@@ -39,8 +39,35 @@ def standardize_columns(df: pd.DataFrame) -> pd.DataFrame:
 
 # ----------------------------------------------------------
 # FUNCIÓN AUXILIAR:
+# Detecta celdas vacías reales o aparentes
+# ----------------------------------------------------------
+def is_blank_like(value) -> bool:
+    """
+    Detecta vacíos reales y vacíos aparentes que pueden venir de Excel.
+    En Streamlit Cloud algunas celdas visualmente vacías pueden llegar como
+    None, nan, espacios o texto equivalente.
+    """
+    if pd.isna(value):
+        return True
+
+    text = str(value).strip()
+    return text == "" or text.lower() in {"nan", "none", "null", "nat"}
+
+# ----------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Limpia texto de celda para comparar encabezados internos
+# ----------------------------------------------------------
+def clean_cell_text(value) -> str:
+    if is_blank_like(value):
+        return ""
+
+    return str(value).strip()
+
+# ----------------------------------------------------------
+# FUNCIÓN AUXILIAR:
 # Recorta la tabla principal de Plan por Cliente
-# usando el primer bloque vacío como corte
+# usando el primer bloque vacío como corte y detectando
+# también el inicio de tablas resumen inferiores.
 # ----------------------------------------------------------
 def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -51,10 +78,16 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     - se toman columnas A:T
     - una vez iniciada la tabla, si aparece una fila completamente vacía
       en las columnas base de identificación, se corta ahí
+    - como protección adicional para Streamlit Cloud, también se corta
+      si detecta el inicio de una tabla inferior de resumen por Channel
+      o una fila sin identificadores de cliente pero con montos mensuales.
+
+    Esto evita que se sumen tablas de resumen ubicadas debajo de la tabla
+    principal, sin eliminar filas válidas como Kensington, Ecommerce o Export,
+    aunque algunas de ellas no tengan código en Client.
     """
     df = df.copy()
     df = standardize_columns(df)
-
     df = df.reset_index(drop=True)
 
     base_cols = [
@@ -67,7 +100,23 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
         "Channel",
     ]
 
+    identity_cols_without_channel = [
+        "Segment",
+        "Sales Region",
+        "Sales region short",
+        "Client",
+        "Customer name",
+        "Sales Zone",
+    ]
+
+    month_cols = [
+        "JAN", "FEB", "MAR", "APR", "MAY", "JUN",
+        "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "FY 2026p",
+    ]
+
     existing_base_cols = [col for col in base_cols if col in df.columns]
+    existing_identity_cols = [col for col in identity_cols_without_channel if col in df.columns]
+    existing_month_cols = [col for col in month_cols if col in df.columns]
 
     if not existing_base_cols:
         return df
@@ -75,9 +124,7 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     start_idx = None
     for i in range(len(df)):
         row_values = df.loc[i, existing_base_cols]
-        has_data = row_values.notna().any() and (
-            row_values.astype(str).str.strip().replace({"nan": "", "None": ""}) != ""
-        ).any()
+        has_data = any(not is_blank_like(value) for value in row_values)
 
         if has_data:
             start_idx = i
@@ -90,15 +137,30 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
 
     stop_idx = None
     for i in range(len(df)):
-        row_values = df.loc[i, existing_base_cols]
+        base_values = df.loc[i, existing_base_cols]
+        identity_values = df.loc[i, existing_identity_cols] if existing_identity_cols else pd.Series(dtype=object)
+        month_values = df.loc[i, existing_month_cols] if existing_month_cols else pd.Series(dtype=object)
 
-        cleaned = (
-            row_values.astype(str)
-            .str.strip()
-            .replace({"nan": "", "None": ""})
+        base_is_empty = all(is_blank_like(value) for value in base_values)
+        identity_is_empty = all(is_blank_like(value) for value in identity_values) if existing_identity_cols else False
+        months_have_data = any(not is_blank_like(value) for value in month_values) if existing_month_cols else False
+
+        channel_text = clean_cell_text(df.loc[i, "Channel"]) if "Channel" in df.columns else ""
+        jan_text = clean_cell_text(df.loc[i, "JAN"]).upper() if "JAN" in df.columns else ""
+        feb_text = clean_cell_text(df.loc[i, "FEB"]).upper() if "FEB" in df.columns else ""
+        mar_text = clean_cell_text(df.loc[i, "MAR"]).upper() if "MAR" in df.columns else ""
+
+        is_repeated_channel_header = (
+            identity_is_empty
+            and channel_text.lower() == "channel"
+            and jan_text == "JAN"
+            and feb_text == "FEB"
+            and mar_text == "MAR"
         )
 
-        if (cleaned == "").all():
+        is_lower_summary_row = identity_is_empty and months_have_data
+
+        if base_is_empty or is_repeated_channel_header or is_lower_summary_row:
             stop_idx = i
             break
 

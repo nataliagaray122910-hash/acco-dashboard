@@ -3962,98 +3962,6 @@ def render_overview_view() -> None:
         st.info("No hay columnas procesadas para mostrar todavía.")
 
 
-
-def render_plan_client_cloud_debug(latest_month: int) -> None:
-    """
-    DEBUG TEMPORAL:
-    Muestra cómo se está leyendo Plan2026 by Client en el entorno activo.
-    Sirve para comparar localhost vs Streamlit Cloud sin modificar cálculos.
-    """
-    df_plan_client = st.session_state.get("df_plan_client")
-    payload = st.session_state.get("mtd_payload")
-
-    if df_plan_client is None or df_plan_client.empty:
-        st.info("DEBUG Plan Cliente: no hay archivo Plan Cliente cargado en sesión.")
-        return
-
-    df_debug = data_processor.standardize_columns(df_plan_client)
-    month_columns = data_processor.get_plan_client_month_columns(df_debug)
-
-    with st.expander("DEBUG temporal - Plan Cliente leído por la app", expanded=False):
-        st.caption(
-            "Este bloque es temporal. Sirve para comparar exactamente qué está leyendo "
-            "localhost vs Streamlit Cloud en Plan2026 by Client."
-        )
-
-        st.write(f"Filas y columnas de Plan Cliente: {df_debug.shape}")
-        st.write("Columnas detectadas en Plan Cliente:")
-        st.json(list(df_debug.columns))
-
-        st.write("Columnas mensuales detectadas por data_processor:")
-        st.json(month_columns)
-
-        if payload is not None:
-            plan_summary = payload.get("plan_summary", {})
-            st.write("Resumen interno de plan usado en Base MTD:")
-            st.json(
-                {
-                    "mtd_plan_client": plan_summary.get("mtd_plan_client"),
-                    "mtd_plan_sku": plan_summary.get("mtd_plan_sku"),
-                    "ytd_plan_client": plan_summary.get("ytd_plan_client"),
-                    "ytd_plan_sku": plan_summary.get("ytd_plan_sku"),
-                    "mtd_plan_diff": plan_summary.get("mtd_plan_diff"),
-                    "ytd_plan_diff": plan_summary.get("ytd_plan_diff"),
-                }
-            )
-
-        if latest_month not in month_columns:
-            st.warning(
-                f"DEBUG Plan Cliente: no se encontró columna mensual para el mes {latest_month}."
-            )
-            return
-
-        month_col = month_columns[latest_month]
-        months_to_sum = [
-            month_columns[m]
-            for m in sorted(month_columns.keys())
-            if m <= latest_month
-        ]
-
-        month_numeric = data_processor.clean_numeric_series(df_debug[month_col])
-        ytd_numeric = sum(
-            data_processor.clean_numeric_series(df_debug[col])
-            for col in months_to_sum
-        )
-
-        st.write(f"Mes de corte detectado: {latest_month}")
-        st.write(f"Columna MTD usada en Plan Cliente: {month_col}")
-        st.write(f"Columnas YTD usadas en Plan Cliente: {months_to_sum}")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Suma bruta MTD Plan Cliente", f"{month_numeric.sum():,.4f}")
-        with col2:
-            st.metric("Suma bruta YTD Plan Cliente", f"{ytd_numeric.sum():,.4f}")
-        with col3:
-            st.metric("Filas con MTD distinto de 0", f"{int((month_numeric != 0).sum()):,}")
-
-        df_with_debug = df_debug.copy()
-        df_with_debug["__MTD_DEBUG__"] = month_numeric
-        df_with_debug["__YTD_DEBUG__"] = ytd_numeric
-
-        st.write("Últimas 40 filas de Plan Cliente, incluyendo columnas DEBUG:")
-        st.dataframe(df_with_debug.tail(40), use_container_width=True)
-
-        rows_with_mtd = df_with_debug[df_with_debug["__MTD_DEBUG__"] != 0].copy()
-        st.write(f"Últimas 50 filas con {month_col} distinto de 0:")
-        st.dataframe(rows_with_mtd.tail(50), use_container_width=True)
-
-        st.write(f"Top 50 filas por valor absoluto en {month_col}:")
-        rows_top_mtd = rows_with_mtd.copy()
-        rows_top_mtd["__ABS_MTD_DEBUG__"] = rows_top_mtd["__MTD_DEBUG__"].abs()
-        rows_top_mtd = rows_top_mtd.sort_values("__ABS_MTD_DEBUG__", ascending=False)
-        st.dataframe(rows_top_mtd.head(50), use_container_width=True)
-
 def render_mtd_base_view() -> None:
     st.markdown(
         '<div class="section-title">Base MTD</div>',
@@ -4086,10 +3994,6 @@ def render_mtd_base_view() -> None:
         st.markdown("---")
         st.info("Aún no se ha construido la Base MTD.")
         return
-
-    st.markdown("---")
-    st.markdown("### DEBUG temporal - Diagnóstico Plan Cliente")
-    render_plan_client_cloud_debug(payload["latest_month"])
 
     st.markdown("---")
     st.markdown("### 3. Comparativos MTD / YTD")
