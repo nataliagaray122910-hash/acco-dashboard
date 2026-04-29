@@ -343,7 +343,7 @@ def render_preview_expander(
         preview_df = convert_currency_columns_for_display(preview_df)
 
     with st.expander(title, expanded=False):
-        st.dataframe(preview_df, use_container_width=True)
+        st.dataframe(preview_df, width="stretch")
 
 # =========================================================
 # 4.2 HELPERS DE ALERTAS VISUALES
