@@ -109,6 +109,12 @@ if "persistent_data_loaded" not in st.session_state:
 if "persistent_data_metadata" not in st.session_state:
     st.session_state["persistent_data_metadata"] = None
 
+if "upload_reset_counter" not in st.session_state:
+    st.session_state["upload_reset_counter"] = 0
+
+if "suppress_persistent_autoload" not in st.session_state:
+    st.session_state["suppress_persistent_autoload"] = False
+
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================
@@ -397,6 +403,78 @@ def get_persistent_data_file() -> Path:
     return get_persistent_data_folder() / "latest_dashboard_data.pkl"
 
 
+def delete_persistent_data() -> bool:
+    """
+    Borra la carga administrativa guardada para viewers y limpia datos calculados
+    de la sesión actual.
+    """
+    try:
+        persistent_file = get_persistent_data_file()
+
+        if persistent_file.exists():
+            persistent_file.unlink()
+
+        st.session_state["persistent_data_loaded"] = False
+        st.session_state["persistent_data_metadata"] = None
+        st.session_state["suppress_persistent_autoload"] = True
+
+        st.session_state["df_processed_sales"] = None
+        clear_report_payloads()
+
+        set_success_message("Carga guardada para viewers eliminada correctamente.")
+        return True
+
+    except Exception as exc:
+        set_error_message(f"No fue posible borrar la carga guardada. Detalle: {exc}")
+        return False
+
+
+def clear_current_session_data() -> bool:
+    """
+    Limpia la carga actual de la sesión admin y reinicia visualmente los file_uploader.
+    Sirve para empezar desde cero sin que se mezclen archivos anteriores.
+    """
+    try:
+        keys_to_reset = {
+            "df_sales": None,
+            "df_plan_client": None,
+            "df_plan_sku": None,
+            "df_processed_sales": None,
+            "sales_valid": False,
+            "plan_client_valid": False,
+            "plan_sku_valid": False,
+            "sales_missing_columns": [],
+            "plan_client_missing_columns": [],
+            "plan_sku_missing_columns": [],
+            "sales_file_name": "",
+            "plan_client_file_name": "",
+            "plan_sku_file_name": "",
+            "persistent_data_loaded": False,
+            "persistent_data_metadata": None,
+            "suppress_persistent_autoload": True,
+            "sales_upload_signature": "",
+            "plan_client_upload_signature": "",
+            "plan_sku_upload_signature": "",
+        }
+
+        for key, value in keys_to_reset.items():
+            st.session_state[key] = value
+
+        # Cambia las llaves de los file_uploader para que Streamlit Cloud
+        # olvide visualmente los archivos que seguían seleccionados en el navegador.
+        st.session_state["upload_reset_counter"] = int(
+            st.session_state.get("upload_reset_counter", 0)
+        ) + 1
+
+        clear_report_payloads()
+        set_success_message("Sesión limpiada correctamente. Puedes volver a cargar los archivos desde cero.")
+        return True
+
+    except Exception as exc:
+        set_error_message(f"No fue posible limpiar la sesión. Detalle: {exc}")
+        return False
+
+
 def persistent_data_exists() -> bool:
     return get_persistent_data_file().exists()
 
@@ -480,6 +558,7 @@ def save_current_data_for_viewers() -> bool:
 
         st.session_state["persistent_data_loaded"] = True
         st.session_state["persistent_data_metadata"] = metadata
+        st.session_state["suppress_persistent_autoload"] = False
         set_success_message(
             "Carga administrativa guardada correctamente. Ya está disponible para usuarios viewer."
         )
@@ -524,6 +603,7 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         metadata = payload.get("metadata", {})
         st.session_state["persistent_data_metadata"] = metadata
         st.session_state["persistent_data_loaded"] = True
+        st.session_state["suppress_persistent_autoload"] = False
 
         clear_report_payloads()
 
@@ -1749,10 +1829,6 @@ def render_mtd_base_summary() -> None:
     if payload is None:
         st.info("Todavía no existe una Base MTD construida.")
         return
-
-    st.caption(
-        f"Versión data_processor activa: {getattr(data_processor, 'PROCESSOR_VERSION', 'SIN_VERSION')}"
-    )
 
     latest_month = payload["latest_month"]
     latest_year = payload["latest_year"]
@@ -3600,11 +3676,12 @@ def render_upload_view() -> None:
     uploaded_sales = st.file_uploader(
         "Carga el archivo de ventas",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_SALES,
+        key=f"{config.FILE_KEY_SALES}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_sales is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_sales = data_loader.load_sales_file(uploaded_sales)
             is_valid_sales, missing_sales = validators.validate_required_columns(
                 df_sales,
@@ -3646,11 +3723,12 @@ def render_upload_view() -> None:
     uploaded_plan_client = st.file_uploader(
         "Carga el archivo Plan2026 by Client",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_PLAN_CLIENT,
+        key=f"{config.FILE_KEY_PLAN_CLIENT}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_plan_client is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_plan_client = data_loader.load_plan_client_file(uploaded_plan_client)
             is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
                 df_plan_client,
@@ -3692,11 +3770,12 @@ def render_upload_view() -> None:
     uploaded_plan_sku = st.file_uploader(
         "Carga el archivo Plan2026 by SKU",
         type=config.ALLOWED_FILE_TYPES,
-        key=config.FILE_KEY_PLAN_SKU,
+        key=f"{config.FILE_KEY_PLAN_SKU}_{st.session_state.get('upload_reset_counter', 0)}",
     )
 
     if uploaded_plan_sku is not None:
         try:
+            st.session_state["suppress_persistent_autoload"] = True
             df_plan_sku = data_loader.load_plan_sku_file(uploaded_plan_sku)
             is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
                 df_plan_sku,
@@ -3789,6 +3868,32 @@ def render_upload_view() -> None:
     else:
         st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
 
+    # =====================================================
+    # LIMPIEZA DE SESIÓN Y CARGA GUARDADA
+    # =====================================================
+    st.markdown("---")
+    st.markdown("### 6. Limpieza de carga guardada")
+    st.caption(
+        "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores "
+        "o si necesitas empezar una carga completamente desde cero."
+    )
+
+    col_clear_session, col_clear_persistent = st.columns(2)
+
+    with col_clear_session:
+        st.button(
+            "Limpiar sesión actual",
+            on_click=clear_current_session_data,
+            use_container_width=True,
+        )
+
+    with col_clear_persistent:
+        st.button(
+            "Borrar carga guardada para viewers",
+            on_click=delete_persistent_data,
+            use_container_width=True,
+        )
+
     render_persistent_data_status()
 
 def render_overview_view() -> None:
@@ -3857,6 +3962,98 @@ def render_overview_view() -> None:
         st.info("No hay columnas procesadas para mostrar todavía.")
 
 
+
+def render_plan_client_cloud_debug(latest_month: int) -> None:
+    """
+    DEBUG TEMPORAL:
+    Muestra cómo se está leyendo Plan2026 by Client en el entorno activo.
+    Sirve para comparar localhost vs Streamlit Cloud sin modificar cálculos.
+    """
+    df_plan_client = st.session_state.get("df_plan_client")
+    payload = st.session_state.get("mtd_payload")
+
+    if df_plan_client is None or df_plan_client.empty:
+        st.info("DEBUG Plan Cliente: no hay archivo Plan Cliente cargado en sesión.")
+        return
+
+    df_debug = data_processor.standardize_columns(df_plan_client)
+    month_columns = data_processor.get_plan_client_month_columns(df_debug)
+
+    with st.expander("DEBUG temporal - Plan Cliente leído por la app", expanded=False):
+        st.caption(
+            "Este bloque es temporal. Sirve para comparar exactamente qué está leyendo "
+            "localhost vs Streamlit Cloud en Plan2026 by Client."
+        )
+
+        st.write(f"Filas y columnas de Plan Cliente: {df_debug.shape}")
+        st.write("Columnas detectadas en Plan Cliente:")
+        st.json(list(df_debug.columns))
+
+        st.write("Columnas mensuales detectadas por data_processor:")
+        st.json(month_columns)
+
+        if payload is not None:
+            plan_summary = payload.get("plan_summary", {})
+            st.write("Resumen interno de plan usado en Base MTD:")
+            st.json(
+                {
+                    "mtd_plan_client": plan_summary.get("mtd_plan_client"),
+                    "mtd_plan_sku": plan_summary.get("mtd_plan_sku"),
+                    "ytd_plan_client": plan_summary.get("ytd_plan_client"),
+                    "ytd_plan_sku": plan_summary.get("ytd_plan_sku"),
+                    "mtd_plan_diff": plan_summary.get("mtd_plan_diff"),
+                    "ytd_plan_diff": plan_summary.get("ytd_plan_diff"),
+                }
+            )
+
+        if latest_month not in month_columns:
+            st.warning(
+                f"DEBUG Plan Cliente: no se encontró columna mensual para el mes {latest_month}."
+            )
+            return
+
+        month_col = month_columns[latest_month]
+        months_to_sum = [
+            month_columns[m]
+            for m in sorted(month_columns.keys())
+            if m <= latest_month
+        ]
+
+        month_numeric = data_processor.clean_numeric_series(df_debug[month_col])
+        ytd_numeric = sum(
+            data_processor.clean_numeric_series(df_debug[col])
+            for col in months_to_sum
+        )
+
+        st.write(f"Mes de corte detectado: {latest_month}")
+        st.write(f"Columna MTD usada en Plan Cliente: {month_col}")
+        st.write(f"Columnas YTD usadas en Plan Cliente: {months_to_sum}")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Suma bruta MTD Plan Cliente", f"{month_numeric.sum():,.4f}")
+        with col2:
+            st.metric("Suma bruta YTD Plan Cliente", f"{ytd_numeric.sum():,.4f}")
+        with col3:
+            st.metric("Filas con MTD distinto de 0", f"{int((month_numeric != 0).sum()):,}")
+
+        df_with_debug = df_debug.copy()
+        df_with_debug["__MTD_DEBUG__"] = month_numeric
+        df_with_debug["__YTD_DEBUG__"] = ytd_numeric
+
+        st.write("Últimas 40 filas de Plan Cliente, incluyendo columnas DEBUG:")
+        st.dataframe(df_with_debug.tail(40), use_container_width=True)
+
+        rows_with_mtd = df_with_debug[df_with_debug["__MTD_DEBUG__"] != 0].copy()
+        st.write(f"Últimas 50 filas con {month_col} distinto de 0:")
+        st.dataframe(rows_with_mtd.tail(50), use_container_width=True)
+
+        st.write(f"Top 50 filas por valor absoluto en {month_col}:")
+        rows_top_mtd = rows_with_mtd.copy()
+        rows_top_mtd["__ABS_MTD_DEBUG__"] = rows_top_mtd["__MTD_DEBUG__"].abs()
+        rows_top_mtd = rows_top_mtd.sort_values("__ABS_MTD_DEBUG__", ascending=False)
+        st.dataframe(rows_top_mtd.head(50), use_container_width=True)
+
 def render_mtd_base_view() -> None:
     st.markdown(
         '<div class="section-title">Base MTD</div>',
@@ -3889,6 +4086,10 @@ def render_mtd_base_view() -> None:
         st.markdown("---")
         st.info("Aún no se ha construido la Base MTD.")
         return
+
+    st.markdown("---")
+    st.markdown("### DEBUG temporal - Diagnóstico Plan Cliente")
+    render_plan_client_cloud_debug(payload["latest_month"])
 
     st.markdown("---")
     st.markdown("### 3. Comparativos MTD / YTD")
@@ -3949,7 +4150,10 @@ def main() -> None:
         render_login_screen()
         return
 
-    if st.session_state.get("df_sales") is None:
+    if (
+        st.session_state.get("df_sales") is None
+        and not st.session_state.get("suppress_persistent_autoload", False)
+    ):
         load_persistent_data_to_session(show_message=False)
 
     render_main_header()
