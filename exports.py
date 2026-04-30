@@ -535,7 +535,7 @@ def build_report_2_category_excel_bytes(
         report_title=report_title,
         start_row=1,
         start_col=1,
-        width=8,
+        width=9,
     )
 
     write_two_tables_side_by_side(
@@ -690,7 +690,7 @@ def build_full_reports_excel_bytes(
             report_title=get_report_title_from_tables(report_2_category_tables),
             start_row=1,
             start_col=1,
-            width=8,
+            width=9,
         )
 
         write_two_tables_side_by_side(

@@ -1590,11 +1590,33 @@ def filter_report_2_category_table(
     for _, row in df_table.iterrows():
         is_total = bool(row.get("__is_total__", False))
         is_grand_total = bool(row.get("__is_grand_total__", False))
+        category_value = str(row.get("Category", "")).strip()
 
         if not is_total and not is_grand_total:
-            label_value = str(row.get("Category", "")).strip()
-            if label_value in selected_set:
+            if category_value in selected_set:
                 rows.append(dict(row))
+            continue
+
+        if is_total and not is_grand_total:
+            if category_value not in selected_set:
+                continue
+
+            category_rows = filtered_normals[
+                filtered_normals["Category"].astype(str).str.strip() == category_value
+            ].copy()
+
+            total_actual = category_rows["Actual"].apply(safe_float).sum()
+            total_plan = category_rows["Plan"].apply(safe_float).sum()
+            total_py = category_rows["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row,
+                    actual=total_actual,
+                    plan=total_plan,
+                    py=total_py,
+                )
+            )
             continue
 
         if is_grand_total:
@@ -2557,18 +2579,35 @@ def build_report_2_title_box_html() -> str:
 
 
 def build_report_2_table_html(title: str, df_table, first_header: str, view_type: str) -> str:
-    header_html = (
-        '<div class="report-grid report-grid-8">'
-        f'<div class="report-cell report-header report-header-neutral report-header-sticky">{escape(first_header)}</div>'
-        '<div class="report-cell report-header report-header-actual">Actual</div>'
-        '<div class="report-cell report-header report-header-plan">Plan</div>'
-        '<div class="report-cell report-header report-header-py">PY</div>'
-        '<div class="report-cell report-header report-header-neutral">Var VS Plan</div>'
-        '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
-        '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
-        '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        "</div>"
-    )
+    is_category_view = view_type == "category"
+
+    if is_category_view:
+        grid_class = "report-grid report-grid-9 report-category-grid"
+        header_html = (
+            '<div class="report-cell report-header report-header-neutral report-category-header-sticky">CATEGORY</div>'
+            '<div class="report-cell report-header report-header-neutral">CATEGORÍA DEL MATERIAL</div>'
+            '<div class="report-cell report-header report-header-actual">Actual</div>'
+            '<div class="report-cell report-header report-header-plan">Plan</div>'
+            '<div class="report-cell report-header report-header-py">PY</div>'
+            '<div class="report-cell report-header report-header-neutral">Var VS Plan</div>'
+            '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
+            '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
+            '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
+        )
+    else:
+        grid_class = "report-grid report-grid-8"
+        header_html = (
+            f'<div class="{grid_class}">'
+            f'<div class="report-cell report-header report-header-neutral report-header-sticky">{escape(first_header)}</div>'
+            '<div class="report-cell report-header report-header-actual">Actual</div>'
+            '<div class="report-cell report-header report-header-plan">Plan</div>'
+            '<div class="report-cell report-header report-header-py">PY</div>'
+            '<div class="report-cell report-header report-header-neutral">Var VS Plan</div>'
+            '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
+            '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
+            '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
+            "</div>"
+        )
 
     rows_html_parts: list[str] = []
 
@@ -2584,8 +2623,13 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
 
         if view_type == "segment_region":
             label_value = build_report_2_segment_region_display_label(row)
+            product_value = ""
+        elif is_category_view:
+            label_value = str(row.get("Category", "")).strip()
+            product_value = str(row.get("Producto", "")).strip()
         else:
             label_value = str(row.get("Category", "")).strip()
+            product_value = ""
 
         actual_value = row["Actual"]
         plan_value = row["Plan"]
@@ -2603,28 +2647,54 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
         var_py_negative = (not is_blank_number(var_py_value)) and float(var_py_value) < 0
         pct_py_negative = (not is_blank_number(pct_py_value)) and float(pct_py_value) < 0
 
-        row_html = (
-            f'<div class="{row_class}">'
-            f'<div class="report-cell report-label-cell">{escape(label_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_2_value(actual_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_2_value(plan_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_2_value(py_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if var_plan_negative else ""}">{format_report_2_value(var_plan_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_2_value(pct_plan_value, is_percent=True)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_2_value(var_py_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_2_value(pct_py_value, is_percent=True)}</div>'
-            "</div>"
-        )
+        if is_category_view:
+            row_html = (
+                f'<div class="{row_class}">'
+                f'<div class="report-cell report-label-cell report-sticky-cell">{escape(label_value)}</div>'
+                f'<div class="report-cell report-category-product-cell">{escape(product_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_2_value(actual_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_2_value(plan_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_2_value(py_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if var_plan_negative else ""}">{format_report_2_value(var_plan_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_2_value(pct_plan_value, is_percent=True)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_2_value(var_py_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_2_value(pct_py_value, is_percent=True)}</div>'
+                "</div>"
+            )
+        else:
+            row_html = (
+                f'<div class="{row_class}">'
+                f'<div class="report-cell report-label-cell">{escape(label_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_2_value(actual_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_2_value(plan_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_2_value(py_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if var_plan_negative else ""}">{format_report_2_value(var_plan_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_2_value(pct_plan_value, is_percent=True)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_2_value(var_py_value)}</div>'
+                f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_2_value(pct_py_value, is_percent=True)}</div>'
+                "</div>"
+            )
+
         rows_html_parts.append(row_html)
 
     rows_html = "".join(rows_html_parts)
+
+    if is_category_view:
+        return (
+            '<div class="report-table-card report-category-card">'
+            f'<div class="report-table-title">{escape(title)}</div>'
+            '<div class="report-table-scroll report-category-scroll">'
+            f'<div class="{grid_class}">{header_html}{rows_html}</div>'
+            "</div>"
+            "</div>"
+        )
 
     return (
         '<div class="report-table-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
         '<div class="report-table-scroll">'
         f"{header_html}"
-        f'<div class="report-grid report-grid-8">{rows_html}</div>'
+        f'<div class="{grid_class}">{rows_html}</div>'
         "</div>"
         "</div>"
     )

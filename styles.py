@@ -814,6 +814,11 @@ def build_global_css() -> str:
         grid-template-columns: 2.15fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
     }}
 
+    .report-grid-9 {{
+        grid-template-columns: 1.65fr 2.05fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr;
+        min-width: 1180px;
+    }}
+
     .report-row {{
         display: contents;
     }}
@@ -877,6 +882,23 @@ def build_global_css() -> str:
         padding-left: 0.85rem;
     }}
 
+
+
+    /* =====================================================
+       HEADER CATEGORY FIJO EN VERTICAL Y HORIZONTAL
+       ===================================================== */
+    .report-category-header-sticky {{
+        position: sticky !important;
+        left: 0 !important;
+        top: 0 !important;
+        z-index: 180 !important;
+        justify-content: flex-start;
+        text-align: left;
+        padding-left: 0.85rem;
+        background: #1F2A44 !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.16);
+    }}
+
     .report-value-cell {{
         color: {config.COLOR_TEXT};
     }}
@@ -906,6 +928,111 @@ def build_global_css() -> str:
 
     .report-spacer {{
         height: 0.35rem;
+    }}
+
+
+
+    /* =====================================================
+       FIX FINAL: ENCABEZADOS FIJOS Y PRIMERA COLUMNA FIJA
+       ===================================================== */
+    .report-table-scroll {{
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        max-height: 560px !important;
+        border-radius: 14px;
+        border: 1px solid #E5E7EB;
+        position: relative;
+        background: #FFFFFF;
+    }}
+
+    .report-category-scroll {{
+        max-height: 620px !important;
+        position: relative !important;
+    }}
+
+    .report-table-scroll > .report-grid:first-child {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 70 !important;
+        background: #FFFFFF !important;
+    }}
+
+    .report-header {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 80 !important;
+    }}
+
+    .report-header-sticky {{
+        position: sticky !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 95 !important;
+    }}
+
+    .report-category-grid {{
+        display: grid !important;
+        grid-template-columns: 1.65fr 2.05fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr !important;
+        min-width: 1180px !important;
+        width: 100% !important;
+        gap: 0 !important;
+    }}
+
+    .report-category-header-sticky {{
+        position: sticky !important;
+        left: 0 !important;
+        top: 0 !important;
+        z-index: 120 !important;
+        justify-content: flex-start;
+        text-align: left;
+        padding-left: 0.85rem;
+        background: #1F2A44 !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.16);
+    }}
+
+    .report-sticky-cell {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 30 !important;
+        background: #F8FAFC;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.08);
+    }}
+
+    .report-category-grid .report-sticky-cell {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 30 !important;
+        background: #F8FAFC !important;
+    }}
+
+    .report-category-grid .report-header {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 90 !important;
+    }}
+
+    .report-category-grid .report-category-header-sticky {{
+        z-index: 130 !important;
+    }}
+
+    .report-category-product-cell {{
+        background: #F8FAFC;
+        color: {config.COLOR_SECONDARY};
+        font-weight: 700;
+        justify-content: flex-start;
+        text-align: left;
+        padding-left: 0.85rem;
+        position: static !important;
+        left: auto !important;
+        z-index: 1 !important;
+    }}
+
+    .report-total .report-sticky-cell {{
+        background: #F3F6FA !important;
+    }}
+
+    .report-highlight .report-sticky-cell {{
+        background: #DCEFD8 !important;
     }}
 
     /* =====================================================
@@ -1073,4 +1200,3 @@ def build_currency_box(title: str, subtitle: str = "") -> str:
         {subtitle_html}
     </div>
     """
-

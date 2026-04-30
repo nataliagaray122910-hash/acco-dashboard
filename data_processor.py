@@ -1290,17 +1290,44 @@ def normalize_report_2_segment_label(value) -> str:
 # Normaliza Category para Reporte 2
 # --------------------------------------------------------------
 def normalize_report_2_category_label(value) -> str:
+    """
+    Normaliza Category para Reporte 2.
+
+    Importante:
+    - Antes el código convertía #N/A, N/A, nan, None en vacío.
+    - Para este reporte sí necesitamos conservar esa bolsa como categoría visible,
+      porque en Excel también aparece y forma parte del total.
+    """
     if pd.isna(value):
-        return ""
+        return "#N/A"
 
     text = re.sub(r"\s+", " ", str(value).strip())
     if not text:
-        return ""
+        return "#N/A"
 
     upper_text = text.upper()
 
-    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE"}:
-        return ""
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    return text
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza producto / subcategoría para Reporte 2 Category
+# --------------------------------------------------------------
+def normalize_report_2_product_label(value) -> str:
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
 
     return text
 
@@ -1812,6 +1839,19 @@ def prepare_sales_for_report_2_category(df_processed_sales: pd.DataFrame) -> pd.
             "Category",
         ],
     )
+    product_col = find_first_existing_column(
+        df,
+        [
+            "Categoría del Material",
+            "Categoria del Material",
+            "Categoría Material",
+            "Categoria Material",
+            "local Sub category",
+            "Local Sub category",
+            "Sub category",
+            "Subcategory",
+        ],
+    )
     gsnr_col = find_first_existing_column(df, [config.COL_GSNR, "GSNR"])
 
     required_columns = [category_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
@@ -1823,9 +1863,13 @@ def prepare_sales_for_report_2_category(df_processed_sales: pd.DataFrame) -> pd.
 
     df = df.copy()
     df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
-    df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
-    df = df[df["__category__"] != ""].copy()
+    if product_col is None:
+        df["__product__"] = "#N/A"
+    else:
+        df["__product__"] = df[product_col].apply(normalize_report_2_product_label)
+
+    df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
     return df
 
@@ -1845,6 +1889,19 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
             "Category",
         ],
     )
+    product_col = find_first_existing_column(
+        df,
+        [
+            "local Sub category",
+            "Local Sub category",
+            "Sub category",
+            "Subcategory",
+            "Categoría del Material",
+            "Categoria del Material",
+            "Categoría Material",
+            "Categoria Material",
+        ],
+    )
 
     if category_col is None:
         raise ValueError(
@@ -1859,16 +1916,19 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
     df = df.copy()
     df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
 
+    if product_col is None:
+        df["__product__"] = "#N/A"
+    else:
+        df["__product__"] = df[product_col].apply(normalize_report_2_product_label)
+
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col])
-
-    df = df[df["__category__"] != ""].copy()
 
     return df
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega ventas Category
+# Agrega ventas Category + Producto
 # --------------------------------------------------------------
 def get_sales_category_totals_for_report_2(
     df_processed_sales: pd.DataFrame,
@@ -1882,12 +1942,13 @@ def get_sales_category_totals_for_report_2(
 
     mtd_actual = (
         current_year_df[current_year_df[config.COL_MONTH] == selected_month]
-        .groupby("__category__", dropna=False)["__gsnr__"]
+        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 "__gsnr__": "Valor",
             }
         )
@@ -1895,12 +1956,13 @@ def get_sales_category_totals_for_report_2(
 
     ytd_actual = (
         current_year_df[current_year_df[config.COL_MONTH] <= selected_month]
-        .groupby("__category__", dropna=False)["__gsnr__"]
+        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 "__gsnr__": "Valor",
             }
         )
@@ -1908,12 +1970,13 @@ def get_sales_category_totals_for_report_2(
 
     mtd_py = (
         previous_year_df[previous_year_df[config.COL_MONTH] == selected_month]
-        .groupby("__category__", dropna=False)["__gsnr__"]
+        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 "__gsnr__": "Valor",
             }
         )
@@ -1921,12 +1984,13 @@ def get_sales_category_totals_for_report_2(
 
     ytd_py = (
         previous_year_df[previous_year_df[config.COL_MONTH] <= selected_month]
-        .groupby("__category__", dropna=False)["__gsnr__"]
+        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 "__gsnr__": "Valor",
             }
         )
@@ -1936,7 +2000,7 @@ def get_sales_category_totals_for_report_2(
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega plan Category
+# Agrega plan Category + Producto
 # --------------------------------------------------------------
 def get_plan_category_totals_for_report_2(
     df_plan_sku: pd.DataFrame,
@@ -1954,12 +2018,13 @@ def get_plan_category_totals_for_report_2(
     months_to_sum = [gs_columns[m] for m in sorted(gs_columns.keys()) if m <= latest_month]
 
     mtd_plan = (
-        df.groupby("__category__", dropna=False)[month_col]
+        df.groupby(["__category__", "__product__"], dropna=False)[month_col]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 month_col: "Valor",
             }
         )
@@ -1967,12 +2032,13 @@ def get_plan_category_totals_for_report_2(
 
     ytd_plan = (
         df.assign(__ytd__=df[months_to_sum].sum(axis=1))
-        .groupby("__category__", dropna=False)["__ytd__"]
+        .groupby(["__category__", "__product__"], dropna=False)["__ytd__"]
         .sum()
         .reset_index()
         .rename(
             columns={
                 "__category__": "Category",
+                "__product__": "Producto",
                 "__ytd__": "Valor",
             }
         )
@@ -1982,16 +2048,19 @@ def get_plan_category_totals_for_report_2(
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Convierte agregados Category a diccionario
+# Convierte agregados Category + Producto a diccionario
 # --------------------------------------------------------------
-def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[str, float]:
+def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, str], float]:
     if df is None or df.empty:
         return {}
 
     result = {}
 
     for _, row in df.iterrows():
-        key = normalize_report_2_category_label(row["Category"])
+        key = (
+            normalize_report_2_category_label(row.get("Category", "#N/A")),
+            normalize_report_2_product_label(row.get("Producto", "#N/A")),
+        )
         result[key] = float(row["Valor"])
 
     return result
@@ -2001,7 +2070,20 @@ def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[str, float]:
 # Llave de orden para Category
 # --------------------------------------------------------------
 def get_report_2_category_sort_key(category_value: str) -> str:
-    return normalize_report_2_category_label(category_value).lower()
+    normalized_value = normalize_report_2_category_label(category_value)
+    if normalized_value == "#N/A":
+        return "zzzzzz_#n/a"
+    return normalized_value.lower()
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Llave de orden para producto
+# --------------------------------------------------------------
+def get_report_2_product_sort_key(product_value: str) -> str:
+    normalized_value = normalize_report_2_product_label(product_value)
+    if normalized_value == "#N/A":
+        return "zzzzzz_#n/a"
+    return normalized_value.lower()
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -2009,6 +2091,7 @@ def get_report_2_category_sort_key(category_value: str) -> str:
 # --------------------------------------------------------------
 def build_report_2_category_row(
     category_label: str,
+    product_label: str,
     actual: float,
     plan: float,
     py: float,
@@ -2017,6 +2100,7 @@ def build_report_2_category_row(
 ) -> dict:
     return {
         "Category": category_label,
+        "Producto": product_label,
         "Actual": float(actual),
         "Plan": float(plan),
         "PY": float(py),
@@ -2030,7 +2114,7 @@ def build_report_2_category_row(
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Construye tabla final Category
+# Construye tabla final Category + Producto
 # --------------------------------------------------------------
 def build_report_2_category_table(
     actual_df: pd.DataFrame,
@@ -2041,10 +2125,15 @@ def build_report_2_category_table(
     plan_dict = aggregated_category_df_to_dict(plan_df)
     py_dict = aggregated_category_df_to_dict(py_df)
 
-    all_categories = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
+    all_keys = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
+
+    grouped_products_by_category: dict[str, list[str]] = {}
+
+    for category_value, product_value in all_keys:
+        grouped_products_by_category.setdefault(category_value, []).append(product_value)
 
     ordered_categories = sorted(
-        all_categories,
+        grouped_products_by_category.keys(),
         key=get_report_2_category_sort_key,
     )
 
@@ -2055,29 +2144,61 @@ def build_report_2_category_table(
     grand_total_py = 0.0
 
     for category_value in ordered_categories:
-        actual_value = float(actual_dict.get(category_value, 0.0))
-        plan_value = float(plan_dict.get(category_value, 0.0))
-        py_value = float(py_dict.get(category_value, 0.0))
+        product_values = sorted(
+            set(grouped_products_by_category.get(category_value, [])),
+            key=get_report_2_product_sort_key,
+        )
 
-        if actual_value == 0 and plan_value == 0 and py_value == 0:
+        total_actual = 0.0
+        total_plan = 0.0
+        total_py = 0.0
+
+        for product_value in product_values:
+            key = (category_value, product_value)
+
+            actual_value = float(actual_dict.get(key, 0.0))
+            plan_value = float(plan_dict.get(key, 0.0))
+            py_value = float(py_dict.get(key, 0.0))
+
+            if actual_value == 0 and plan_value == 0 and py_value == 0:
+                continue
+
+            rows.append(
+                build_report_2_category_row(
+                    category_label=category_value,
+                    product_label=product_value,
+                    actual=actual_value,
+                    plan=plan_value,
+                    py=py_value,
+                )
+            )
+
+            total_actual += actual_value
+            total_plan += plan_value
+            total_py += py_value
+
+        if total_actual == 0 and total_plan == 0 and total_py == 0:
             continue
 
         rows.append(
             build_report_2_category_row(
                 category_label=category_value,
-                actual=actual_value,
-                plan=plan_value,
-                py=py_value,
+                product_label=config.REPORT_2_TOTAL_LABEL,
+                actual=total_actual,
+                plan=total_plan,
+                py=total_py,
+                is_total=True,
             )
         )
 
-        grand_total_actual += actual_value
-        grand_total_plan += plan_value
-        grand_total_py += py_value
+        grand_total_actual += total_actual
+        grand_total_plan += total_plan
+        grand_total_py += total_py
 
     rows.append(
         build_report_2_category_row(
             category_label=config.REPORT_2_GRAND_TOTAL_LABEL,
+            product_label="",
             actual=grand_total_actual,
             plan=grand_total_plan,
             py=grand_total_py,
@@ -2996,4 +3117,3 @@ def build_report_4_top_clients_payload(
         "mtd_top_clients_table": mtd_table,
         "ytd_top_clients_table": ytd_table,
     }
-
