@@ -9,6 +9,7 @@ from pathlib import Path
 from datetime import datetime
 import math
 import pickle
+import pytz  # FIX timezone
 
 import streamlit as st
 
@@ -18,6 +19,16 @@ import data_processor
 import exports
 import styles
 import validators
+
+def build_persistent_metadata() -> dict:
+    mexico_tz = pytz.timezone("America/Mexico_City")
+    return {
+        "updated_at": datetime.now(mexico_tz).strftime("%d/%m/%Y %H:%M"),
+        "updated_by": st.session_state.get("user_role", "admin"),
+        "sales_file_name": st.session_state.get("sales_file_name", "Archivo de ventas"),
+        "plan_client_file_name": st.session_state.get("plan_client_file_name", "Plan2026 by Client"),
+        "plan_sku_file_name": st.session_state.get("plan_sku_file_name", "Plan2026 by SKU"),
+    }
 
 # =========================================================
 # 1. CONFIGURACIÓN GENERAL DE LA PÁGINA
