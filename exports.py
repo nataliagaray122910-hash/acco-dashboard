@@ -754,4 +754,3 @@ def build_full_reports_excel_bytes(
 
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
-

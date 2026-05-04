@@ -466,11 +466,15 @@ REQUIRED_COLUMNS_REPORT_2_CATEGORY_SALES = [
     "Periodo",
     "Corpo Category",
     "Grupo de vendedores",
+    "Material",
+    "Descripción del Material",
     "GSNR",
 ]
 
 REQUIRED_COLUMNS_REPORT_2_CATEGORY_PLAN_SKU = [
     "Corpo Category",
+    "Material",
+    "Descripción del Material",
 ]
 
 MSG_REPORT_2_CATEGORY_BUILD_SUCCESS = "Reporte Category construido correctamente."

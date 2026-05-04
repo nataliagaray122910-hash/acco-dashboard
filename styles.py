@@ -819,6 +819,11 @@ def build_global_css() -> str:
         min-width: 1180px;
     }}
 
+    .report-grid-11 {{
+        grid-template-columns: 1.45fr 1.20fr 1.90fr 2.15fr 0.85fr 0.85fr 0.85fr 1fr 1fr 1fr 1fr;
+        min-width: 1550px;
+    }}
+
     .report-row {{
         display: contents;
     }}
@@ -972,8 +977,8 @@ def build_global_css() -> str:
 
     .report-category-grid {{
         display: grid !important;
-        grid-template-columns: 1.65fr 2.05fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr !important;
-        min-width: 1180px !important;
+        grid-template-columns: 1.45fr 1.20fr 1.90fr 2.15fr 0.85fr 0.85fr 0.85fr 1fr 1fr 1fr 1fr !important;
+        min-width: 1550px !important;
         width: 100% !important;
         gap: 0 !important;
     }}

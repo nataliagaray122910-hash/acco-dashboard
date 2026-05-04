@@ -1821,7 +1821,45 @@ def build_report_2_segment_region_payload(
 
 # ==============================================================
 # ETAPA 6.1: REPORTE 2 - CATEGORY
-# ==============================================================
+# ============================================================== 
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza Material para Reporte 2 Category
+# --------------------------------------------------------------
+def normalize_report_2_material_label(value) -> str:
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    return text
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza Descripción del Material para Reporte 2 Category
+# --------------------------------------------------------------
+def normalize_report_2_material_description_label(value) -> str:
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    return text
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -1839,6 +1877,7 @@ def prepare_sales_for_report_2_category(df_processed_sales: pd.DataFrame) -> pd.
             "Category",
         ],
     )
+    material_col = find_first_existing_column(df, ["Material"])
     product_col = find_first_existing_column(
         df,
         [
@@ -1852,17 +1891,35 @@ def prepare_sales_for_report_2_category(df_processed_sales: pd.DataFrame) -> pd.
             "Subcategory",
         ],
     )
+    description_col = find_first_existing_column(
+        df,
+        [
+            "Descripción del Material",
+            "Descripcion del Material",
+            "Descripción Material",
+            "Descripcion Material",
+        ],
+    )
     gsnr_col = find_first_existing_column(df, [config.COL_GSNR, "GSNR"])
 
-    required_columns = [category_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
+    required_columns = [
+        category_col,
+        material_col,
+        description_col,
+        gsnr_col,
+        config.COL_YEAR,
+        config.COL_MONTH,
+    ]
     if any(col is None for col in required_columns):
         raise ValueError(
             "Faltan columnas requeridas en ventas para Reporte Category. "
-            "Se requieren Corpo Category, GSNR, Año y Mes."
+            "Se requieren Corpo Category, Material, Descripción del Material, GSNR, Año y Mes."
         )
 
     df = df.copy()
     df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
+    df["__material__"] = df[material_col].apply(normalize_report_2_material_label)
+    df["__description__"] = df[description_col].apply(normalize_report_2_material_description_label)
 
     if product_col is None:
         df["__product__"] = "#N/A"
@@ -1889,6 +1946,7 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
             "Category",
         ],
     )
+    material_col = find_first_existing_column(df, ["Material"])
     product_col = find_first_existing_column(
         df,
         [
@@ -1902,11 +1960,21 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
             "Categoria Material",
         ],
     )
+    description_col = find_first_existing_column(
+        df,
+        [
+            "Descripción del Material",
+            "Descripcion del Material",
+            "Descripción Material",
+            "Descripcion Material",
+        ],
+    )
 
-    if category_col is None:
+    required_columns = [category_col, material_col, description_col]
+    if any(col is None for col in required_columns):
         raise ValueError(
             "Faltan columnas requeridas en Plan por SKU para Reporte Category. "
-            "Se requiere Corpo Category."
+            "Se requieren Corpo Category, Material y Descripción del Material."
         )
 
     month_columns = get_plan_sku_gs_columns(df)
@@ -1915,6 +1983,8 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
 
     df = df.copy()
     df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
+    df["__material__"] = df[material_col].apply(normalize_report_2_material_label)
+    df["__description__"] = df[description_col].apply(normalize_report_2_material_description_label)
 
     if product_col is None:
         df["__product__"] = "#N/A"
@@ -1928,7 +1998,7 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega ventas Category + Producto
+# Agrega ventas Category + Material + Categoría del Material + Descripción del Material
 # --------------------------------------------------------------
 def get_sales_category_totals_for_report_2(
     df_processed_sales: pd.DataFrame,
@@ -1936,71 +2006,56 @@ def get_sales_category_totals_for_report_2(
     selected_month: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = prepare_sales_for_report_2_category(df_processed_sales)
+    group_columns = ["__category__", "__material__", "__product__", "__description__"]
 
     current_year_df = df[df[config.COL_YEAR] == selected_year].copy()
     previous_year_df = df[df[config.COL_YEAR] == (selected_year - 1)].copy()
 
+    rename_columns = {
+        "__category__": "Category",
+        "__material__": "Material",
+        "__product__": "Categoría del Material",
+        "__description__": "Descripción del Material",
+        "__gsnr__": "Valor",
+    }
+
     mtd_actual = (
         current_year_df[current_year_df[config.COL_MONTH] == selected_month]
-        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
+        .groupby(group_columns, dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                "__gsnr__": "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     ytd_actual = (
         current_year_df[current_year_df[config.COL_MONTH] <= selected_month]
-        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
+        .groupby(group_columns, dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                "__gsnr__": "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     mtd_py = (
         previous_year_df[previous_year_df[config.COL_MONTH] == selected_month]
-        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
+        .groupby(group_columns, dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                "__gsnr__": "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     ytd_py = (
         previous_year_df[previous_year_df[config.COL_MONTH] <= selected_month]
-        .groupby(["__category__", "__product__"], dropna=False)["__gsnr__"]
+        .groupby(group_columns, dropna=False)["__gsnr__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                "__gsnr__": "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     return mtd_actual, ytd_actual, mtd_py, ytd_py
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega plan Category + Producto
+# Agrega plan Category + Material + Categoría del Material + Descripción del Material
 # --------------------------------------------------------------
 def get_plan_category_totals_for_report_2(
     df_plan_sku: pd.DataFrame,
@@ -2008,6 +2063,7 @@ def get_plan_category_totals_for_report_2(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     df = prepare_plan_sku_for_report_2_category(df_plan_sku)
     gs_columns = get_plan_sku_gs_columns(df)
+    group_columns = ["__category__", "__material__", "__product__", "__description__"]
 
     if latest_month not in gs_columns:
         raise ValueError(
@@ -2017,40 +2073,37 @@ def get_plan_category_totals_for_report_2(
     month_col = gs_columns[latest_month]
     months_to_sum = [gs_columns[m] for m in sorted(gs_columns.keys()) if m <= latest_month]
 
+    rename_columns = {
+        "__category__": "Category",
+        "__material__": "Material",
+        "__product__": "Categoría del Material",
+        "__description__": "Descripción del Material",
+        month_col: "Valor",
+        "__ytd__": "Valor",
+    }
+
     mtd_plan = (
-        df.groupby(["__category__", "__product__"], dropna=False)[month_col]
+        df.groupby(group_columns, dropna=False)[month_col]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                month_col: "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     ytd_plan = (
         df.assign(__ytd__=df[months_to_sum].sum(axis=1))
-        .groupby(["__category__", "__product__"], dropna=False)["__ytd__"]
+        .groupby(group_columns, dropna=False)["__ytd__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__category__": "Category",
-                "__product__": "Producto",
-                "__ytd__": "Valor",
-            }
-        )
+        .rename(columns=rename_columns)
     )
 
     return mtd_plan, ytd_plan
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Convierte agregados Category + Producto a diccionario
+# Convierte agregados Category + Material + Categoría del Material + Descripción a diccionario
 # --------------------------------------------------------------
-def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, str], float]:
+def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, str, str, str], float]:
     if df is None or df.empty:
         return {}
 
@@ -2059,7 +2112,9 @@ def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, str], fl
     for _, row in df.iterrows():
         key = (
             normalize_report_2_category_label(row.get("Category", "#N/A")),
-            normalize_report_2_product_label(row.get("Producto", "#N/A")),
+            normalize_report_2_material_label(row.get("Material", "#N/A")),
+            normalize_report_2_product_label(row.get("Categoría del Material", "#N/A")),
+            normalize_report_2_material_description_label(row.get("Descripción del Material", "#N/A")),
         )
         result[key] = float(row["Valor"])
 
@@ -2077,10 +2132,30 @@ def get_report_2_category_sort_key(category_value: str) -> str:
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Llave de orden para producto
+# Llave de orden para Material
+# --------------------------------------------------------------
+def get_report_2_material_sort_key(material_value: str) -> str:
+    normalized_value = normalize_report_2_material_label(material_value)
+    if normalized_value == "#N/A":
+        return "zzzzzz_#n/a"
+    return normalized_value.lower()
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Llave de orden para Categoría del Material
 # --------------------------------------------------------------
 def get_report_2_product_sort_key(product_value: str) -> str:
     normalized_value = normalize_report_2_product_label(product_value)
+    if normalized_value == "#N/A":
+        return "zzzzzz_#n/a"
+    return normalized_value.lower()
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Llave de orden para Descripción del Material
+# --------------------------------------------------------------
+def get_report_2_description_sort_key(description_value: str) -> str:
+    normalized_value = normalize_report_2_material_description_label(description_value)
     if normalized_value == "#N/A":
         return "zzzzzz_#n/a"
     return normalized_value.lower()
@@ -2091,7 +2166,9 @@ def get_report_2_product_sort_key(product_value: str) -> str:
 # --------------------------------------------------------------
 def build_report_2_category_row(
     category_label: str,
+    material_label: str,
     product_label: str,
+    description_label: str,
     actual: float,
     plan: float,
     py: float,
@@ -2100,7 +2177,9 @@ def build_report_2_category_row(
 ) -> dict:
     return {
         "Category": category_label,
-        "Producto": product_label,
+        "Material": material_label,
+        "Categoría del Material": product_label,
+        "Descripción del Material": description_label,
         "Actual": float(actual),
         "Plan": float(plan),
         "PY": float(py),
@@ -2114,7 +2193,7 @@ def build_report_2_category_row(
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Construye tabla final Category + Producto
+# Construye tabla final Category + Material + Categoría del Material + Descripción del Material
 # --------------------------------------------------------------
 def build_report_2_category_table(
     actual_df: pd.DataFrame,
@@ -2127,13 +2206,15 @@ def build_report_2_category_table(
 
     all_keys = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
 
-    grouped_products_by_category: dict[str, list[str]] = {}
+    grouped_details_by_category: dict[str, list[tuple[str, str, str]]] = {}
 
-    for category_value, product_value in all_keys:
-        grouped_products_by_category.setdefault(category_value, []).append(product_value)
+    for category_value, material_value, product_value, description_value in all_keys:
+        grouped_details_by_category.setdefault(category_value, []).append(
+            (material_value, product_value, description_value)
+        )
 
     ordered_categories = sorted(
-        grouped_products_by_category.keys(),
+        grouped_details_by_category.keys(),
         key=get_report_2_category_sort_key,
     )
 
@@ -2144,17 +2225,21 @@ def build_report_2_category_table(
     grand_total_py = 0.0
 
     for category_value in ordered_categories:
-        product_values = sorted(
-            set(grouped_products_by_category.get(category_value, [])),
-            key=get_report_2_product_sort_key,
+        detail_values = sorted(
+            set(grouped_details_by_category.get(category_value, [])),
+            key=lambda item: (
+                get_report_2_material_sort_key(item[0]),
+                get_report_2_product_sort_key(item[1]),
+                get_report_2_description_sort_key(item[2]),
+            ),
         )
 
         total_actual = 0.0
         total_plan = 0.0
         total_py = 0.0
 
-        for product_value in product_values:
-            key = (category_value, product_value)
+        for material_value, product_value, description_value in detail_values:
+            key = (category_value, material_value, product_value, description_value)
 
             actual_value = float(actual_dict.get(key, 0.0))
             plan_value = float(plan_dict.get(key, 0.0))
@@ -2166,7 +2251,9 @@ def build_report_2_category_table(
             rows.append(
                 build_report_2_category_row(
                     category_label=category_value,
+                    material_label=material_value,
                     product_label=product_value,
+                    description_label=description_value,
                     actual=actual_value,
                     plan=plan_value,
                     py=py_value,
@@ -2183,7 +2270,9 @@ def build_report_2_category_table(
         rows.append(
             build_report_2_category_row(
                 category_label=category_value,
+                material_label="",
                 product_label=config.REPORT_2_TOTAL_LABEL,
+                description_label="",
                 actual=total_actual,
                 plan=total_plan,
                 py=total_py,
@@ -2198,7 +2287,9 @@ def build_report_2_category_table(
     rows.append(
         build_report_2_category_row(
             category_label=config.REPORT_2_GRAND_TOTAL_LABEL,
+            material_label="",
             product_label="",
+            description_label="",
             actual=grand_total_actual,
             plan=grand_total_plan,
             py=grand_total_py,

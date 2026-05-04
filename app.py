@@ -2585,10 +2585,12 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
     is_category_view = view_type == "category"
 
     if is_category_view:
-        grid_class = "report-grid report-grid-9 report-category-grid"
+        grid_class = "report-grid report-grid-11 report-category-grid"
         header_html = (
             '<div class="report-cell report-header report-header-neutral report-category-header-sticky">CATEGORY</div>'
+            '<div class="report-cell report-header report-header-neutral">MATERIAL</div>'
             '<div class="report-cell report-header report-header-neutral">CATEGORÍA DEL MATERIAL</div>'
+            '<div class="report-cell report-header report-header-neutral">DESCRIPCIÓN DEL MATERIAL</div>'
             '<div class="report-cell report-header report-header-actual">Actual</div>'
             '<div class="report-cell report-header report-header-plan">Plan</div>'
             '<div class="report-cell report-header report-header-py">PY</div>'
@@ -2626,13 +2628,19 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
 
         if view_type == "segment_region":
             label_value = build_report_2_segment_region_display_label(row)
+            material_value = ""
             product_value = ""
+            description_value = ""
         elif is_category_view:
             label_value = str(row.get("Category", "")).strip()
-            product_value = str(row.get("Producto", "")).strip()
+            material_value = str(row.get("Material", "")).strip()
+            product_value = str(row.get("Categoría del Material", "")).strip()
+            description_value = str(row.get("Descripción del Material", "")).strip()
         else:
             label_value = str(row.get("Category", "")).strip()
+            material_value = ""
             product_value = ""
+            description_value = ""
 
         actual_value = row["Actual"]
         plan_value = row["Plan"]
@@ -2654,7 +2662,9 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
             row_html = (
                 f'<div class="{row_class}">'
                 f'<div class="report-cell report-label-cell report-sticky-cell">{escape(label_value)}</div>'
+                f'<div class="report-cell report-category-product-cell">{escape(material_value)}</div>'
                 f'<div class="report-cell report-category-product-cell">{escape(product_value)}</div>'
+                f'<div class="report-cell report-category-product-cell">{escape(description_value)}</div>'
                 f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_2_value(actual_value)}</div>'
                 f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_2_value(plan_value)}</div>'
                 f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_2_value(py_value)}</div>'
