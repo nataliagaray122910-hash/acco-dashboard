@@ -23,6 +23,45 @@ def image_to_base64(image_path: str) -> str | None:
     except Exception:
         return None
 
+
+def apply_login_background(image_path: str) -> str:
+    """
+    Aplica una imagen de fondo SOLO para la pantalla de inicio de sesión.
+    
+    Uso recomendado en app.py, dentro de render_login_screen():
+        st.markdown(
+            styles.apply_login_background("assets/fondo.png"),
+            unsafe_allow_html=True
+        )
+    """
+    image_base64 = image_to_base64(image_path)
+
+    if not image_base64:
+        return ""
+
+    return f"""
+    <style>
+    /* =====================================================
+       FONDO EXCLUSIVO PARA LOGIN
+       ===================================================== */
+    .stApp {{
+        background-image:
+            linear-gradient(rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0.38)),
+            url("data:image/png;base64,{image_base64}") !important;
+        background-size: cover !important;
+        background-position: center center !important;
+        background-repeat: no-repeat !important;
+        background-attachment: fixed !important;
+    }}
+
+    .block-container {{
+        position: relative !important;
+        z-index: 2 !important;
+    }}
+    </style>
+    """
+
+
 def build_global_css() -> str:
     """
     Construye el CSS global del dashboard.
@@ -291,6 +330,24 @@ def build_global_css() -> str:
         font-size: 1rem;
         color: {config.COLOR_MUTED};
         line-height: 1.6;
+    }}
+
+    .hero-title-row {{
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        margin-bottom: 0.4rem;
+    }}
+
+    .hero-logo-box {{
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        background: #FF002B;
+        border-radius: 0;
+        display: inline-block;
+        flex-shrink: 0;
     }}
 
     /* =====================================================
@@ -1139,7 +1196,10 @@ def build_hero_section() -> str:
     """
     return f"""
     <div class="hero-box">
-        <div class="hero-title">{config.MAIN_TITLE}</div>
+        <div class="hero-title-row">
+            <div class="hero-logo-box"></div>
+            <div class="hero-title">{config.MAIN_TITLE}</div>
+        </div>
         <div class="main-subtitle">{config.SUBTITLE}</div>
         <div class="hero-text">{config.WELCOME_MESSAGE}</div>
     </div>

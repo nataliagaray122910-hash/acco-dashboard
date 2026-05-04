@@ -677,6 +677,12 @@ def logout() -> None:
 # 6. PANTALLA DE LOGIN
 # =========================================================
 def render_login_screen() -> None:
+    # Aplica la imagen de fondo únicamente en la pantalla de inicio de sesión.
+    st.markdown(
+        styles.apply_login_background("assets/fondo.png"),
+        unsafe_allow_html=True,
+    )
+
     left_col, center_col, right_col = st.columns([1, 1.5, 1])
 
     with center_col:
