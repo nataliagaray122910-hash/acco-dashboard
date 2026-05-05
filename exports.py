@@ -24,6 +24,7 @@ GLOBAL_TITLE_FILL = PatternFill(fill_type="solid", fgColor="000000")
 HEADER_NEUTRAL_FILL = PatternFill(fill_type="solid", fgColor="1F2A44")
 HEADER_ACTUAL_FILL = PatternFill(fill_type="solid", fgColor="0B5A7A")
 HEADER_PLAN_FILL = PatternFill(fill_type="solid", fgColor="D4A017")
+
 HEADER_PY_FILL = PatternFill(fill_type="solid", fgColor="0B5A7A")
 
 LABEL_FILL = PatternFill(fill_type="solid", fgColor="F8FAFC")

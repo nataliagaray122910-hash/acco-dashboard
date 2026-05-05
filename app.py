@@ -116,6 +116,9 @@ if "upload_reset_counter" not in st.session_state:
 if "suppress_persistent_autoload" not in st.session_state:
     st.session_state["suppress_persistent_autoload"] = False
 
+if "login_error_message" not in st.session_state:
+    st.session_state["login_error_message"] = None
+
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================
@@ -658,10 +661,19 @@ def check_login() -> None:
     valid_users.setdefault("viewer", "viewer")
 
     if user in valid_users and valid_users[user] == password:
+        # Limpia cualquier error anterior del login para que no se arrastre
+        # a la pantalla principal después de autenticar correctamente.
         st.session_state["authenticated"] = True
         st.session_state["user_role"] = user
+        st.session_state["login_error_message"] = None
+        st.session_state["mensaje_error"] = None
+        st.session_state["mensaje_warning"] = None
     else:
-        set_error_message("Credenciales incorrectas. Verifica usuario y contraseña.")
+        # Este error pertenece únicamente a la pantalla de login.
+        # No se manda a render_global_alerts para evitar que aparezca dentro del dashboard.
+        st.session_state["authenticated"] = False
+        st.session_state["user_role"] = ""
+        st.session_state["login_error_message"] = "Credenciales incorrectas. Verifica usuario y contraseña."
 
 
 def logout() -> None:
@@ -694,6 +706,9 @@ def render_login_screen() -> None:
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.button("Iniciar sesión", on_click=check_login, use_container_width=True)
+
+        if st.session_state.get("login_error_message"):
+            st.error(st.session_state["login_error_message"])
 
 # =========================================================
 # 7. ENCABEZADO PRINCIPAL
