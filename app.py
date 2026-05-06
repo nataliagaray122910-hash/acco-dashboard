@@ -955,33 +955,21 @@ def get_current_report_4_export_tables() -> dict | None:
     if payload is None:
         return None
 
-    client_options = get_filter_options_from_table(
-        payload["mtd_top_clients_table"],
-        lambda row: str(row.get("Client Name", "")).strip(),
-    )
-    applied_client_labels = get_valid_applied_filter_values(
-        "report4_clients_dimension_applied",
-        client_options,
-    )
-
-    filtered_mtd_clients = filter_report_4_top_clients_table(
-        payload["mtd_top_clients_table"],
-        applied_client_labels,
-    )
-    filtered_ytd_clients = filter_report_4_top_clients_table(
-        payload["ytd_top_clients_table"],
-        applied_client_labels,
-    )
-
     return {
         "summary": payload["summary"],
         "report_title": build_report_context_title(
-            "Reporte 4 - Top 15 Clients",
+            "Reporte 4 - Ranking de Clientes",
             payload["summary"]["latest_year"],
             payload["summary"]["latest_month"],
         ),
-        "mtd": convert_report_table_for_export(filtered_mtd_clients),
-        "ytd": convert_report_table_for_export(filtered_ytd_clients),
+        # Para exportación global se usa el detalle completo MTD/YTD,
+        # respetando el orden fijo del Excel y mostrando el grupo de cada cliente.
+        # La descarga global debe respetar la misma vista ejecutiva que se ve en pantalla:
+        # Top 15 cliente por cliente + Total Top 15 + bloques resumen + Total Mexico.
+        "mtd": convert_report_table_for_export(payload["mtd_top_clients_table"]),
+        "ytd": convert_report_table_for_export(payload["ytd_top_clients_table"]),
+        "mtd_summary": convert_report_table_for_export(payload["mtd_summary_table"]),
+        "ytd_summary": convert_report_table_for_export(payload["ytd_summary_table"]),
     }
 
 
@@ -3420,31 +3408,69 @@ def build_report_4_title_box_html() -> str:
 
 
 def build_report_4_table_html(title: str, df_table) -> str:
-    header_html = (
-        '<div class="report-grid report-grid-8">'
-        '<div class="report-cell report-header report-header-neutral report-header-sticky">CLIENT NAME</div>'
-        '<div class="report-cell report-header report-header-actual">Actual</div>'
-        '<div class="report-cell report-header report-header-plan">Plan</div>'
-        '<div class="report-cell report-header report-header-py">PY</div>'
-        '<div class="report-cell report-header report-header-neutral">Var VS Plan</div>'
-        '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>'
-        '<div class="report-cell report-header report-header-neutral">Var VS PY</div>'
-        '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>'
-        "</div>"
-    )
+    """
+    Renderiza las tablas del Reporte 4 con una sola grid HTML.
 
-    rows_html_parts: list[str] = []
+    Esto evita el desfase entre encabezados y columnas porque el header y
+    los renglones viven dentro del mismo contenedor CSS grid.
+    """
+    visible_columns = [
+        "Client Name",
+        "Cliente",
+        "Actual",
+        "Plan",
+        "PY",
+        "Var VS Plan",
+        "%Var VS Plan",
+        "Var VS PY",
+        "%Var VS PY",
+    ]
 
-    for _, row in df_table.iterrows():
-        is_total = bool(row.get("__is_total__", False))
-        is_grand_total = bool(row.get("__is_grand_total__", False))
+    if df_table is None or df_table.empty:
+        return (
+            '<div class="report-table-card report4-card">'
+            f'<div class="report-table-title">{escape(title)}</div>'
+            '<div class="report-table-scroll report4-scroll">'
+            '<div class="report-note">Sin información disponible.</div>'
+            '</div>'
+            '</div>'
+        )
 
-        row_class = "report-row"
-        if is_total:
-            row_class += " report-total"
+    df_original = df_table.copy().reset_index(drop=True)
+    df_visible = df_original.copy()
+
+    for column_name in visible_columns:
+        if column_name not in df_visible.columns:
+            df_visible[column_name] = "" if column_name in {"Cliente", "Client Name"} else 0.0
+
+    df_visible = df_visible[visible_columns].copy()
+
+    cells_html_parts: list[str] = [
+        '<div class="report-cell report-header report-header-neutral report4-sticky-header">CLIENT NAME</div>',
+        '<div class="report-cell report-header report-header-neutral report4-code-header">CLIENTE</div>',
+        '<div class="report-cell report-header report-header-actual">Actual</div>',
+        '<div class="report-cell report-header report-header-plan">Plan</div>',
+        '<div class="report-cell report-header report-header-py">PY</div>',
+        '<div class="report-cell report-header report-header-neutral">Var VS Plan</div>',
+        '<div class="report-cell report-header report-header-neutral">%Var VS Plan</div>',
+        '<div class="report-cell report-header report-header-neutral">Var VS PY</div>',
+        '<div class="report-cell report-header report-header-neutral">%Var VS PY</div>',
+    ]
+
+    for row_index, row in df_visible.iterrows():
+        original_row = df_original.iloc[row_index]
+
+        is_total = bool(original_row.get("__is_total__", False))
+        is_grand_total = bool(original_row.get("__is_grand_total__", False))
+        is_group_summary = bool(original_row.get("__is_group_summary__", False))
+
+        state_class = ""
+        if is_total or is_group_summary:
+            state_class = " report4-total-cell"
         if is_grand_total:
-            row_class += " report-highlight"
+            state_class = " report4-highlight-cell"
 
+        client_code = str(row.get("Cliente", "")).strip()
         client_name = str(row.get("Client Name", "")).strip()
 
         actual_value = row["Actual"]
@@ -3463,31 +3489,52 @@ def build_report_4_table_html(title: str, df_table) -> str:
         var_py_negative = (not is_blank_number(var_py_value)) and float(var_py_value) < 0
         pct_py_negative = (not is_blank_number(pct_py_value)) and float(pct_py_value) < 0
 
-        row_html = (
-            f'<div class="{row_class}">'
-            f'<div class="report-cell report-label-cell">{escape(client_name)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if actual_negative else ""}">{format_report_4_value(actual_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if plan_negative else ""}">{format_report_4_value(plan_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if py_negative else ""}">{format_report_4_value(py_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if var_plan_negative else ""}">{format_report_4_value(var_plan_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if pct_plan_negative else ""}">{format_report_4_value(pct_plan_value, is_percent=True)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if var_py_negative else ""}">{format_report_4_value(var_py_value)}</div>'
-            f'<div class="report-cell report-value-cell {"report-negative" if pct_py_negative else ""}">{format_report_4_value(pct_py_value, is_percent=True)}</div>'
-            "</div>"
+        cells_html_parts.extend(
+            [
+                f'<div class="report-cell report4-sticky-cell{state_class}" title="{escape(client_name)}">{escape(client_name)}</div>',
+                f'<div class="report-cell report4-code-cell{state_class}">{escape(client_code)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if actual_negative else ""}">{format_report_4_value(actual_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if plan_negative else ""}">{format_report_4_value(plan_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if py_negative else ""}">{format_report_4_value(py_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if var_plan_negative else ""}">{format_report_4_value(var_plan_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if pct_plan_negative else ""}">{format_report_4_value(pct_plan_value, is_percent=True)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if var_py_negative else ""}">{format_report_4_value(var_py_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if pct_py_negative else ""}">{format_report_4_value(pct_py_value, is_percent=True)}</div>',
+            ]
         )
-        rows_html_parts.append(row_html)
 
-    rows_html = "".join(rows_html_parts)
+    cells_html = "".join(cells_html_parts)
 
     return (
-        '<div class="report-table-card">'
+        '<div class="report-table-card report4-card">'
         f'<div class="report-table-title">{escape(title)}</div>'
-        '<div class="report-table-scroll">'
-        f"{header_html}"
-        f'<div class="report-grid report-grid-8">{rows_html}</div>'
-        "</div>"
-        "</div>"
+        '<div class="report-table-scroll report4-scroll">'
+        f'<div class="report-grid report4-grid">{cells_html}</div>'
+        '</div>'
+        '</div>'
     )
+
+def render_report_4_detail_block(title: str, mtd_df, ytd_df, year_value, month_value) -> None:
+    st.markdown(f"### {title}")
+    left_col, right_col = st.columns(2)
+
+    with left_col:
+        st.markdown(
+            build_report_4_table_html(
+                build_report_context_title(f"MTD {title}", year_value, month_value),
+                mtd_df,
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with right_col:
+        st.markdown(
+            build_report_4_table_html(
+                build_report_context_title(f"YTD {title}", year_value, month_value),
+                ytd_df,
+            ),
+            unsafe_allow_html=True,
+        )
 
 
 def render_report_4_view() -> None:
@@ -3501,8 +3548,8 @@ def render_report_4_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD del Top 15 de clientes estratégicos,
-        usando BASE SAP y Plan2026 by Client.
+        Mostrar el comparativo ejecutivo MTD / YTD del ranking fijo de clientes,
+        cruzando BASE SAP y Plan2026 by Client mediante código de cliente.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -3542,9 +3589,9 @@ def render_report_4_view() -> None:
     with col2:
         st.markdown(
             styles.build_info_card(
-                "Clientes objetivo",
-                "15",
-                "Catálogo fijo de clientes estratégicos definido por negocio",
+                "Orden del reporte",
+                "Ranking fijo",
+                "Orden definido por negocio; no se reordena por GSNR",
             ),
             unsafe_allow_html=True,
         )
@@ -3552,47 +3599,28 @@ def render_report_4_view() -> None:
     with col3:
         st.markdown(
             styles.build_info_card(
-                "Fuente de plan",
-                "Plan Cliente",
-                "Comparativo contra Plan2026 by Client",
+                "Cruce principal",
+                "Código cliente",
+                "Actual, PY y Plan se cruzan por código de cliente",
             ),
             unsafe_allow_html=True,
         )
 
     st.markdown("---")
-    st.markdown("### 3. Top 15 Clients MTD / YTD")
+    st.markdown("### 3. Ranking de Clientes MTD / YTD")
 
     selected_year_clients, selected_month_clients = render_period_filter_block(
-        "Filtro del bloque: Top 15 Clients",
+        "Filtro del bloque: Ranking de Clientes",
         "report4_clients_year",
         "report4_clients_month",
     )
 
-    payload = st.session_state.get("report4_payload")
-
-    client_options = get_filter_options_from_table(
-        payload["mtd_top_clients_table"],
-        lambda row: str(row.get("Client Name", "")).strip(),
-    )
-
-    render_dimension_filter_block(
-        "CLIENT NAME",
-        "report4_clients_dimension_widget",
-        "report4_clients_dimension_applied",
-        client_options,
-    )
-
     if selected_year_clients is not None and selected_month_clients is not None:
         if st.button(
-            "Aplicar filtro - Top 15 Clients",
+            "Aplicar filtro - Ranking de Clientes",
             key="btn_report4_clients",
             use_container_width=True,
         ):
-            sync_dimension_filter_to_applied_state(
-                "report4_clients_dimension_widget",
-                "report4_clients_dimension_applied",
-                client_options,
-            )
             run_report_4_build(
                 selected_year=selected_year_clients,
                 selected_month=selected_month_clients,
@@ -3600,74 +3628,69 @@ def render_report_4_view() -> None:
 
     payload = st.session_state.get("report4_payload")
 
-    applied_client_labels = get_valid_applied_filter_values(
-        "report4_clients_dimension_applied",
-        client_options,
-    )
-
-    filtered_mtd_clients = filter_report_4_top_clients_table(
-        payload["mtd_top_clients_table"],
-        applied_client_labels,
-    )
-    filtered_ytd_clients = filter_report_4_top_clients_table(
-        payload["ytd_top_clients_table"],
-        applied_client_labels,
+    report_4_bytes = exports.build_report_4_excel_bytes(
+        mtd_top_clients_df=convert_report_table_for_export(payload["mtd_top_clients_table"]),
+        ytd_top_clients_df=convert_report_table_for_export(payload["ytd_top_clients_table"]),
+        report_title=build_report_context_title(
+            "Reporte 4 - Ranking de Clientes",
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        ),
     )
 
     export_col_left, export_col_right = st.columns([12, 1])
     with export_col_right:
-        report_4_bytes = exports.build_report_4_excel_bytes(
-            mtd_top_clients_df=convert_report_table_for_export(filtered_mtd_clients),
-            ytd_top_clients_df=convert_report_table_for_export(filtered_ytd_clients),
-            report_title=build_report_context_title(
-                "Reporte 4 - Top 15 Clients",
-                selected_year_clients,
-                selected_month_clients,
-            ),
-        )
         render_icon_download_button(
             data=report_4_bytes,
             file_name=build_excel_filename(
                 "reporte_4",
-                selected_year_clients,
-                selected_month_clients,
+                payload["summary"]["latest_year"],
+                payload["summary"]["latest_month"],
             ),
-            key="download_report_4_icon",
+            key="download_report_4_icon_top",
             help_text="Descargar Reporte 4",
         )
 
     st.markdown(
-        '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva. El Total General permanece visible y se recalcula conforme al filtro seleccionado.</div>',
+        '<div class="report-note">La vista ejecutiva muestra el Top 15 cliente por cliente y, enseguida, los bloques 16–50, 51–100 y Other clients como filas resumen. Los bloques se pueden desplegar para ver el detalle por código de cliente.</div>',
         unsafe_allow_html=True,
     )
 
-    left_col, right_col = st.columns(2)
+    render_report_4_detail_block(
+        "Vista ejecutiva: Top 15 + bloques resumen",
+        payload["mtd_top_clients_table"],
+        payload["ytd_top_clients_table"],
+        payload["summary"]["latest_year"],
+        payload["summary"]["latest_month"],
+    )
 
-    with left_col:
-        st.markdown(
-            build_report_4_table_html(
-                build_report_context_title(
-                    "MTD Top 15 Clients",
-                    selected_year_clients,
-                    selected_month_clients,
-                ),
-                filtered_mtd_clients,
-            ),
-            unsafe_allow_html=True,
+    with st.expander("Ver detalle: Clients 16 to 50", expanded=False):
+        render_report_4_detail_block(
+            "Clients 16 to 50",
+            payload["mtd_group_16_50_table"],
+            payload["ytd_group_16_50_table"],
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
         )
 
-    with right_col:
-        st.markdown(
-            build_report_4_table_html(
-                build_report_context_title(
-                    "YTD Top 15 Clients",
-                    selected_year_clients,
-                    selected_month_clients,
-                ),
-                filtered_ytd_clients,
-            ),
-            unsafe_allow_html=True,
+    with st.expander("Ver detalle: Clients 51 to 100", expanded=False):
+        render_report_4_detail_block(
+            "Clients 51 to 100",
+            payload["mtd_group_51_100_table"],
+            payload["ytd_group_51_100_table"],
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
         )
+
+    with st.expander("Ver detalle: Other clients", expanded=False):
+        render_report_4_detail_block(
+            "Other clients",
+            payload["mtd_group_other_table"],
+            payload["ytd_group_other_table"],
+            payload["summary"]["latest_year"],
+            payload["summary"]["latest_month"],
+        )
+
 
 # =========================================================
 # 18. VISTAS PRINCIPALES

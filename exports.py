@@ -82,6 +82,23 @@ NUMERIC_COLUMNS = {
 INTERNAL_COLUMNS_PREFIX = "__"
 
 # ---------------------------------------------------------
+# CONFIGURACIÓN ESPECÍFICA REPORTE 4
+# ---------------------------------------------------------
+REPORT_4_VISIBLE_COLUMNS = [
+    "Client Name",
+    "Cliente",
+    "Actual",
+    "Plan",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+REPORT_4_HIDDEN_EXPORT_COLUMNS = {"TOP", "Grupo"}
+
+# ---------------------------------------------------------
 # HELPERS GENERALES
 # ---------------------------------------------------------
 def sanitize_sheet_name(sheet_name: str) -> str:
@@ -99,6 +116,14 @@ def is_internal_column(column_name: str) -> bool:
     return str(column_name).startswith(INTERNAL_COLUMNS_PREFIX)
 
 def sanitize_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
+    """
+    Limpia cualquier DataFrame antes de exportarlo.
+
+    Reglas generales:
+    - Si no existe DataFrame, regresa uno vacío.
+    - Quita columnas internas que empiezan con __.
+    - Conserva el resto de columnas en el orden recibido.
+    """
     if df is None:
         return pd.DataFrame()
 
@@ -107,7 +132,35 @@ def sanitize_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
         col for col in clean_df.columns
         if not is_internal_column(str(col))
     ]
+
     return clean_df[visible_columns].copy()
+
+def prepare_report_4_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
+    """
+    Limpia las tablas del Reporte 4 para exportación.
+
+    Reglas:
+    - No exporta columnas internas.
+    - No exporta TOP ni Grupo.
+    - Fuerza el mismo orden visible que la app: Client Name, Cliente y métricas.
+    """
+    if df is None:
+        return pd.DataFrame(columns=REPORT_4_VISIBLE_COLUMNS)
+
+    clean_df = df.copy()
+
+    for column_name in REPORT_4_HIDDEN_EXPORT_COLUMNS:
+        if column_name in clean_df.columns:
+            clean_df = clean_df.drop(columns=[column_name])
+
+    internal_columns = [col for col in clean_df.columns if is_internal_column(str(col))]
+    clean_df = clean_df.drop(columns=internal_columns, errors="ignore")
+
+    for column_name in REPORT_4_VISIBLE_COLUMNS:
+        if column_name not in clean_df.columns:
+            clean_df[column_name] = "" if column_name in {"Client Name", "Cliente"} else 0.0
+
+    return clean_df[REPORT_4_VISIBLE_COLUMNS].copy()
 
 def get_first_column_name(df: pd.DataFrame) -> str | None:
     if df is None or df.empty or len(df.columns) == 0:
@@ -595,20 +648,23 @@ def build_report_4_excel_bytes(
     output, writer = create_excel_writer_buffer()
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
+    mtd_export_df = prepare_report_4_export_dataframe(mtd_top_clients_df)
+    ytd_export_df = prepare_report_4_export_dataframe(ytd_top_clients_df)
+
     current_row = write_global_title(
         worksheet=worksheet,
         report_title=report_title,
         start_row=1,
         start_col=1,
-        width=8,
+        width=len(REPORT_4_VISIBLE_COLUMNS),
     )
 
     write_two_tables_side_by_side(
         worksheet=worksheet,
-        left_df=mtd_top_clients_df,
-        right_df=ytd_top_clients_df,
-        left_title="MTD Top 15 Clients",
-        right_title="YTD Top 15 Clients",
+        left_df=mtd_export_df,
+        right_df=ytd_export_df,
+        left_title="MTD Ranking Clients",
+        right_title="YTD Ranking Clients",
         start_row=current_row,
     )
 
@@ -735,15 +791,15 @@ def build_full_reports_excel_bytes(
             report_title=get_report_title_from_tables(report_4_tables),
             start_row=1,
             start_col=1,
-            width=8,
+            width=len(REPORT_4_VISIBLE_COLUMNS),
         )
 
         write_two_tables_side_by_side(
             worksheet=ws,
-            left_df=report_4_tables["mtd"],
-            right_df=report_4_tables["ytd"],
-            left_title="MTD Top 15 Clients",
-            right_title="YTD Top 15 Clients",
+            left_df=prepare_report_4_export_dataframe(report_4_tables["mtd"]),
+            right_df=prepare_report_4_export_dataframe(report_4_tables["ytd"]),
+            left_title="MTD Ranking Clients",
+            right_title="YTD Ranking Clients",
             start_row=current_row,
         )
 

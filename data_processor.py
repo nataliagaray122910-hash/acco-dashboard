@@ -2741,43 +2741,118 @@ def build_report_3_channel_payload(
         "ytd_channel_table": ytd_table,
     }
 
-# ==============================================================
-# ETAPA 8: REPORTE 4 - TOP 15 CLIENTS
-# ==============================================================
+# ============================================================== 
+# ETAPA 8: REPORTE 4 - RANKING DE CLIENTES
+# ============================================================== 
+
+# --------------------------------------------------------------
+# CONSTANTES VISIBLES DEL REPORTE 4
+# --------------------------------------------------------------
+REPORT_4_VISIBLE_COLUMNS = [
+    "Client Name",
+    "Cliente",
+    "Actual",
+    "Plan",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+REPORT_4_FLAG_COLUMNS = [
+    "__is_total__",
+    "__is_grand_total__",
+    "__is_group_summary__",
+]
+
+REPORT_4_INTERNAL_COLUMNS = [
+    "__top__",
+    "__grupo__",
+]
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Obtiene mapa de display_name -> regla
+# Catálogo oficial de clientes del Reporte 4
 # --------------------------------------------------------------
-def get_report_4_rules_map() -> dict[str, dict]:
-    return {rule["display_name"]: rule for rule in config.REPORT_4_CLIENT_NAME_RULES}
+def get_report_4_client_catalog_df() -> pd.DataFrame:
+    catalog = getattr(config, "REPORT_4_CLIENT_CATALOG", [])
+    df_catalog = pd.DataFrame(catalog)
+
+    if df_catalog.empty:
+        return pd.DataFrame(columns=["Cliente", "Nombre del Cliente", "Client Name", "__top__", "__grupo__"])
+
+    df_catalog = df_catalog.copy()
+    df_catalog["Cliente"] = df_catalog["code"].apply(normalize_report_4_client_code)
+    df_catalog["Nombre del Cliente"] = df_catalog["source_name"].fillna("").astype(str).str.strip()
+    df_catalog["Client Name"] = df_catalog["display_name"].fillna("").astype(str).str.strip()
+    df_catalog["__top__"] = pd.to_numeric(df_catalog["top"], errors="coerce").fillna(999999).astype(int)
+    df_catalog["__grupo__"] = df_catalog["__top__"].apply(get_report_4_group_from_top)
+
+    df_catalog = df_catalog[["Cliente", "Nombre del Cliente", "Client Name", "__top__", "__grupo__"]].copy()
+    df_catalog = df_catalog.sort_values("__top__").reset_index(drop=True)
+
+    return df_catalog
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Resuelve display name de cliente según nombre y código
+# Define grupo visual conforme al ranking fijo
+# --------------------------------------------------------------
+def get_report_4_group_from_top(top_position: int) -> str:
+    top_position = int(top_position)
+
+    if top_position <= 15:
+        return config.REPORT_4_GROUP_TOP_15
+    if top_position <= 50:
+        return config.REPORT_4_GROUP_16_50
+    if top_position <= 100:
+        return config.REPORT_4_GROUP_51_100
+
+    return config.REPORT_4_GROUP_OTHER
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza nombre cliente para Reporte 4
+# --------------------------------------------------------------
+def normalize_report_4_client_name(value) -> str:
+    if pd.isna(value):
+        return ""
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return ""
+
+    return text.upper().replace(",", "")
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza código cliente para Reporte 4
+# --------------------------------------------------------------
+def normalize_report_4_client_code(value) -> str:
+    if pd.isna(value):
+        return ""
+
+    text = str(value).strip().upper()
+    if text in {"", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK"}:
+        return ""
+
+    return text
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Aplica nombre corregido SOLO para códigos repetidos
 # --------------------------------------------------------------
 def resolve_report_4_display_name(client_name, client_code) -> str:
-    normalized_name = normalize_report_4_client_name(client_name)
     normalized_code = normalize_report_4_client_code(client_code)
+    overrides = getattr(config, "REPORT_4_CLIENT_NAME_OVERRIDES", {})
 
-    for rule in config.REPORT_4_CLIENT_NAME_RULES:
-        source_names = [normalize_report_4_client_name(x) for x in rule.get("source_names", [])]
-        source_codes = [normalize_report_4_client_code(x) for x in rule.get("source_codes", [])]
+    if normalized_code in overrides:
+        return str(overrides[normalized_code]).strip()
 
-        if normalized_name not in source_names:
-            continue
+    if pd.isna(client_name):
+        return ""
 
-        if source_codes:
-            if normalized_code:
-                if normalized_code in source_codes:
-                    return rule["display_name"]
-                continue
-            else:
-                return rule["display_name"]
-
-        return rule["display_name"]
-
-    return ""
+    return re.sub(r"\s+", " ", str(client_name).strip())
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -2796,7 +2871,6 @@ def get_report_4_sales_client_code_column(df: pd.DataFrame) -> str | None:
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Detecta columna de nombre cliente en plan cliente
-# Prioriza Customer name antes que cualquier otra opción
 # --------------------------------------------------------------
 def get_report_4_plan_client_name_column(df: pd.DataFrame) -> str | None:
     preferred_candidates = [
@@ -2804,24 +2878,17 @@ def get_report_4_plan_client_name_column(df: pd.DataFrame) -> str | None:
         "Customer Name",
         "Nombre del Cliente",
         "Nombre Cliente",
-        "Cliente",
     ]
 
     preferred_match = find_first_existing_column(df, preferred_candidates)
     if preferred_match is not None:
         return preferred_match
 
-    fallback_match = find_first_existing_column(df, config.REPORT_4_PLAN_CLIENT_NAME_CANDIDATES)
-
-    if fallback_match is not None and normalize_text(fallback_match) != normalize_text("Client"):
-        return fallback_match
-
-    return fallback_match
+    return find_first_existing_column(df, config.REPORT_4_PLAN_CLIENT_NAME_CANDIDATES)
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Detecta columna de código cliente en plan cliente
-# Prioriza Client como código
 # --------------------------------------------------------------
 def get_report_4_plan_client_code_column(df: pd.DataFrame) -> str | None:
     preferred_candidates = [
@@ -2852,27 +2919,23 @@ def prepare_sales_for_report_4(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     client_code_col = get_report_4_sales_client_code_column(df)
     gsnr_col = find_first_existing_column(df, [config.COL_GSNR, "GSNR"])
 
-    required_columns = [client_name_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
+    required_columns = [client_code_col, client_name_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
     if any(col is None for col in required_columns):
         raise ValueError(
             "Faltan columnas requeridas en ventas para Reporte 4. "
-            "Se requieren Nombre del Cliente, GSNR, Año y Mes."
+            "Se requieren código de cliente, nombre del cliente, GSNR, Año y Mes."
         )
 
     df = df.copy()
-    df["__client_name_raw__"] = df[client_name_col]
-    df["__client_code_raw__"] = df[client_code_col] if client_code_col is not None else ""
-    df["__display_name__"] = df.apply(
-        lambda row: resolve_report_4_display_name(
-            row["__client_name_raw__"],
-            row["__client_code_raw__"],
-        ),
+    df["Cliente"] = df[client_code_col].apply(normalize_report_4_client_code)
+    df["Nombre del Cliente"] = df[client_name_col].fillna("").astype(str).str.strip()
+    df["Client Name"] = df.apply(
+        lambda row: resolve_report_4_display_name(row["Nombre del Cliente"], row["Cliente"]),
         axis=1,
     )
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
-    df = df[df["__display_name__"] != ""].copy()
-
+    df = df[df["Cliente"] != ""].copy()
     return df
 
 # --------------------------------------------------------------
@@ -2883,13 +2946,13 @@ def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFra
     df = standardize_columns(df_plan_client)
     df = remove_total_like_rows(df)
 
-    client_name_col = get_report_4_plan_client_name_column(df)
     client_code_col = get_report_4_plan_client_code_column(df)
+    client_name_col = get_report_4_plan_client_name_column(df)
 
-    if client_name_col is None:
+    if client_code_col is None:
         raise ValueError(
             "Faltan columnas requeridas en Plan por Cliente para Reporte 4. "
-            "Se requiere una columna de nombre como 'Customer name'."
+            "Se requiere columna de código como 'Client'."
         )
 
     month_columns = get_plan_client_month_columns(df)
@@ -2897,37 +2960,27 @@ def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFra
         raise ValueError("No se detectaron columnas mensuales válidas en Plan por Cliente.")
 
     df = df.copy()
+    df["Cliente"] = df[client_code_col].apply(normalize_report_4_client_code)
 
-    if (
-        client_code_col is not None
-        and client_name_col is not None
-        and normalize_text(client_code_col) == normalize_text(client_name_col)
-    ):
-        rescue_name_col = find_first_existing_column(df, ["Customer name", "Customer Name"])
-        if rescue_name_col is not None:
-            client_name_col = rescue_name_col
+    if client_name_col is not None:
+        df["Nombre del Cliente"] = df[client_name_col].fillna("").astype(str).str.strip()
+    else:
+        df["Nombre del Cliente"] = ""
 
-    df["__client_name_raw__"] = df[client_name_col]
-    df["__client_code_raw__"] = df[client_code_col] if client_code_col is not None else ""
-
-    df["__display_name__"] = df.apply(
-        lambda row: resolve_report_4_display_name(
-            row["__client_name_raw__"],
-            row["__client_code_raw__"],
-        ),
+    df["Client Name"] = df.apply(
+        lambda row: resolve_report_4_display_name(row["Nombre del Cliente"], row["Cliente"]),
         axis=1,
     )
 
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col]) * 1000
 
-    df = df[df["__display_name__"] != ""].copy()
-
+    df = df[df["Cliente"] != ""].copy()
     return df
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega ventas Top 15 Clients
+# Agrega ventas por código de cliente
 # --------------------------------------------------------------
 def get_sales_client_totals_for_report_4(
     df_processed_sales: pd.DataFrame,
@@ -2935,67 +2988,37 @@ def get_sales_client_totals_for_report_4(
     selected_month: int,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     df = prepare_sales_for_report_4(df_processed_sales)
+    group_columns = ["Cliente"]
 
     current_year_df = df[df[config.COL_YEAR] == selected_year].copy()
     previous_year_df = df[df[config.COL_YEAR] == (selected_year - 1)].copy()
 
-    mtd_actual = (
-        current_year_df[current_year_df[config.COL_MONTH] == selected_month]
-        .groupby("__display_name__", dropna=False)["__gsnr__"]
-        .sum()
-        .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                "__gsnr__": "Valor",
-            }
-        )
-    )
+    def aggregate(source_df: pd.DataFrame, month_filter: str) -> pd.DataFrame:
+        if month_filter == "mtd":
+            filtered = source_df[source_df[config.COL_MONTH] == selected_month].copy()
+        else:
+            filtered = source_df[source_df[config.COL_MONTH] <= selected_month].copy()
 
-    ytd_actual = (
-        current_year_df[current_year_df[config.COL_MONTH] <= selected_month]
-        .groupby("__display_name__", dropna=False)["__gsnr__"]
-        .sum()
-        .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                "__gsnr__": "Valor",
-            }
-        )
-    )
+        if filtered.empty:
+            return pd.DataFrame(columns=["Cliente", "Valor"])
 
-    mtd_py = (
-        previous_year_df[previous_year_df[config.COL_MONTH] == selected_month]
-        .groupby("__display_name__", dropna=False)["__gsnr__"]
-        .sum()
-        .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                "__gsnr__": "Valor",
-            }
+        return (
+            filtered.groupby(group_columns, dropna=False)["__gsnr__"]
+            .sum()
+            .reset_index()
+            .rename(columns={"__gsnr__": "Valor"})
         )
-    )
 
-    ytd_py = (
-        previous_year_df[previous_year_df[config.COL_MONTH] <= selected_month]
-        .groupby("__display_name__", dropna=False)["__gsnr__"]
-        .sum()
-        .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                "__gsnr__": "Valor",
-            }
-        )
+    return (
+        aggregate(current_year_df, "mtd"),
+        aggregate(current_year_df, "ytd"),
+        aggregate(previous_year_df, "mtd"),
+        aggregate(previous_year_df, "ytd"),
     )
-
-    return mtd_actual, ytd_actual, mtd_py, ytd_py
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Agrega plan Top 15 Clients
+# Agrega plan por código de cliente
 # --------------------------------------------------------------
 def get_plan_client_totals_for_report_4(
     df_plan_client: pd.DataFrame,
@@ -3013,74 +3036,59 @@ def get_plan_client_totals_for_report_4(
     months_to_sum = [month_columns[m] for m in sorted(month_columns.keys()) if m <= latest_month]
 
     mtd_plan = (
-        df.groupby("__display_name__", dropna=False)[month_col]
+        df.groupby("Cliente", dropna=False)[month_col]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                month_col: "Valor",
-            }
-        )
+        .rename(columns={month_col: "Valor"})
     )
 
     ytd_plan = (
         df.assign(__ytd__=df[months_to_sum].sum(axis=1))
-        .groupby("__display_name__", dropna=False)["__ytd__"]
+        .groupby("Cliente", dropna=False)["__ytd__"]
         .sum()
         .reset_index()
-        .rename(
-            columns={
-                "__display_name__": "Client Name",
-                "__ytd__": "Valor",
-            }
-        )
+        .rename(columns={"__ytd__": "Valor"})
     )
 
     return mtd_plan, ytd_plan
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Convierte agregados Client a diccionario
+# Convierte agregados por cliente a diccionario
 # --------------------------------------------------------------
 def aggregated_client_df_to_dict(df: pd.DataFrame) -> dict[str, float]:
     if df is None or df.empty:
         return {}
 
     result = {}
-
     for _, row in df.iterrows():
-        key = str(row["Client Name"]).strip()
-        result[key] = float(row["Valor"])
+        key = normalize_report_4_client_code(row.get("Cliente", ""))
+        if key:
+            result[key] = float(row.get("Valor", 0.0))
 
     return result
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Llave de orden para Client Name
-# --------------------------------------------------------------
-def get_report_4_client_sort_key(client_value: str) -> tuple[int, str]:
-    normalized_value = str(client_value).strip()
-
-    if normalized_value in config.REPORT_4_TOP_CLIENTS_ORDER:
-        return config.REPORT_4_TOP_CLIENTS_ORDER.index(normalized_value), normalized_value
-
-    return len(config.REPORT_4_TOP_CLIENTS_ORDER), normalized_value
-
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
 # Construye renglón de Reporte 4
+# Nota: TOP y Grupo se conservan únicamente como columnas internas
+#       (__top__ y __grupo__) para poder ordenar/filtrar, pero no se muestran.
 # --------------------------------------------------------------
 def build_report_4_row(
+    client_code: str,
     client_label: str,
     actual: float,
     plan: float,
     py: float,
+    top_position=None,
+    group_label: str | None = None,
     is_total: bool = False,
     is_grand_total: bool = False,
+    is_group_summary: bool = False,
 ) -> dict:
     return {
         "Client Name": client_label,
+        "Cliente": client_code,
         "Actual": float(actual),
         "Plan": float(plan),
         "PY": float(py),
@@ -3088,65 +3096,234 @@ def build_report_4_row(
         "%Var VS Plan": safe_divide(float(actual) - float(plan), float(plan)),
         "Var VS PY": float(actual) - float(py),
         "%Var VS PY": safe_divide(float(actual) - float(py), float(py)),
+        "__top__": top_position,
+        "__grupo__": "" if group_label is None else str(group_label),
         "__is_total__": is_total,
         "__is_grand_total__": is_grand_total,
+        "__is_group_summary__": is_group_summary,
     }
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Construye tabla final Top 15 Clients
+# Fuerza estructura visible uniforme en Reporte 4
+# --------------------------------------------------------------
+def finalize_report_4_table(df: pd.DataFrame, keep_internal: bool = False) -> pd.DataFrame:
+    if df is None or df.empty:
+        base_columns = REPORT_4_VISIBLE_COLUMNS + REPORT_4_FLAG_COLUMNS
+        if keep_internal:
+            base_columns += REPORT_4_INTERNAL_COLUMNS
+        return pd.DataFrame(columns=base_columns)
+
+    df = df.copy()
+
+    for column_name in REPORT_4_VISIBLE_COLUMNS:
+        if column_name not in df.columns:
+            df[column_name] = "" if column_name in {"Cliente", "Client Name"} else 0.0
+
+    for column_name in REPORT_4_FLAG_COLUMNS:
+        if column_name not in df.columns:
+            df[column_name] = False
+
+    for column_name in REPORT_4_INTERNAL_COLUMNS:
+        if column_name not in df.columns:
+            df[column_name] = ""
+
+    ordered_columns = REPORT_4_VISIBLE_COLUMNS + REPORT_4_FLAG_COLUMNS
+    if keep_internal:
+        ordered_columns += REPORT_4_INTERNAL_COLUMNS
+
+    return df[ordered_columns].reset_index(drop=True)
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Construye tabla detalle final respetando orden fijo
+# --------------------------------------------------------------
+def build_report_4_detail_table(
+    actual_df: pd.DataFrame,
+    plan_df: pd.DataFrame,
+    py_df: pd.DataFrame,
+    keep_internal: bool = True,
+) -> pd.DataFrame:
+    catalog_df = get_report_4_client_catalog_df()
+    actual_dict = aggregated_client_df_to_dict(actual_df)
+    plan_dict = aggregated_client_df_to_dict(plan_df)
+    py_dict = aggregated_client_df_to_dict(py_df)
+
+    rows: list[dict] = []
+
+    for _, catalog_row in catalog_df.iterrows():
+        client_code = normalize_report_4_client_code(catalog_row.get("Cliente", ""))
+        if not client_code:
+            continue
+
+        actual_value = float(actual_dict.get(client_code, 0.0))
+        plan_value = float(plan_dict.get(client_code, 0.0))
+        py_value = float(py_dict.get(client_code, 0.0))
+
+        rows.append(
+            build_report_4_row(
+                client_code=client_code,
+                client_label=str(catalog_row.get("Client Name", "")).strip(),
+                actual=actual_value,
+                plan=plan_value,
+                py=py_value,
+                top_position=int(catalog_row.get("__top__", 0)),
+                group_label=str(catalog_row.get("__grupo__", "")).strip(),
+            )
+        )
+
+    return finalize_report_4_table(pd.DataFrame(rows), keep_internal=keep_internal)
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Construye renglones resumen por bloque
+# --------------------------------------------------------------
+def build_report_4_group_summary_table(detail_df: pd.DataFrame, keep_internal: bool = True) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty:
+        return finalize_report_4_table(pd.DataFrame(), keep_internal=keep_internal)
+
+    rows: list[dict] = []
+    group_order = [
+        config.REPORT_4_GROUP_TOP_15,
+        config.REPORT_4_GROUP_16_50,
+        config.REPORT_4_GROUP_51_100,
+        config.REPORT_4_GROUP_OTHER,
+    ]
+
+    for group_label in group_order:
+        group_df = detail_df[detail_df["__grupo__"] == group_label].copy()
+        if group_df.empty:
+            continue
+
+        total_actual = group_df["Actual"].apply(float).sum()
+        total_plan = group_df["Plan"].apply(float).sum()
+        total_py = group_df["PY"].apply(float).sum()
+
+        # Para la vista ejecutiva, el Top 15 debe distinguirse claramente
+        # como subtotal del bloque superior, para no confundirse con
+        # Clients 16 to 50.
+        client_label = group_label
+        if group_label == config.REPORT_4_GROUP_TOP_15:
+            client_label = getattr(
+                config,
+                "REPORT_4_GROUP_TOP_15_TOTAL_LABEL",
+                "Total Top 15",
+            )
+
+        rows.append(
+            build_report_4_row(
+                client_code="",
+                client_label=client_label,
+                actual=total_actual,
+                plan=total_plan,
+                py=total_py,
+                top_position="",
+                group_label=group_label,
+                is_total=True,
+                is_group_summary=True,
+            )
+        )
+
+    grand_actual = detail_df["Actual"].apply(float).sum()
+    grand_plan = detail_df["Plan"].apply(float).sum()
+    grand_py = detail_df["PY"].apply(float).sum()
+
+    rows.append(
+        build_report_4_row(
+            client_code="",
+            client_label=config.REPORT_4_TOTAL_LABEL,
+            actual=grand_actual,
+            plan=grand_plan,
+            py=grand_py,
+            top_position="",
+            group_label=config.REPORT_4_TOTAL_LABEL,
+            is_total=True,
+            is_grand_total=True,
+        )
+    )
+
+    return finalize_report_4_table(pd.DataFrame(rows), keep_internal=keep_internal)
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Construye tabla ejecutiva compatible con la app actual
 # --------------------------------------------------------------
 def build_report_4_clients_table(
     actual_df: pd.DataFrame,
     plan_df: pd.DataFrame,
     py_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    actual_dict = aggregated_client_df_to_dict(actual_df)
-    plan_dict = aggregated_client_df_to_dict(plan_df)
-    py_dict = aggregated_client_df_to_dict(py_df)
+    detail_df = build_report_4_detail_table(actual_df, plan_df, py_df, keep_internal=True)
+    summary_df = build_report_4_group_summary_table(detail_df, keep_internal=True)
 
-    ordered_clients = list(config.REPORT_4_TOP_CLIENTS_ORDER)
+    top15_df = detail_df[detail_df["__grupo__"] == config.REPORT_4_GROUP_TOP_15].copy()
 
-    rows: list[dict] = []
-
-    grand_total_actual = 0.0
-    grand_total_plan = 0.0
-    grand_total_py = 0.0
-
-    for client_value in ordered_clients:
-        actual_value = float(actual_dict.get(client_value, 0.0))
-        plan_value = float(plan_dict.get(client_value, 0.0))
-        py_value = float(py_dict.get(client_value, 0.0))
-
-        rows.append(
-            build_report_4_row(
-                client_label=client_value,
-                actual=actual_value,
-                plan=plan_value,
-                py=py_value,
-            )
-        )
-
-        grand_total_actual += actual_value
-        grand_total_plan += plan_value
-        grand_total_py += py_value
-
-    rows.append(
-        build_report_4_row(
-            client_label=config.REPORT_4_TOTAL_LABEL,
-            actual=grand_total_actual,
-            plan=grand_total_plan,
-            py=grand_total_py,
-            is_total=True,
-            is_grand_total=True,
-        )
+    top15_summary_label = getattr(
+        config,
+        "REPORT_4_GROUP_TOP_15_TOTAL_LABEL",
+        "Total Top 15",
     )
 
-    return pd.DataFrame(rows)
+    top15_summary_df = summary_df[
+        (summary_df["__grupo__"] == config.REPORT_4_GROUP_TOP_15)
+        | (summary_df["Client Name"] == top15_summary_label)
+        | (summary_df["Client Name"] == config.REPORT_4_GROUP_TOP_15)
+    ].copy()
+
+    other_summary_df = summary_df[
+        summary_df["Client Name"].isin([
+            config.REPORT_4_GROUP_16_50,
+            config.REPORT_4_GROUP_51_100,
+            config.REPORT_4_GROUP_OTHER,
+            config.REPORT_4_TOTAL_LABEL,
+        ])
+    ].copy()
+
+    final_df = pd.concat(
+        [top15_df, top15_summary_df, other_summary_df],
+        ignore_index=True,
+    )
+    return finalize_report_4_table(final_df, keep_internal=False)
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Extrae un bloque visible del detalle por grupo
+# --------------------------------------------------------------
+def get_report_4_group_detail_table(detail_df: pd.DataFrame, group_label: str) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty:
+        return finalize_report_4_table(pd.DataFrame(), keep_internal=False)
+
+    filtered = detail_df[detail_df["__grupo__"] == group_label].copy()
+
+    if filtered.empty:
+        return finalize_report_4_table(filtered, keep_internal=False)
+
+    total_actual = filtered["Actual"].apply(float).sum()
+    total_plan = filtered["Plan"].apply(float).sum()
+    total_py = filtered["PY"].apply(float).sum()
+
+    total_row = build_report_4_row(
+        client_code="",
+        client_label=f"Total {group_label}",
+        actual=total_actual,
+        plan=total_plan,
+        py=total_py,
+        top_position="",
+        group_label=group_label,
+        is_total=True,
+        is_group_summary=True,
+    )
+
+    filtered_with_total = pd.concat(
+        [filtered, pd.DataFrame([total_row])],
+        ignore_index=True,
+    )
+
+    return finalize_report_4_table(filtered_with_total, keep_internal=False)
 
 # --------------------------------------------------------------
 # FUNCIÓN PRINCIPAL:
-# Construye payload de Reporte 4 - Top 15 Clients
+# Construye payload de Reporte 4
 # --------------------------------------------------------------
 def build_report_4_top_clients_payload(
     df_processed_sales: pd.DataFrame,
@@ -3177,6 +3354,23 @@ def build_report_4_top_clients_payload(
         report_month,
     )
 
+    mtd_detail_internal = build_report_4_detail_table(
+        actual_df=mtd_actual_df,
+        plan_df=mtd_plan_df,
+        py_df=mtd_py_df,
+        keep_internal=True,
+    )
+
+    ytd_detail_internal = build_report_4_detail_table(
+        actual_df=ytd_actual_df,
+        plan_df=ytd_plan_df,
+        py_df=ytd_py_df,
+        keep_internal=True,
+    )
+
+    mtd_summary_internal = build_report_4_group_summary_table(mtd_detail_internal, keep_internal=True)
+    ytd_summary_internal = build_report_4_group_summary_table(ytd_detail_internal, keep_internal=True)
+
     mtd_table = build_report_4_clients_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -3189,8 +3383,8 @@ def build_report_4_top_clients_payload(
         py_df=ytd_py_df,
     )
 
-    mtd_total_row = mtd_table[mtd_table["Client Name"] == config.REPORT_4_TOTAL_LABEL]
-    ytd_total_row = ytd_table[ytd_table["Client Name"] == config.REPORT_4_TOTAL_LABEL]
+    mtd_total_row = mtd_summary_internal[mtd_summary_internal["Client Name"] == config.REPORT_4_TOTAL_LABEL]
+    ytd_total_row = ytd_summary_internal[ytd_summary_internal["Client Name"] == config.REPORT_4_TOTAL_LABEL]
 
     summary = {
         "latest_year": report_year,
@@ -3205,6 +3399,20 @@ def build_report_4_top_clients_payload(
 
     return {
         "summary": summary,
+        # Vista ejecutiva: Top 15 + bloques resumen + Total Mexico.
         "mtd_top_clients_table": mtd_table,
         "ytd_top_clients_table": ytd_table,
+        # Detalle completo visible, sin columnas TOP ni Grupo.
+        "mtd_detail_table": finalize_report_4_table(mtd_detail_internal, keep_internal=False),
+        "ytd_detail_table": finalize_report_4_table(ytd_detail_internal, keep_internal=False),
+        # Resúmenes visibles, sin columnas TOP ni Grupo.
+        "mtd_summary_table": finalize_report_4_table(mtd_summary_internal, keep_internal=False),
+        "ytd_summary_table": finalize_report_4_table(ytd_summary_internal, keep_internal=False),
+        # Bloques desplegables visibles, sin columnas TOP ni Grupo.
+        "mtd_group_16_50_table": get_report_4_group_detail_table(mtd_detail_internal, config.REPORT_4_GROUP_16_50),
+        "ytd_group_16_50_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_16_50),
+        "mtd_group_51_100_table": get_report_4_group_detail_table(mtd_detail_internal, config.REPORT_4_GROUP_51_100),
+        "ytd_group_51_100_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_51_100),
+        "mtd_group_other_table": get_report_4_group_detail_table(mtd_detail_internal, config.REPORT_4_GROUP_OTHER),
+        "ytd_group_other_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_OTHER),
     }

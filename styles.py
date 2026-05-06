@@ -1097,6 +1097,250 @@ def build_global_css() -> str:
         background: #DCEFD8 !important;
     }}
 
+
+
+    /* =====================================================
+       AJUSTE REPORTE 4: ALINEACIÓN + CLIENT NAME FIJO
+       ===================================================== */
+    .report-grid-9 {{
+        grid-template-columns: 2.45fr 1.05fr 0.95fr 0.95fr 0.95fr 1.08fr 1.08fr 1.08fr 1.08fr !important;
+        min-width: 1280px !important;
+        width: 100% !important;
+        align-items: stretch !important;
+    }}
+
+    .report-grid-9 .report-cell {{
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }}
+
+    .report-grid-9 .report-header-sticky,
+    .report-grid-9 .report-sticky-cell,
+    .report-grid-9 .report4-sticky-cell,
+    .report-grid-9 .report4-sticky-header {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 110 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.10) !important;
+    }}
+
+    .report-grid-9 .report-header-sticky,
+    .report-grid-9 .report4-sticky-header {{
+        top: 0 !important;
+        z-index: 170 !important;
+        background: #1F2A44 !important;
+    }}
+
+    .report-grid-9 .report-sticky-cell,
+    .report-grid-9 .report4-sticky-cell {{
+        background: #F8FAFC !important;
+        color: #1F2A44 !important;
+        font-weight: 700 !important;
+    }}
+
+    .report-grid-9 .report-total .report-sticky-cell,
+    .report-grid-9 .report-total .report4-sticky-cell {{
+        background: #F3F6FA !important;
+    }}
+
+    .report-grid-9 .report-highlight .report-sticky-cell,
+    .report-grid-9 .report-highlight .report4-sticky-cell {{
+        background: #DCEFD8 !important;
+    }}
+
+    /* Grid HTML específica para Reporte 4. */
+    .report4-grid {{
+        display: grid !important;
+        grid-template-columns: 2.45fr 1.05fr 0.95fr 0.95fr 0.95fr 1.08fr 1.08fr 1.08fr 1.08fr !important;
+        min-width: 1280px !important;
+        width: 100% !important;
+        gap: 0 !important;
+        align-items: stretch !important;
+    }}
+
+    .report4-grid .report-cell {{
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }}
+
+    .report4-grid .report-header {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 140 !important;
+    }}
+
+    .report4-sticky-cell {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 110 !important;
+        background: #F8FAFC !important;
+        color: #1F2A44 !important;
+        font-weight: 700 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.10) !important;
+    }}
+
+    .report4-sticky-header {{
+        position: sticky !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 190 !important;
+        background: #1F2A44 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.14) !important;
+    }}
+
+    .report4-code-cell {{
+        position: static !important;
+        left: auto !important;
+        z-index: 1 !important;
+        background: #F8FAFC !important;
+        color: #1F2A44 !important;
+        font-weight: 700 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: none !important;
+    }}
+
+    .report4-code-header {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 140 !important;
+        background: #1F2A44 !important;
+    }}
+
+    .report4-total-cell.report4-sticky-cell,
+    .report-total .report4-sticky-cell {{
+        background: #F3F6FA !important;
+    }}
+
+    .report4-highlight-cell.report4-sticky-cell,
+    .report-highlight .report4-sticky-cell {{
+        background: #DCEFD8 !important;
+    }}
+
+
+
+
+    /* =====================================================
+       FIX DEFINITIVO REPORTE 4:
+       CLIENT NAME + ENCABEZADO FIJOS
+       ===================================================== */
+    .report4-scroll {{
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+        max-height: 560px !important;
+        position: relative !important;
+        isolation: isolate !important;
+        background: #FFFFFF !important;
+    }}
+
+    .report4-scroll > .report4-grid:first-child {{
+        position: relative !important;
+        top: auto !important;
+        z-index: auto !important;
+        background: #FFFFFF !important;
+    }}
+
+    .report4-grid {{
+        display: grid !important;
+        grid-template-columns: 2.45fr 1.05fr 0.95fr 0.95fr 0.95fr 1.08fr 1.08fr 1.08fr 1.08fr !important;
+        min-width: 1280px !important;
+        width: 100% !important;
+        gap: 0 !important;
+        align-items: stretch !important;
+    }}
+
+    .report4-grid > .report-cell {{
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }}
+
+    .report4-grid > .report-cell:nth-child(-n+9) {{
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 220 !important;
+    }}
+
+    .report4-grid > .report-cell:nth-child(9n+1) {{
+        position: sticky !important;
+        left: 0 !important;
+        z-index: 210 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.14) !important;
+    }}
+
+    .report4-grid > .report-cell:first-child,
+    .report4-grid > .report4-sticky-header:first-child {{
+        position: sticky !important;
+        top: 0 !important;
+        left: 0 !important;
+        z-index: 320 !important;
+        background: #1F2A44 !important;
+        color: #FFFFFF !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: 4px 0 8px rgba(15, 23, 42, 0.18) !important;
+    }}
+
+    .report4-grid > .report4-sticky-cell {{
+        background: #F8FAFC !important;
+        color: #1F2A44 !important;
+        font-weight: 700 !important;
+    }}
+
+    .report4-grid > .report4-code-cell {{
+        position: static !important;
+        left: auto !important;
+        z-index: 1 !important;
+        background: #F8FAFC !important;
+        color: #1F2A44 !important;
+        font-weight: 700 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        padding-left: 0.85rem !important;
+        box-shadow: none !important;
+    }}
+
+    .report4-grid > .report4-code-header {{
+        position: sticky !important;
+        top: 0 !important;
+        left: auto !important;
+        z-index: 220 !important;
+        background: #1F2A44 !important;
+        color: #FFFFFF !important;
+        box-shadow: none !important;
+    }}
+
+    .report4-grid > .report4-total-cell {{
+        background: #F3F6FA !important;
+        font-weight: 800 !important;
+    }}
+
+    .report4-grid > .report4-highlight-cell {{
+        background: #DCEFD8 !important;
+        font-weight: 800 !important;
+    }}
+
+
     /* =====================================================
        OCULTAR FOOTER
        ===================================================== */
