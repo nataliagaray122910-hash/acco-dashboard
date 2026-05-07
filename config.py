@@ -87,10 +87,10 @@ MAIN_MENU_OPTIONS = [
     "Inicio",
     "Carga de datos",
     "Visión general",
-    "Reporte 1",
-    "Reporte 2",
-    "Reporte 3",
-    "Reporte 4",
+    "Canal Corporativo",
+    "Segmento y Categoría",
+    "Desempeño Comercial",
+    "Ranking Clientes",
     "Base MTD",
 ]
 

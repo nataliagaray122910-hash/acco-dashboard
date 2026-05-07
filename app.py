@@ -4200,13 +4200,13 @@ def main() -> None:
             render_home_view()
     elif selected == "Visión general":
         render_overview_view()
-    elif selected == "Reporte 1":
+    elif selected == "Canal Corporativo":
         render_report_1_view()
-    elif selected == "Reporte 2":
+    elif selected == "Segmento y Categoría":
         render_report_2_view()
-    elif selected == "Reporte 3":
+    elif selected == "Desempeño Comercial":
         render_report_3_view()
-    elif selected == "Reporte 4":
+    elif selected == "Ranking Clientes":
         render_report_4_view()
     elif selected == "Base MTD":
         render_mtd_base_view()
