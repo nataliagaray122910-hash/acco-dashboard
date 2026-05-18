@@ -735,6 +735,8 @@ def build_mtd_payload(
     df_processed_sales: pd.DataFrame,
     df_plan_client: pd.DataFrame,
     df_plan_sku: pd.DataFrame,
+    selected_year: int | None = None,
+    selected_month: int | None = None,
 ) -> dict:
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
@@ -745,27 +747,28 @@ def build_mtd_payload(
     if df_plan_sku is None or df_plan_sku.empty:
         raise ValueError("No existe archivo de plan por SKU cargado.")
 
-    latest_year, latest_month = get_latest_actual_period_from_sales(df_processed_sales)
-
-    if latest_year is None or latest_month is None:
-        raise ValueError("No fue posible identificar el último periodo real disponible.")
+    report_year, report_month = resolve_reporting_period(
+        df_processed_sales,
+        selected_year=selected_year,
+        selected_month=selected_month,
+    )
 
     totals = calculate_actual_and_py_totals(
         df_processed_sales,
-        latest_year,
-        latest_month,
+        report_year,
+        report_month,
     )
 
     plan_summary = calculate_plan_totals_summary(
         df_plan_client,
         df_plan_sku,
-        latest_month,
+        report_month,
     )
 
     bts_totals = calculate_bts_totals(
         df_processed_sales,
-        latest_year,
-        latest_month,
+        report_year,
+        report_month,
     )
 
     client_table = build_horizontal_plan_table(
@@ -804,8 +807,8 @@ def build_mtd_payload(
     }
 
     return {
-        "latest_year": latest_year,
-        "latest_month": latest_month,
+        "latest_year": report_year,
+        "latest_month": report_month,
         "summary": summary,
         "plan_summary": plan_summary,
         "bts_summary": bts_summary,

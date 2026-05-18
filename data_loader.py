@@ -4,6 +4,7 @@
 # ==========================================================
 
 from io import BytesIO
+from pathlib import Path
 
 import pandas as pd
 
@@ -172,6 +173,41 @@ def trim_plan_client_main_table(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 # ----------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Recorta filas fantasma de BASE SAP
+# ----------------------------------------------------------
+def trim_sales_main_table(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Conserva únicamente registros reales de BASE SAP.
+
+    NO elimina:
+    - filas con ceros
+    - filas con NA parciales
+    - registros incompletos
+
+    SOLO elimina filas completamente vacías que Excel/Pandas puede
+    interpretar como registros por formatos, fórmulas o residuos debajo
+    de la tabla principal.
+    """
+    df = df.copy()
+    df = standardize_columns(df)
+    df = df.reset_index(drop=True)
+
+    # Elimina filas completamente vacías reales.
+    df = df.dropna(how="all")
+
+    # Elimina filas donde TODAS las celdas son vacías aparentes.
+    # Esto conserva cualquier fila que tenga al menos un dato real.
+    df = df[
+        ~df.apply(
+            lambda row: all(is_blank_like(value) for value in row),
+            axis=1,
+        )
+    ].copy()
+
+    return df.reset_index(drop=True)
+
+# ----------------------------------------------------------
 # FUNCIÓN GENERAL:
 # Lee archivo genérico
 # ----------------------------------------------------------
@@ -216,7 +252,9 @@ def load_sales_file(uploaded_file):
         sheet_name="BASE SAP",
         header=5,
     )
-    return standardize_columns(df)
+
+    df = trim_sales_main_table(df)
+    return df
 
 # ----------------------------------------------------------
 # FUNCIÓN ESPECIAL:
@@ -252,3 +290,123 @@ def load_plan_sku_file(uploaded_file):
     )
     return standardize_columns(df)
 
+# ==========================================================
+# CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
+# ==========================================================
+# Nota:
+# Esta sección NO usa API de SharePoint ni credenciales.
+# Lee el Excel desde la carpeta local sincronizada por OneDrive.
+# La carga manual existente se conserva intacta.
+
+
+# ----------------------------------------------------------
+# FUNCIÓN GENERAL:
+# Lee un Excel desde una ruta local sincronizada
+# ----------------------------------------------------------
+def load_local_excel_to_dataframe(
+    file_path: str,
+    sheet_name=None,
+    header=0,
+    usecols=None,
+):
+    """
+    Lee un archivo Excel desde una ruta local.
+
+    Se usa para cargar el archivo sincronizado desde OneDrive/SharePoint.
+    """
+    if not file_path:
+        raise ValueError("No se recibió la ruta del archivo local.")
+
+    path = Path(file_path)
+
+    if not path.exists():
+        raise FileNotFoundError(
+            f"No se encontró el archivo en la ruta configurada: {file_path}"
+        )
+
+    if path.suffix.lower() not in [".xlsx", ".xls"]:
+        raise ValueError(
+            f"El archivo sincronizado debe ser Excel (.xlsx o .xls). Archivo recibido: {path.name}"
+        )
+
+    return pd.read_excel(
+        path,
+        sheet_name=sheet_name,
+        header=header,
+        usecols=usecols,
+    )
+
+
+# ----------------------------------------------------------
+# FUNCIÓN ESPECIAL:
+# Carga ventas desde BASE SAP usando ruta local sincronizada
+# ----------------------------------------------------------
+def load_sales_from_local_excel_path(file_path: str):
+    """
+    Carga la hoja BASE SAP desde el Excel sincronizado.
+    """
+    df = load_local_excel_to_dataframe(
+        file_path=file_path,
+        sheet_name="BASE SAP",
+        header=5,
+    )
+
+    df = trim_sales_main_table(df)
+    return df
+
+
+# ----------------------------------------------------------
+# FUNCIÓN ESPECIAL:
+# Carga plan por cliente usando ruta local sincronizada
+# ----------------------------------------------------------
+def load_plan_client_from_local_excel_path(file_path: str):
+    """
+    Carga únicamente la tabla principal de Plan2026 by Client
+    desde el Excel sincronizado.
+    """
+    df = load_local_excel_to_dataframe(
+        file_path=file_path,
+        sheet_name="Plan2026 by Client",
+        header=13,
+        usecols="A:T",
+    )
+
+    df = trim_plan_client_main_table(df)
+    return df
+
+
+# ----------------------------------------------------------
+# FUNCIÓN ESPECIAL:
+# Carga plan por SKU usando ruta local sincronizada
+# ----------------------------------------------------------
+def load_plan_sku_from_local_excel_path(file_path: str):
+    """
+    Carga la hoja Plan2026 by SKU desde el Excel sincronizado.
+    """
+    df = load_local_excel_to_dataframe(
+        file_path=file_path,
+        sheet_name="Plan2026 by SKU",
+        header=7,
+    )
+    return standardize_columns(df)
+
+
+# ----------------------------------------------------------
+# FUNCIÓN PRINCIPAL:
+# Carga las tres bases del dashboard desde el Excel sincronizado
+# ----------------------------------------------------------
+def load_dashboard_excel_from_synced_path(file_path: str) -> dict:
+    """
+    Lee el Excel sincronizado desde OneDrive/SharePoint y devuelve
+    los tres DataFrames principales que usa el dashboard.
+
+    Retorna:
+    - df_sales
+    - df_plan_client
+    - df_plan_sku
+    """
+    return {
+        "df_sales": load_sales_from_local_excel_path(file_path),
+        "df_plan_client": load_plan_client_from_local_excel_path(file_path),
+        "df_plan_sku": load_plan_sku_from_local_excel_path(file_path),
+    }

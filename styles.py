@@ -23,7 +23,6 @@ def image_to_base64(image_path: str) -> str | None:
     except Exception:
         return None
 
-
 def apply_login_background(image_path: str) -> str:
     """
     Aplica una imagen de fondo SOLO para la pantalla de inicio de sesión.
@@ -60,7 +59,6 @@ def apply_login_background(image_path: str) -> str:
     }}
     </style>
     """
-
 
 def build_global_css() -> str:
     """
@@ -945,7 +943,6 @@ def build_global_css() -> str:
     }}
 
 
-
     /* =====================================================
        HEADER CATEGORY FIJO EN VERTICAL Y HORIZONTAL
        ===================================================== */
@@ -991,7 +988,6 @@ def build_global_css() -> str:
     .report-spacer {{
         height: 0.35rem;
     }}
-
 
 
     /* =====================================================
@@ -1096,7 +1092,6 @@ def build_global_css() -> str:
     .report-highlight .report-sticky-cell {{
         background: #DCEFD8 !important;
     }}
-
 
 
     /* =====================================================
@@ -1233,7 +1228,6 @@ def build_global_css() -> str:
 
 
 
-
     /* =====================================================
        FIX DEFINITIVO REPORTE 4:
        CLIENT NAME + ENCABEZADO FIJOS
@@ -1340,6 +1334,167 @@ def build_global_css() -> str:
         font-weight: 800 !important;
     }}
 
+
+
+    /* =====================================================
+       BASE MTD - VISTA EJECUTIVA SUPERIOR
+       ===================================================== */
+    .base-mtd-toolbar {{
+        display: flex;
+        align-items: end;
+        gap: 0.85rem;
+        margin-top: 0.85rem;
+        margin-bottom: 1.05rem;
+    }}
+
+    .base-mtd-toolbar-left {{
+        flex: 1 1 auto;
+        display: grid;
+        grid-template-columns: 0.9fr 1fr;
+        gap: 0.8rem;
+        max-width: 560px;
+    }}
+
+    .base-mtd-toolbar-middle {{
+        flex: 1.2 1 auto;
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: 0.6rem;
+        padding-bottom: 0.18rem;
+    }}
+
+    .base-mtd-toolbar-right {{
+        flex: 0 0 auto;
+        display: flex;
+        justify-content: flex-end;
+        align-items: center;
+        padding-bottom: 0.05rem;
+    }}
+
+    .base-mtd-kpi-grid {{
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 1rem;
+        margin-top: 1rem;
+        margin-bottom: 1.05rem;
+    }}
+
+    .base-mtd-kpi-card {{
+        background: #FFFFFF;
+        border: 1px solid #E7EAF0;
+        border-radius: 20px;
+        padding: 1.2rem 1.25rem;
+        min-height: 118px;
+        display: flex;
+        align-items: center;
+        gap: 1.05rem;
+        box-shadow: 0 10px 26px rgba(15, 23, 42, 0.06);
+    }}
+
+    .base-mtd-kpi-icon {{
+        width: 56px;
+        height: 56px;
+        min-width: 56px;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #FFFFFF;
+        font-size: 1.65rem;
+        font-weight: 900;
+        box-shadow: 0 10px 18px rgba(15, 23, 42, 0.14);
+    }}
+
+    .base-mtd-kpi-icon-blue {{
+        background: linear-gradient(135deg, #0B5A7A 0%, #0E7AA2 100%);
+    }}
+
+    .base-mtd-kpi-icon-orange {{
+        background: linear-gradient(135deg, #ED7D31 0%, #FF9A4A 100%);
+    }}
+
+    .base-mtd-kpi-icon-green {{
+        background: linear-gradient(135deg, #1B7A3A 0%, #2E9E4E 100%);
+    }}
+
+    .base-mtd-kpi-body {{
+        display: flex;
+        flex-direction: column;
+        gap: 0.12rem;
+        min-width: 0;
+    }}
+
+    .base-mtd-kpi-title {{
+        font-size: 0.88rem;
+        font-weight: 800;
+        color: #1F2A44;
+        line-height: 1.25;
+        text-transform: none;
+    }}
+
+    .base-mtd-kpi-value {{
+        font-size: 1.75rem;
+        font-weight: 900;
+        color: #111827;
+        line-height: 1.15;
+        letter-spacing: 0.1px;
+    }}
+
+    .base-mtd-kpi-description {{
+        font-size: 0.92rem;
+        color: #667085;
+        line-height: 1.35;
+        margin-top: 0.15rem;
+    }}
+
+    .base-mtd-download-wrap .stDownloadButton > button {{
+        background: #FFFFFF !important;
+        color: #1F2A44 !important;
+        border: 1px solid #DCE3EC !important;
+        border-radius: 14px !important;
+        padding: 0.66rem 1.1rem !important;
+        font-weight: 800 !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+    }}
+
+    .base-mtd-download-wrap .stDownloadButton > button:hover {{
+        background: #F8FAFC !important;
+        color: #111827 !important;
+        border-color: #C9D3DF !important;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09) !important;
+    }}
+
+    .base-mtd-compact-note {{
+        font-size: 0.92rem;
+        color: #667085;
+        margin-top: 0.15rem;
+        margin-bottom: 0.65rem;
+        line-height: 1.45;
+    }}
+
+    .base-mtd-section-heading {{
+        font-size: 1.45rem;
+        font-weight: 800;
+        color: #1F2A44;
+        margin-top: 1.15rem;
+        margin-bottom: 0.35rem;
+    }}
+
+    @media (max-width: 1200px) {{
+        .base-mtd-toolbar {{
+            flex-direction: column;
+            align-items: stretch;
+        }}
+
+        .base-mtd-toolbar-left {{
+            max-width: 100%;
+        }}
+
+        .base-mtd-kpi-grid {{
+            grid-template-columns: 1fr;
+        }}
+    }}
 
     /* =====================================================
        OCULTAR FOOTER
@@ -1509,3 +1664,29 @@ def build_currency_box(title: str, subtitle: str = "") -> str:
         {subtitle_html}
     </div>
     """
+
+def build_base_mtd_kpi_card(
+    title: str,
+    value: str,
+    description: str = "",
+    icon: str = "$",
+    color: str = "blue",
+) -> str:
+    """
+    Tarjeta KPI ejecutiva para la vista superior de Base MTD.
+    """
+    safe_color = str(color or "blue").strip().lower()
+    if safe_color not in {"blue", "orange", "green"}:
+        safe_color = "blue"
+
+    return f"""
+    <div class="base-mtd-kpi-card">
+        <div class="base-mtd-kpi-icon base-mtd-kpi-icon-{safe_color}">{icon}</div>
+        <div class="base-mtd-kpi-body">
+            <div class="base-mtd-kpi-title">{title}</div>
+            <div class="base-mtd-kpi-value">{value}</div>
+            <div class="base-mtd-kpi-description">{description}</div>
+        </div>
+    </div>
+    """
+

@@ -56,6 +56,34 @@ COLOR_ERROR = "#C0392B"
 LOGO_PATH = "assets/logo.png"
 BACKGROUND_PATH = "assets/fondo.jpg"
 
+
+# =========================================================
+# CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
+# =========================================================
+# Esta opción NO usa API, credenciales ni links directos de SharePoint.
+# Lee el archivo desde la carpeta sincronizada de OneDrive/SharePoint
+# en la computadora donde se ejecuta la app localmente.
+
+SYNCED_SHAREPOINT_ENABLED = True
+
+SYNCED_SHAREPOINT_FILE_NAME = "BASE FINAL ACUMULADA VENTAS CORPO 2024-2026.xlsx"
+
+SYNCED_SHAREPOINT_FILE_PATH = (
+    r"C:\Users\pncarden\OneDrive - ACCO Brands Corporation"
+    r"\Supply Chain Finance - REPORTES"
+    r"\BASE FINAL ACUMULADA VENTAS CORPO 2024-2026.xlsx"
+)
+
+SYNCED_SHAREPOINT_BUTTON_LABEL = "Actualizar desde SharePoint sincronizado"
+
+SYNCED_SHAREPOINT_LOAD_SUCCESS = (
+    "Archivo cargado correctamente desde la carpeta sincronizada de SharePoint."
+)
+
+SYNCED_SHAREPOINT_LOAD_ERROR = (
+    "No fue posible cargar el archivo desde la carpeta sincronizada de SharePoint."
+)
+
 # ---------------------------------------------------------
 # CONFIGURACIÓN GLOBAL DE MONEDA
 # ---------------------------------------------------------
@@ -120,6 +148,7 @@ EXPORT_REPORT_2_SEGMENT_FILE_BASE = "reporte_2_segment_region"
 EXPORT_REPORT_2_CATEGORY_FILE_BASE = "reporte_2_category"
 EXPORT_REPORT_3_FILE_BASE = "reporte_3"
 EXPORT_REPORT_4_FILE_BASE = "reporte_4"
+EXPORT_BASE_MTD_FILE_BASE = "base_mtd"
 
 # ---------------------------------------------------------
 # TOOLTIPS DE BOTONES INDIVIDUALES
@@ -129,6 +158,7 @@ EXPORT_REPORT_2_SEGMENT_HELP = "Descargar Segment x Region"
 EXPORT_REPORT_2_CATEGORY_HELP = "Descargar Category"
 EXPORT_REPORT_3_HELP = "Descargar Reporte 3"
 EXPORT_REPORT_4_HELP = "Descargar Reporte 4"
+EXPORT_BASE_MTD_HELP = "Descargar Base MTD"
 
 # ---------------------------------------------------------
 # NOMBRES DE HOJAS EXCEL
@@ -138,6 +168,10 @@ EXPORT_SHEET_REPORT_2_SEGMENT = "Reporte 2 - Segment"
 EXPORT_SHEET_REPORT_2_CATEGORY = "Reporte 2 - Category"
 EXPORT_SHEET_REPORT_3 = "Reporte 3"
 EXPORT_SHEET_REPORT_4 = "Reporte 4"
+EXPORT_SHEET_BASE_MTD = "Base MTD"
+EXPORT_SHEET_BASE_MTD_CLIENT = "Base MTD Cliente"
+EXPORT_SHEET_BASE_MTD_SKU = "Base MTD SKU"
+EXPORT_SHEET_BASE_MTD_BTS = "BTS"
 
 # =========================================================
 # ETAPA 2: CONFIGURACIÓN DE CARGA Y VALIDACIÓN DE ARCHIVOS
@@ -302,6 +336,29 @@ COL_CLIENT_REGION = "Región"
 COL_CLIENT_CLIENT = "Cliente"
 COL_CLIENT_NAME = "Nombre Cliente"
 COL_CLIENT_ZONE = "Zona"
+
+# ---------------------------------------------------------
+# TEXTOS DE BASE MTD
+# ---------------------------------------------------------
+BASE_MTD_TITLE = "Base MTD"
+BASE_MTD_MAIN_HEADING = "Base MTD / YTD"
+BASE_MTD_SUBHEADING = (
+    "Comparativo general entre Actual, Plan y PY para el mes de corte seleccionado, "
+    "incluyendo validación de Plan Cliente vs Plan SKU y cálculo BTS."
+)
+
+BASE_MTD_FILTER_TITLE = "Filtros de Base MTD"
+BASE_MTD_FILTER_SUBTITLE = (
+    "Selecciona el año y el mes de corte para recalcular MTD, YTD y BTS. "
+    "MTD muestra solo el mes elegido; YTD acumula enero a mes de corte; "
+    "BTS respeta el ciclo octubre-agosto."
+)
+
+BASE_MTD_CLIENT_TABLE_TITLE = "Base MTD vs Plan Cliente"
+BASE_MTD_SKU_TABLE_TITLE = "Base MTD vs Plan SKU"
+BASE_MTD_BTS_TABLE_TITLE = "Back To School (BTS)"
+BASE_MTD_PLAN_VALIDATION_TITLE = "Validación Plan Cliente vs Plan SKU"
+BASE_MTD_DOWNLOAD_LABEL = "Descargar Base MTD"
 
 # ---------------------------------------------------------
 # MENSAJES DE BASE MTD
@@ -4399,3 +4456,5 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "Para construir el Reporte 4 primero debes tener ventas procesadas "
     "y plan por cliente cargado."
 )
+
+

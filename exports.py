@@ -6,6 +6,8 @@
 from io import BytesIO
 
 import pandas as pd
+
+import config
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -495,6 +497,101 @@ def get_report_title_from_tables(tables: dict | None, fallback: str | None = Non
         return tables.get("report_title") or tables.get("__report_title__") or fallback
     return fallback
 
+
+# ---------------------------------------------------------
+# EXPORTACIÓN BASE MTD / BTS
+# ---------------------------------------------------------
+def build_base_mtd_excel_bytes(
+    client_table_df: pd.DataFrame,
+    sku_table_df: pd.DataFrame,
+    bts_table_df: pd.DataFrame,
+    plan_summary_df: pd.DataFrame | None = None,
+    report_title: str | None = None,
+    sheet_name: str | None = None,
+) -> bytes:
+    """
+    Construye el Excel individual de Base MTD.
+
+    Incluye únicamente:
+    - Comparativo MTD/YTD contra Plan Cliente.
+    - Comparativo MTD/YTD contra Plan SKU.
+    - Tabla BTS.
+
+    Nota:
+    plan_summary_df se conserva como parámetro para no romper las llamadas
+    existentes desde app.py, pero ya no se escribe en el Excel.
+    """
+    output, writer = create_excel_writer_buffer()
+    worksheet = ensure_sheet_exists(
+        writer,
+        sheet_name or getattr(config, "EXPORT_SHEET_BASE_MTD", "Base MTD"),
+    )
+
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=report_title,
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
+
+    block_last_row, _ = write_two_tables_side_by_side(
+        worksheet=worksheet,
+        left_df=client_table_df,
+        right_df=sku_table_df,
+        left_title=getattr(config, "BASE_MTD_CLIENT_TABLE_TITLE", "Base MTD vs Plan Cliente"),
+        right_title=getattr(config, "BASE_MTD_SKU_TABLE_TITLE", "Base MTD vs Plan SKU"),
+        start_row=current_row,
+    )
+
+    current_row = block_last_row + DEFAULT_BLOCK_SPACING_ROWS
+
+    write_table_to_worksheet(
+        worksheet=worksheet,
+        original_df=bts_table_df,
+        start_row=current_row,
+        start_col=1,
+        table_title=getattr(config, "BASE_MTD_BTS_TABLE_TITLE", "Back To School (BTS)"),
+    )
+
+    remove_default_sheet_if_needed(writer)
+    return build_excel_bytes_from_writer(output, writer)
+
+
+def write_base_mtd_tables_to_workbook(
+    worksheet,
+    base_mtd_tables: dict,
+) -> None:
+    """
+    Escribe Base MTD dentro del archivo global de reportes.
+    """
+    current_row = write_global_title(
+        worksheet=worksheet,
+        report_title=get_report_title_from_tables(base_mtd_tables),
+        start_row=1,
+        start_col=1,
+        width=8,
+    )
+
+    block_last_row, _ = write_two_tables_side_by_side(
+        worksheet=worksheet,
+        left_df=base_mtd_tables.get("client_table"),
+        right_df=base_mtd_tables.get("sku_table"),
+        left_title=getattr(config, "BASE_MTD_CLIENT_TABLE_TITLE", "Base MTD vs Plan Cliente"),
+        right_title=getattr(config, "BASE_MTD_SKU_TABLE_TITLE", "Base MTD vs Plan SKU"),
+        start_row=current_row,
+    )
+
+    current_row = block_last_row + DEFAULT_BLOCK_SPACING_ROWS
+
+    write_table_to_worksheet(
+        worksheet=worksheet,
+        original_df=base_mtd_tables.get("bts_table"),
+        start_row=current_row,
+        start_col=1,
+        table_title=getattr(config, "BASE_MTD_BTS_TABLE_TITLE", "Back To School (BTS)"),
+    )
+
 # ---------------------------------------------------------
 # EXPORTACIÓN REPORTE 1
 # ---------------------------------------------------------
@@ -675,6 +772,7 @@ def build_report_4_excel_bytes(
 # EXPORTACIÓN GLOBAL
 # ---------------------------------------------------------
 def build_full_reports_excel_bytes(
+    base_mtd_tables: dict | None = None,
     report_1_tables: dict | None = None,
     report_2_segment_tables: dict | None = None,
     report_2_category_tables: dict | None = None,
@@ -683,6 +781,19 @@ def build_full_reports_excel_bytes(
 ) -> bytes:
     output, writer = create_excel_writer_buffer()
     workbook_created = False
+
+    if base_mtd_tables:
+        ws = ensure_sheet_exists(
+            writer,
+            getattr(config, "EXPORT_SHEET_BASE_MTD", "Base MTD"),
+        )
+
+        write_base_mtd_tables_to_workbook(
+            worksheet=ws,
+            base_mtd_tables=base_mtd_tables,
+        )
+
+        workbook_created = True
 
     if report_1_tables:
         ws = ensure_sheet_exists(writer, "Reporte 1")

@@ -973,7 +973,53 @@ def get_current_report_4_export_tables() -> dict | None:
     }
 
 
+def build_base_mtd_plan_summary_export_df(plan_summary: dict | None):
+    if not plan_summary:
+        return data_processor.pd.DataFrame()
+
+    rows = [
+        {
+            "Validación": "MTD Plan Cliente vs Plan SKU",
+            "Plan Cliente": plan_summary.get("mtd_plan_client", 0.0),
+            "Plan SKU": plan_summary.get("mtd_plan_sku", 0.0),
+            "Diferencia": plan_summary.get("mtd_plan_diff", 0.0),
+            "Estatus": "Coincide" if plan_summary.get("mtd_plan_match", False) else "No coincide",
+        },
+        {
+            "Validación": "YTD Plan Cliente vs Plan SKU",
+            "Plan Cliente": plan_summary.get("ytd_plan_client", 0.0),
+            "Plan SKU": plan_summary.get("ytd_plan_sku", 0.0),
+            "Diferencia": plan_summary.get("ytd_plan_diff", 0.0),
+            "Estatus": "Coincide" if plan_summary.get("ytd_plan_match", False) else "No coincide",
+        },
+    ]
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def get_current_base_mtd_export_tables() -> dict | None:
+    payload = st.session_state.get("mtd_payload")
+    if payload is None:
+        return None
+
+    return {
+        "summary": payload,
+        "report_title": build_report_context_title(
+            "Base MTD",
+            payload["latest_year"],
+            payload["latest_month"],
+        ),
+        "client_table": convert_report_table_for_export(payload["client_table"]),
+        "sku_table": convert_report_table_for_export(payload["sku_table"]),
+        "bts_table": convert_report_table_for_export(payload["bts_table"]),
+        "plan_summary_table": convert_report_table_for_export(
+            build_base_mtd_plan_summary_export_df(payload.get("plan_summary"))
+        ),
+    }
+
+
 def get_full_reports_export_bytes() -> bytes:
+    base_mtd_tables = get_current_base_mtd_export_tables()
     report_1_tables = get_current_report_1_export_tables()
     report_2_segment_tables = get_current_report_2_segment_export_tables()
     report_2_category_tables = get_current_report_2_category_export_tables()
@@ -981,6 +1027,7 @@ def get_full_reports_export_bytes() -> bytes:
     report_4_tables = get_current_report_4_export_tables()
 
     return exports.build_full_reports_excel_bytes(
+        base_mtd_tables=base_mtd_tables,
         report_1_tables=report_1_tables,
         report_2_segment_tables=report_2_segment_tables,
         report_2_category_tables=report_2_category_tables,
@@ -1025,6 +1072,7 @@ def render_sidebar() -> str:
 
         has_any_report = any(
             [
+                st.session_state.get("mtd_payload") is not None,
                 st.session_state.get("report1_payload") is not None,
                 st.session_state.get("report2_payload") is not None,
                 st.session_state.get("report2_category_payload") is not None,
@@ -1070,6 +1118,112 @@ def render_file_validation_result(
         st.error(config.MSG_VALIDATION_FAIL)
         if missing_columns:
             st.warning(f"Columnas faltantes: {', '.join(missing_columns)}")
+
+
+# =========================================================
+# 10.1 CARGA DESDE SHAREPOINT SINCRONIZADO
+# =========================================================
+def apply_synced_sharepoint_payload_to_session(payload: dict, source_file_name: str) -> bool:
+    """
+    Recibe los DataFrames leídos desde la carpeta sincronizada de SharePoint
+    y los deja en las mismas variables de sesión que usa la carga manual.
+
+    No procesa automáticamente la base ni construye reportes; solo carga y valida.
+    """
+    df_sales = payload.get("df_sales")
+    df_plan_client = payload.get("df_plan_client")
+    df_plan_sku = payload.get("df_plan_sku")
+
+    is_valid_sales, missing_sales = validators.validate_required_columns(
+        df_sales,
+        config.EXPECTED_COLUMNS_SALES,
+    )
+    is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
+        df_plan_client,
+        config.EXPECTED_COLUMNS_PLAN_CLIENT,
+    )
+    is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
+        df_plan_sku,
+        config.EXPECTED_COLUMNS_PLAN_SKU,
+    )
+
+    st.session_state["df_sales"] = df_sales
+    st.session_state["df_plan_client"] = df_plan_client
+    st.session_state["df_plan_sku"] = df_plan_sku
+
+    st.session_state["sales_valid"] = is_valid_sales
+    st.session_state["plan_client_valid"] = is_valid_plan_client
+    st.session_state["plan_sku_valid"] = is_valid_plan_sku
+
+    st.session_state["sales_missing_columns"] = missing_sales
+    st.session_state["plan_client_missing_columns"] = missing_plan_client
+    st.session_state["plan_sku_missing_columns"] = missing_plan_sku
+
+    st.session_state["sales_file_name"] = f"{source_file_name} | BASE SAP"
+    st.session_state["plan_client_file_name"] = f"{source_file_name} | Plan2026 by Client"
+    st.session_state["plan_sku_file_name"] = f"{source_file_name} | Plan2026 by SKU"
+
+    st.session_state["df_processed_sales"] = None
+    st.session_state["suppress_persistent_autoload"] = True
+    st.session_state["persistent_data_loaded"] = False
+    st.session_state["persistent_data_metadata"] = None
+
+    clear_report_payloads()
+
+    return all([is_valid_sales, is_valid_plan_client, is_valid_plan_sku])
+
+
+def load_synced_sharepoint_file_to_session() -> bool:
+    """
+    Carga automáticamente el Excel sincronizado desde OneDrive/SharePoint.
+
+    Esta opción no usa API, usuario, contraseña ni link de navegador.
+    Solo lee la ruta local configurada en config.py.
+    """
+    if not getattr(config, "SYNCED_SHAREPOINT_ENABLED", False):
+        set_warning_message("La carga desde SharePoint sincronizado está deshabilitada en config.py.")
+        return False
+
+    file_path = str(getattr(config, "SYNCED_SHAREPOINT_FILE_PATH", "") or "").strip()
+    source_file_name = str(
+        getattr(config, "SYNCED_SHAREPOINT_FILE_NAME", "Archivo sincronizado de SharePoint")
+        or "Archivo sincronizado de SharePoint"
+    ).strip()
+
+    if not file_path:
+        set_error_message("No se encontró la ruta del archivo sincronizado en config.py.")
+        return False
+
+    try:
+        payload = data_loader.load_dashboard_excel_from_synced_path(file_path)
+        all_valid = apply_synced_sharepoint_payload_to_session(
+            payload=payload,
+            source_file_name=source_file_name,
+        )
+
+        if all_valid:
+            set_success_message(
+                getattr(
+                    config,
+                    "SYNCED_SHAREPOINT_LOAD_SUCCESS",
+                    "Archivo cargado correctamente desde la carpeta sincronizada de SharePoint.",
+                )
+            )
+        else:
+            set_warning_message(
+                "El archivo sincronizado se cargó, pero alguna hoja no contiene las columnas mínimas esperadas. "
+                "Revisa las validaciones mostradas en pantalla."
+            )
+
+        return all_valid
+
+    except Exception as exc:
+        set_error_message(
+            f"{getattr(config, 'SYNCED_SHAREPOINT_LOAD_ERROR', 'No fue posible cargar el archivo desde SharePoint sincronizado.')} "
+            f"Detalle: {exc}"
+        )
+        return False
+
 
 # =========================================================
 # 11. HELPERS DE FILTROS DE PERIODO
@@ -1796,34 +1950,42 @@ def render_processed_data_summary() -> None:
         else 0
     )
 
+    # Se usan columnas nativas para asegurar que las 3 tarjetas
+    # permanezcan en la misma fila, igual que en Base MTD.
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown(
-            styles.build_info_card(
-                "Registros procesados",
-                f"{total_rows:,}",
-                "Total de filas en la base procesada",
+            styles.build_base_mtd_kpi_card(
+                title="REGISTROS PROCESADOS",
+                value=f"{total_rows:,}",
+                description="Total de filas en la base procesada.",
+                icon="#",
+                color="blue",
             ),
             unsafe_allow_html=True,
         )
 
     with col2:
         st.markdown(
-            styles.build_info_card(
-                f"GSNR total ({get_currency_kpi_suffix()})",
-                format_monetary_value(total_gsnr),
-                "Suma del GSNR contenido en BASE SAP, expresada en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"GSNR TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(total_gsnr),
+                description="Suma del GSNR contenido en BASE SAP, expresada en miles.",
+                icon="$",
+                color="green",
             ),
             unsafe_allow_html=True,
         )
 
     with col3:
         st.markdown(
-            styles.build_info_card(
-                f"Gross Margin total ({get_currency_kpi_suffix()})",
-                format_monetary_value(total_gm),
-                "GSNR menos Costo Vtas Netas, expresado en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"GROSS MARGIN TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(total_gm),
+                description="GSNR menos Costo Vtas Netas, expresado en miles.",
+                icon="Σ",
+                color="orange",
             ),
             unsafe_allow_html=True,
         )
@@ -1831,7 +1993,10 @@ def render_processed_data_summary() -> None:
 # =========================================================
 # 13. BASE MTD
 # =========================================================
-def run_mtd_build() -> None:
+def run_mtd_build(
+    selected_year: int | None = None,
+    selected_month: int | None = None,
+) -> None:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_client = st.session_state.get("df_plan_client")
     df_plan_sku = st.session_state.get("df_plan_sku")
@@ -1849,6 +2014,8 @@ def run_mtd_build() -> None:
             df_processed_sales,
             df_plan_client,
             df_plan_sku,
+            selected_year=selected_year,
+            selected_month=selected_month,
         )
         st.session_state["mtd_payload"] = payload
         st.session_state["df_mtd_base"] = None
@@ -1870,71 +2037,105 @@ def render_mtd_base_summary() -> None:
     plan_summary = payload["plan_summary"]
     bts_summary = payload["bts_summary"]
 
-    st.caption(f"Periodo actual: {latest_month:02d}/{latest_year}")
+    period_label = f"{get_month_label(int(latest_month))} {int(latest_year)}"
 
+    st.markdown(
+        '<div class="base-mtd-section-heading">Resumen ejecutivo</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="base-mtd-compact-note">
+            Periodo activo: <b>{escape(period_label)}</b> ·
+            Moneda: <b>{escape(get_currency_status_label())}</b> ·
+            TC: <b>{get_normalized_exchange_rate_4():,.4f} MXN/USD</b>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # Se usan columnas nativas de Streamlit para garantizar 3 tarjetas arriba
+    # y 3 tarjetas abajo. No se usa un contenedor grid HTML abierto, porque
+    # Streamlit envuelve cada markdown y puede romper la cuadrícula visual.
     row1 = st.columns(3)
     row2 = st.columns(3)
 
     with row1[0]:
         st.markdown(
-            styles.build_info_card(
-                f"MTD ACT TOTAL ({get_currency_kpi_suffix()})",
-                format_monetary_value(summary["mtd_act_total_k"] * 1000),
-                "Valor del último mes real disponible, expresado en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"MTD ACT TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary["mtd_act_total_k"] * 1000),
+                description="Valor real del mes de corte seleccionado.",
+                icon="$",
+                color="blue",
             ),
             unsafe_allow_html=True,
         )
 
     with row1[1]:
         st.markdown(
-            styles.build_info_card(
-                f"YTD ACT TOTAL ({get_currency_kpi_suffix()})",
-                format_monetary_value(summary["ytd_act_total_k"] * 1000),
-                "Acumulado del año al último mes, expresado en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"YTD ACT TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary["ytd_act_total_k"] * 1000),
+                description="Acumulado real de enero al mes de corte.",
+                icon="Σ",
+                color="blue",
             ),
             unsafe_allow_html=True,
         )
 
     with row1[2]:
         st.markdown(
-            styles.build_info_card(
-                f"MTD PLAN TOTAL ({get_currency_kpi_suffix()})",
-                format_monetary_value(summary["mtd_plan_total_k"] * 1000),
-                "Plan del último mes disponible, expresado en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"MTD PLAN TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary["mtd_plan_total_k"] * 1000),
+                description="Plan del mes de corte seleccionado.",
+                icon="↗",
+                color="orange",
             ),
             unsafe_allow_html=True,
         )
 
     with row2[0]:
         st.markdown(
-            styles.build_info_card(
-                f"YTD PLAN TOTAL ({get_currency_kpi_suffix()})",
-                format_monetary_value(summary["ytd_plan_total_k"] * 1000),
-                "Plan acumulado de enero al mes actual, expresado en miles",
+            styles.build_base_mtd_kpi_card(
+                title=f"YTD PLAN TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary["ytd_plan_total_k"] * 1000),
+                description="Plan acumulado de enero al mes de corte.",
+                icon="Σ",
+                color="orange",
             ),
             unsafe_allow_html=True,
         )
 
     with row2[1]:
         st.markdown(
-            styles.build_info_card(
-                f"BTS ACTUAL ({get_currency_kpi_suffix()})",
-                format_monetary_value(bts_summary["bts_actual_k"] * 1000),
-                "BTS real acumulado desde octubre del año previo al mes actual",
+            styles.build_base_mtd_kpi_card(
+                title=f"BTS ACTUAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(bts_summary["bts_actual_k"] * 1000),
+                description="BTS acumulado desde octubre al corte seleccionado.",
+                icon="🎒",
+                color="green",
             ),
             unsafe_allow_html=True,
         )
 
     with row2[2]:
         st.markdown(
-            styles.build_info_card(
-                f"BTS PY COMPLETO ({get_currency_kpi_suffix()})",
-                format_monetary_value(bts_summary["bts_py_full_k"] * 1000),
-                "BTS del ciclo previo completo, mostrado como dato informativo",
+            styles.build_base_mtd_kpi_card(
+                title=f"BTS PY COMPLETO ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(bts_summary["bts_py_full_k"] * 1000),
+                description="Ciclo BTS previo completo como referencia.",
+                icon="↺",
+                color="green",
             ),
             unsafe_allow_html=True,
         )
 
+    # IMPORTANTE:
+    # Estos avisos se conservan igual, porque son validaciones funcionales
+    # que ya existían en la vista original.
     if plan_summary["mtd_plan_match"]:
         st.success("Validación MTD Plan: Plan Cliente y Plan SKU coinciden.")
     else:
@@ -1950,7 +2151,6 @@ def render_mtd_base_summary() -> None:
             "Validación YTD Plan: Plan Cliente y Plan SKU no coinciden. "
             f"Diferencia detectada: {round(convert_monetary_value(plan_summary['ytd_plan_diff']) / 1000):,}"
         )
-
 
 def format_table_value(value: float, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
@@ -2239,7 +2439,7 @@ def render_report_1_view() -> None:
             styles.build_info_card(
                 "Periodo actual",
                 f"{latest_month:02d}/{latest_year}",
-                "Último periodo real detectado desde BASE SAP",
+                "Periodo de corte seleccionado desde BASE SAP",
             ),
             unsafe_allow_html=True,
         )
@@ -2764,7 +2964,7 @@ def render_report_2_view() -> None:
                 styles.build_info_card(
                     "Periodo actual",
                     f"{latest_month:02d}/{latest_year}",
-                    "Último periodo real detectado desde BASE SAP",
+                    "Periodo de corte seleccionado desde BASE SAP",
                 ),
                 unsafe_allow_html=True,
             )
@@ -3209,7 +3409,7 @@ def render_report_3_view() -> None:
             styles.build_info_card(
                 "Periodo actual",
                 f"{latest_month:02d}/{latest_year}",
-                "Último periodo real detectado desde BASE SAP",
+                "Periodo de corte seleccionado desde BASE SAP",
             ),
             unsafe_allow_html=True,
         )
@@ -3581,7 +3781,7 @@ def render_report_4_view() -> None:
             styles.build_info_card(
                 "Periodo actual",
                 f"{latest_month:02d}/{latest_year}",
-                "Último periodo real detectado desde BASE SAP",
+                "Periodo de corte seleccionado desde BASE SAP",
             ),
             unsafe_allow_html=True,
         )
@@ -3795,6 +3995,31 @@ def render_upload_view() -> None:
         """
     )
     st.markdown(upload_box_html, unsafe_allow_html=True)
+
+
+    # =====================================================
+    # CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
+    # =====================================================
+    st.markdown("### Carga automática desde SharePoint sincronizado")
+    st.caption(
+        "Esta opción lee el Excel desde la carpeta de SharePoint sincronizada con OneDrive. "
+        "La carga manual se conserva como respaldo."
+    )
+
+    if getattr(config, "SYNCED_SHAREPOINT_ENABLED", False):
+        st.button(
+            getattr(
+                config,
+                "SYNCED_SHAREPOINT_BUTTON_LABEL",
+                "Actualizar desde SharePoint sincronizado",
+            ),
+            on_click=load_synced_sharepoint_file_to_session,
+            use_container_width=True,
+        )
+    else:
+        st.warning("La carga desde SharePoint sincronizado está deshabilitada en config.py.")
+
+    st.markdown("---")
 
     # =====================================================
     # 1. ARCHIVO DE VENTAS
@@ -4038,21 +4263,26 @@ def render_overview_view() -> None:
     )
     st.markdown(overview_box_html, unsafe_allow_html=True)
 
-    st.markdown("### 1. Ejecutar procesamiento inicial")
+    # Botón único de procesamiento, sin crear un apartado adicional.
     st.button(
         "Procesar base de ventas",
         on_click=run_sales_processing,
         use_container_width=True,
     )
 
-    st.markdown("---")
-    st.markdown("### 2. Resumen de la base procesada")
+    st.markdown(
+        '<div class="base-mtd-section-heading">Resumen de la base procesada</div>',
+        unsafe_allow_html=True,
+    )
+
     render_processed_data_summary()
 
     df_processed = st.session_state.get("df_processed_sales")
 
-    st.markdown("---")
-    st.markdown("### 3. Vista previa de la base procesada")
+    st.markdown(
+        '<div class="base-mtd-section-heading">Vista previa de la base procesada</div>',
+        unsafe_allow_html=True,
+    )
 
     if df_processed is not None and not df_processed.empty:
         render_preview_expander(
@@ -4064,8 +4294,14 @@ def render_overview_view() -> None:
     else:
         st.info("Aún no se ha procesado ninguna base.")
 
+    # Única línea divisoria de esta vista, para separar la vista previa
+    # de la validación visual de columnas clave.
     st.markdown("---")
-    st.markdown("### 4. Validación visual de columnas clave")
+
+    st.markdown(
+        '<div class="base-mtd-section-heading">Validación visual de columnas clave</div>',
+        unsafe_allow_html=True,
+    )
 
     if df_processed is not None and not df_processed.empty:
         columns_to_show = [
@@ -4095,40 +4331,187 @@ def render_mtd_base_view() -> None:
         unsafe_allow_html=True,
     )
 
-    mtd_box_html = styles.build_info_box(
-        """
-        <b>Objetivo de esta etapa:</b><br>
-        Construir comparativos generales MTD / YTD para Plan2026 by Client
-        y Plan2026 by SKU con base en REAL (BASE SAP).
-        """
-    )
-    st.markdown(mtd_box_html, unsafe_allow_html=True)
-
-    st.markdown("### 1. Construir Base MTD")
-    st.button(
-        "Construir Base MTD",
-        on_click=run_mtd_build,
-        use_container_width=True,
+    st.markdown(
+        styles.build_info_box(
+            """
+            <b>Objetivo de esta etapa:</b><br>
+            Construir comparativos generales MTD / YTD para Plan2026 by Client
+            y Plan2026 by SKU con base en REAL (BASE SAP).
+            """
+        ),
+        unsafe_allow_html=True,
     )
 
-    st.markdown("---")
-    st.markdown("### 2. Resumen ejecutivo")
+    payload = st.session_state.get("mtd_payload")
+
+    # =====================================================
+    # Encabezado compacto: construcción inicial + filtros
+    # =====================================================
+    if payload is None:
+        st.markdown(
+            '<div class="base-mtd-section-heading">Construir Base MTD</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            '<div class="base-mtd-compact-note">Al construir por primera vez, se toma el último periodo disponible de BASE SAP.</div>',
+            unsafe_allow_html=True,
+        )
+
+        st.button(
+            "Construir Base MTD",
+            on_click=run_mtd_build,
+            use_container_width=True,
+        )
+
+        st.info("Aún no se ha construido la Base MTD.")
+        return
+
+    report_title = build_report_context_title(
+        "Base MTD",
+        payload["latest_year"],
+        payload["latest_month"],
+    )
+
+    st.markdown(
+        f"""
+        <div class="base-mtd-section-heading">{escape(report_title)}</div>
+        <div class="base-mtd-compact-note">
+            Ajusta el Año y Mes de corte para recalcular MTD, YTD y BTS.
+            El BTS respeta el ciclo octubre-agosto.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    years, latest_year, latest_month = get_available_year_month_options()
+
+    if years:
+        default_year = st.session_state.get("base_mtd_year", payload["latest_year"])
+        if default_year not in years:
+            default_year = latest_year
+
+        year_index = years.index(default_year)
+
+        filter_col_year, filter_col_month, filter_col_apply = st.columns(
+            [1.1, 1.25, 0.95]
+        )
+
+        with filter_col_year:
+            selected_year_mtd = st.selectbox(
+                "Año",
+                options=years,
+                index=year_index,
+                key="base_mtd_year",
+            )
+
+        available_months = get_available_months_for_year(selected_year_mtd)
+
+        selected_month_mtd = None
+        if available_months:
+            default_month = st.session_state.get("base_mtd_month", payload["latest_month"])
+
+            if selected_year_mtd == latest_year:
+                fallback_month = latest_month
+            else:
+                fallback_month = max(available_months)
+
+            if default_month not in available_months:
+                default_month = fallback_month
+
+            month_index = available_months.index(default_month)
+
+            with filter_col_month:
+                selected_month_mtd = st.selectbox(
+                    "Mes de corte",
+                    options=available_months,
+                    index=month_index,
+                    key="base_mtd_month",
+                    format_func=get_month_label,
+                )
+        else:
+            with filter_col_month:
+                st.warning("Sin meses disponibles")
+
+        with filter_col_apply:
+            st.markdown("<br>", unsafe_allow_html=True)
+            if st.button(
+                "Aplicar",
+                key="btn_base_mtd_period_filter",
+                use_container_width=True,
+                disabled=selected_month_mtd is None,
+            ):
+                run_mtd_build(
+                    selected_year=selected_year_mtd,
+                    selected_month=selected_month_mtd,
+                )
+
+    else:
+        st.info("Primero necesitas procesar la base de ventas para habilitar los filtros de Año y Mes.")
+
+    payload = st.session_state.get("mtd_payload")
+
+    # =====================================================
+    # Resumen ejecutivo con tarjetas nuevas
+    # =====================================================
     render_mtd_base_summary()
 
     payload = st.session_state.get("mtd_payload")
 
     if payload is None:
-        st.markdown("---")
         st.info("Aún no se ha construido la Base MTD.")
         return
 
-    st.markdown("---")
-    st.markdown("### 3. Comparativos MTD / YTD")
-    st.markdown(build_mtd_legend_html(), unsafe_allow_html=True)
+    report_title = build_report_context_title(
+        "Base MTD",
+        payload["latest_year"],
+        payload["latest_month"],
+    )
+
+    base_mtd_bytes = exports.build_base_mtd_excel_bytes(
+        client_table_df=convert_report_table_for_export(payload["client_table"]),
+        sku_table_df=convert_report_table_for_export(payload["sku_table"]),
+        bts_table_df=convert_report_table_for_export(payload["bts_table"]),
+        plan_summary_df=convert_report_table_for_export(
+            build_base_mtd_plan_summary_export_df(payload.get("plan_summary"))
+        ),
+        report_title=report_title,
+        sheet_name=getattr(config, "EXPORT_SHEET_BASE_MTD", "Base MTD"),
+    )
+
+    # =====================================================
+    # Comparativos: se conserva la tabla original, solo se
+    # compacta el encabezado y se integra la descarga.
+    # =====================================================
+    st.markdown(
+        '<div class="base-mtd-section-heading">Comparativos MTD / YTD</div>',
+        unsafe_allow_html=True,
+    )
+
+    legend_col, download_col = st.columns([10, 1.1])
+
+    with legend_col:
+        st.markdown(build_mtd_legend_html(), unsafe_allow_html=True)
+
+    with download_col:
+        download_label = getattr(config, "EXPORT_BASE_MTD_HELP", "Descargar Base MTD")
+        render_icon_download_button(
+            data=base_mtd_bytes,
+            file_name=build_excel_filename(
+                getattr(config, "EXPORT_BASE_MTD_FILE_BASE", "base_mtd"),
+                payload["latest_year"],
+                payload["latest_month"],
+            ),
+            key="download_base_mtd_icon",
+            help_text=download_label,
+        )
 
     st.markdown(
         build_horizontal_plan_table_html(
-            "Plan2026 by Client",
+            build_report_context_title(
+                "Plan2026 by Client",
+                payload["latest_year"],
+                payload["latest_month"],
+            ),
             payload["client_table"],
             "client",
         ),
@@ -4137,7 +4520,11 @@ def render_mtd_base_view() -> None:
 
     st.markdown(
         build_horizontal_plan_table_html(
-            "Plan2026 by SKU",
+            build_report_context_title(
+                "Plan2026 by SKU",
+                payload["latest_year"],
+                payload["latest_month"],
+            ),
             payload["sku_table"],
             "sku",
         ),
@@ -4145,14 +4532,24 @@ def render_mtd_base_view() -> None:
     )
 
     st.markdown("---")
-    st.markdown("### 4. Comparativo BTS")
+
+    st.markdown(
+        '<div class="base-mtd-section-heading">Comparativo BTS</div>',
+        unsafe_allow_html=True,
+    )
+
     st.caption(
-        "En BTS se compara el periodo actual contra PY acumulado al mismo corte del mes actual."
+        "En BTS se compara el periodo actual contra PY acumulado al mismo corte. "
+        "La lógica respeta el ciclo Back To School de octubre a agosto."
     )
 
     st.markdown(
         build_bts_table_html(
-            "BTS Actual vs PY comparable",
+            build_report_context_title(
+                "BTS Actual vs PY comparable",
+                payload["latest_year"],
+                payload["latest_month"],
+            ),
             payload["bts_table"],
         ),
         unsafe_allow_html=True,
@@ -4210,7 +4607,7 @@ def main() -> None:
         render_report_4_view()
     elif selected == "Base MTD":
         render_mtd_base_view()
-    else:
+    else:   
         render_placeholder_view(selected)
 
 # =========================================================
