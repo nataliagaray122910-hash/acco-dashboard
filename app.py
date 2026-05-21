@@ -504,6 +504,31 @@ def clear_report_payloads() -> None:
         st.session_state[key] = None
 
 
+def clear_user_generated_work_state() -> None:
+    """
+    Limpia TODO lo que un usuario pudo construir dentro de su propia sesión.
+
+    Regla de negocio para viewers:
+    - La carga administrativa compartida SOLO ahorra el paso de cargar el Excel.
+    - La base procesada, Base MTD, reportes, filtros y descargas construidas
+      deben iniciar vacías para cada sesión/usuario.
+    """
+    st.session_state["df_processed_sales"] = None
+    clear_report_payloads()
+
+    keys_to_clear_by_prefix = (
+        "base_mtd_",
+        "report1_",
+        "report2_",
+        "report3_",
+        "report4_",
+    )
+
+    for key in list(st.session_state.keys()):
+        if key.startswith(keys_to_clear_by_prefix):
+            st.session_state.pop(key, None)
+
+
 def build_persistent_metadata() -> dict:
     mexico_tz = ZoneInfo("America/Mexico_City")
 
@@ -547,6 +572,7 @@ def save_current_data_for_viewers() -> bool:
 
     payload = {
         "metadata": metadata,
+        "payload_version": "viewer_raw_inputs_only_v2",
         "df_sales": st.session_state.get("df_sales"),
         "df_plan_client": st.session_state.get("df_plan_client"),
         "df_plan_sku": st.session_state.get("df_plan_sku"),
@@ -585,7 +611,7 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
     Carga en la sesión actual la última información guardada por admin.
     Esto permite que viewers consulten reportes sin cargar archivos.
     """
-    if st.session_state.get("persistent_data_loaded"):
+    if st.session_state.get("persistent_data_loaded") and st.session_state.get("df_sales") is not None:
         return True
 
     if not persistent_data_exists():
@@ -601,9 +627,9 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
 
         # IMPORTANTE:
         # La carga administrativa compartida solo trae las bases originales.
-        # La base procesada y los reportes se limpian para que cada viewer
+        # La base procesada, reportes y filtros se limpian para que cada viewer
         # viva el flujo completo en su propia sesión.
-        st.session_state["df_processed_sales"] = None
+        clear_user_generated_work_state()
 
         st.session_state["sales_valid"] = payload.get("sales_valid", True)
         st.session_state["plan_client_valid"] = payload.get("plan_client_valid", True)
@@ -672,6 +698,13 @@ def check_login() -> None:
     valid_users.setdefault("viewer", "viewer")
 
     if user in valid_users and valid_users[user] == password:
+        # Cada inicio de sesión debe arrancar con una experiencia limpia.
+        # Esto evita que un viewer herede lo que construyó el admin u otro viewer
+        # en el mismo navegador/sesión anterior.
+        previous_user = st.session_state.get("user_role", "")
+        if previous_user != user or user == "viewer":
+            clear_user_generated_work_state()
+
         # Limpia cualquier error anterior del login para que no se arrastre
         # a la pantalla principal después de autenticar correctamente.
         st.session_state["authenticated"] = True
@@ -688,6 +721,11 @@ def check_login() -> None:
 
 
 def logout() -> None:
+    # Al cerrar sesión se limpia lo que el usuario construyó.
+    # Las bases cargadas pueden permanecer en memoria local, pero los procesamientos
+    # y reportes NO deben pasar de un usuario/rol a otro.
+    clear_user_generated_work_state()
+
     st.session_state["authenticated"] = False
     st.session_state["user_role"] = ""
     st.session_state["input_user"] = ""
