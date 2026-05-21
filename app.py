@@ -1464,18 +1464,42 @@ def render_dimension_filter_block(
         st.info("No hay valores disponibles para filtrar en este bloque.")
         return []
 
-    default_values = get_valid_applied_filter_values(applied_key, available_options)
+    # Cuando cambia el universo de categorías disponibles, Streamlit puede
+    # conservar selecciones anteriores en sesión. Si antes estaban seleccionadas
+    # todas las opciones disponibles, entonces se actualiza automáticamente
+    # a todas las opciones nuevas, incluyendo #N/A.
+    options_state_key = f"{widget_key}__available_options"
+    previous_options = st.session_state.get(options_state_key)
+    previous_options_set = set(previous_options or [])
+    current_options_set = set(available_options)
 
     current_widget_values = st.session_state.get(widget_key)
-    if current_widget_values is None:
-        st.session_state[widget_key] = default_values.copy()
+    current_widget_set = set(current_widget_values or [])
+
+    options_changed = previous_options is None or previous_options_set != current_options_set
+    user_had_all_previous_options = (
+        previous_options is None
+        or not previous_options_set
+        or current_widget_set == previous_options_set
+    )
+
+    if options_changed and user_had_all_previous_options:
+        st.session_state[widget_key] = available_options.copy()
+        st.session_state[applied_key] = available_options.copy()
     else:
-        valid_widget_values = [
-            value for value in current_widget_values if value in available_options
-        ]
-        if not valid_widget_values:
-            valid_widget_values = default_values.copy()
-        st.session_state[widget_key] = valid_widget_values
+        default_values = get_valid_applied_filter_values(applied_key, available_options)
+
+        if current_widget_values is None:
+            st.session_state[widget_key] = default_values.copy()
+        else:
+            valid_widget_values = [
+                value for value in current_widget_values if value in available_options
+            ]
+            if not valid_widget_values:
+                valid_widget_values = default_values.copy()
+            st.session_state[widget_key] = valid_widget_values
+
+    st.session_state[options_state_key] = available_options.copy()
 
     st.multiselect(
         filter_label,
@@ -2427,6 +2451,9 @@ def render_report_1_view() -> None:
 
     payload = st.session_state.get("report1_payload")
 
+    active_year_report1 = payload["summary"]["latest_year"]
+    active_month_report1 = payload["summary"]["latest_month"]
+
     applied_without_kens_labels = get_valid_applied_filter_values(
         "report1_without_kens_dimension_applied",
         without_kens_options,
@@ -2450,16 +2477,16 @@ def render_report_1_view() -> None:
             ytd_kens_df=convert_report_table_for_export(payload["ytd_kens_table"]),
             report_title=build_report_context_title(
                 "Reporte 1 - Channel Corp",
-                selected_year_without_kens,
-                selected_month_without_kens,
+                active_year_report1,
+                active_month_report1,
             ),
         )
         render_icon_download_button(
             data=report_1_bytes,
             file_name=build_excel_filename(
                 "reporte_1",
-                selected_year_without_kens,
-                selected_month_without_kens,
+                active_year_report1,
+                active_month_report1,
             ),
             key="download_report_1_icon_top",
             help_text="Descargar Reporte 1",
@@ -2477,8 +2504,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "MTD Channel CORP WITHOUT KENS",
-                    selected_year_without_kens,
-                    selected_month_without_kens,
+                    active_year_report1,
+                    active_month_report1,
                 ),
                 filtered_mtd_without_kens,
             ),
@@ -2490,8 +2517,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "YTD Channel CORP WITHOUT KENS",
-                    selected_year_without_kens,
-                    selected_month_without_kens,
+                    active_year_report1,
+                    active_month_report1,
                 ),
                 filtered_ytd_without_kens,
             ),
@@ -2557,8 +2584,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "MTD Channel CORP WITH KENS",
-                    selected_year_without_kens,
-                    selected_month_without_kens,
+                    active_year_report1,
+                    active_month_report1,
                 ),
                 filtered_mtd_kens,
             ),
@@ -2570,8 +2597,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "YTD Channel CORP WITH KENS",
-                    selected_year_without_kens,
-                    selected_month_without_kens,
+                    active_year_report1,
+                    active_month_report1,
                 ),
                 filtered_ytd_kens,
             ),
@@ -2871,8 +2898,8 @@ def render_report_2_view() -> None:
             st.markdown(
                 styles.build_info_card(
                     "Segmentos visibles",
-                    "ACCO / BARRILITO / KENS",
-                    "Segmentos consolidados visibles en esta vista",
+                    "Dinámicos",
+                    "Se muestran los segmentos con Actual, Plan o PY",
                 ),
                 unsafe_allow_html=True,
             )
@@ -2916,6 +2943,8 @@ def render_report_2_view() -> None:
             segment_region_options,
         )
 
+        segment_apply_clicked = False
+
         if selected_year_segment is not None and selected_month_segment is not None:
             if st.button(
                 "Aplicar filtro - Segment x Region",
@@ -2931,8 +2960,25 @@ def render_report_2_view() -> None:
                     selected_year=selected_year_segment,
                     selected_month=selected_month_segment,
                 )
+                segment_apply_clicked = True
 
         payload = st.session_state.get("report2_payload")
+
+        # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
+        # Esto evita tener que dar dos o tres clics para que aparezcan categorías nuevas como #N/A o VARIOS.
+        segment_region_options = get_filter_options_from_multiple_tables(
+            [
+                payload["mtd_segment_region_table"],
+                payload["ytd_segment_region_table"],
+            ],
+            build_report_2_segment_region_display_label,
+        )
+
+        if segment_apply_clicked:
+            st.session_state["report2_segment_dimension_applied"] = segment_region_options.copy()
+
+        active_year_segment = payload["summary"]["latest_year"]
+        active_month_segment = payload["summary"]["latest_month"]
 
         applied_segment_region_labels = get_valid_applied_filter_values(
             "report2_segment_dimension_applied",
@@ -2955,16 +3001,16 @@ def render_report_2_view() -> None:
                 ytd_segment_df=convert_report_table_for_export(payload["ytd_segment_region_table"]),
                 report_title=build_report_context_title(
                     "Reporte 2 - Segment x Region",
-                    selected_year_segment,
-                    selected_month_segment,
+                    active_year_segment,
+                    active_month_segment,
                 ),
             )
             render_icon_download_button(
                 data=segment_bytes,
                 file_name=build_excel_filename(
                     "reporte_2_segment_region",
-                    selected_year_segment,
-                    selected_month_segment,
+                    active_year_segment,
+                    active_month_segment,
                 ),
                 key="download_report_2_segment_icon",
                 help_text="Descargar Segment x Region",
@@ -2982,8 +3028,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "MTD Segment x Region",
-                        selected_year_segment,
-                        selected_month_segment,
+                        active_year_segment,
+                        active_month_segment,
                     ),
                     filtered_mtd_segment,
                     "SEGMENTO / REGIÓN",
@@ -2997,8 +3043,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "YTD Segment x Region",
-                        selected_year_segment,
-                        selected_month_segment,
+                        active_year_segment,
+                        active_month_segment,
                     ),
                     filtered_ytd_segment,
                     "SEGMENTO / REGIÓN",
@@ -3044,6 +3090,8 @@ def render_report_2_view() -> None:
             category_options,
         )
 
+        category_apply_clicked = False
+
         if selected_year_category is not None and selected_month_category is not None:
             if st.button(
                 "Aplicar filtro - Category",
@@ -3059,8 +3107,23 @@ def render_report_2_view() -> None:
                     selected_year=selected_year_category,
                     selected_month=selected_month_category,
                 )
+                category_apply_clicked = True
 
         payload_category = st.session_state.get("report2_category_payload")
+
+        category_options = get_filter_options_from_multiple_tables(
+            [
+                payload_category["mtd_category_table"],
+                payload_category["ytd_category_table"],
+            ],
+            lambda row: str(row.get("Category", "")).strip(),
+        )
+
+        if category_apply_clicked:
+            st.session_state["report2_category_dimension_applied"] = category_options.copy()
+
+        active_year_category = payload_category["summary"]["latest_year"]
+        active_month_category = payload_category["summary"]["latest_month"]
 
         st.markdown(
             '<div class="report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
@@ -3088,16 +3151,16 @@ def render_report_2_view() -> None:
                 ytd_category_df=convert_report_table_for_export(payload_category["ytd_category_table"]),
                 report_title=build_report_context_title(
                     "Reporte 2 - Category",
-                    selected_year_category,
-                    selected_month_category,
+                    active_year_category,
+                    active_month_category,
                 ),
             )
             render_icon_download_button(
                 data=category_bytes,
                 file_name=build_excel_filename(
                     "reporte_2_category",
-                    selected_year_category,
-                    selected_month_category,
+                    active_year_category,
+                    active_month_category,
                 ),
                 key="download_report_2_category_icon",
                 help_text="Descargar Category",
@@ -3110,8 +3173,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "MTD Category",
-                        selected_year_category,
-                        selected_month_category,
+                        active_year_category,
+                        active_month_category,
                     ),
                     filtered_mtd_category,
                     "CATEGORY",
@@ -3125,8 +3188,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "YTD Category",
-                        selected_year_category,
-                        selected_month_category,
+                        active_year_category,
+                        active_month_category,
                     ),
                     filtered_ytd_category,
                     "CATEGORY",
@@ -3364,6 +3427,8 @@ def render_report_3_view() -> None:
         channel_options,
     )
 
+    channel_apply_clicked = False
+
     if selected_year_channel is not None and selected_month_channel is not None:
         if st.button(
             "Aplicar filtro - Channel",
@@ -3379,8 +3444,25 @@ def render_report_3_view() -> None:
                 selected_year=selected_year_channel,
                 selected_month=selected_month_channel,
             )
+            channel_apply_clicked = True
 
     payload = st.session_state.get("report3_payload")
+
+    # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
+    # Esto evita tener que dar dos o tres clics para que aparezcan canales nuevos como #N/A.
+    channel_options = get_filter_options_from_multiple_tables(
+        [
+            payload["mtd_channel_table"],
+            payload["ytd_channel_table"],
+        ],
+        build_report_3_display_label,
+    )
+
+    if channel_apply_clicked:
+        st.session_state["report3_channel_dimension_applied"] = channel_options.copy()
+
+    active_year_channel = payload["summary"]["latest_year"]
+    active_month_channel = payload["summary"]["latest_month"]
 
     applied_channel_labels = get_valid_applied_filter_values(
         "report3_channel_dimension_applied",
@@ -3403,16 +3485,16 @@ def render_report_3_view() -> None:
             ytd_channel_df=convert_report_table_for_export(payload["ytd_channel_table"]),
             report_title=build_report_context_title(
                 "Reporte 3 - Channel",
-                selected_year_channel,
-                selected_month_channel,
+                active_year_channel,
+                active_month_channel,
             ),
         )
         render_icon_download_button(
             data=report_3_bytes,
             file_name=build_excel_filename(
                 "reporte_3",
-                selected_year_channel,
-                selected_month_channel,
+                active_year_channel,
+                active_month_channel,
             ),
             key="download_report_3_icon",
             help_text="Descargar Reporte 3",
@@ -3430,8 +3512,8 @@ def render_report_3_view() -> None:
             build_report_3_table_html(
                 build_report_context_title(
                     "MTD Channel",
-                    selected_year_channel,
-                    selected_month_channel,
+                    active_year_channel,
+                    active_month_channel,
                 ),
                 filtered_mtd_channel,
             ),
@@ -3443,8 +3525,8 @@ def render_report_3_view() -> None:
             build_report_3_table_html(
                 build_report_context_title(
                     "YTD Channel",
-                    selected_year_channel,
-                    selected_month_channel,
+                    active_year_channel,
+                    active_month_channel,
                 ),
                 filtered_ytd_channel,
             ),
