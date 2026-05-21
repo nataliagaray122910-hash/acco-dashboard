@@ -550,7 +550,9 @@ def save_current_data_for_viewers() -> bool:
         "df_sales": st.session_state.get("df_sales"),
         "df_plan_client": st.session_state.get("df_plan_client"),
         "df_plan_sku": st.session_state.get("df_plan_sku"),
-        "df_processed_sales": st.session_state.get("df_processed_sales"),
+        # IMPORTANTE:
+        # No se guarda df_processed_sales en la carga compartida.
+        # Cada viewer debe procesar ventas en su propia sesión.
         "sales_valid": st.session_state.get("sales_valid", False),
         "plan_client_valid": st.session_state.get("plan_client_valid", False),
         "plan_sku_valid": st.session_state.get("plan_sku_valid", False),
@@ -596,7 +598,12 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         st.session_state["df_sales"] = payload.get("df_sales")
         st.session_state["df_plan_client"] = payload.get("df_plan_client")
         st.session_state["df_plan_sku"] = payload.get("df_plan_sku")
-        st.session_state["df_processed_sales"] = payload.get("df_processed_sales")
+
+        # IMPORTANTE:
+        # La carga administrativa compartida solo trae las bases originales.
+        # La base procesada y los reportes se limpian para que cada viewer
+        # viva el flujo completo en su propia sesión.
+        st.session_state["df_processed_sales"] = None
 
         st.session_state["sales_valid"] = payload.get("sales_valid", True)
         st.session_state["plan_client_valid"] = payload.get("plan_client_valid", True)
