@@ -826,24 +826,50 @@ def build_mtd_payload(
 # Extrae código base de canal / oficina
 # --------------------------------------------------------------
 def extract_channel_code(value) -> str:
+    """
+    Extrae el código base de canal/oficina.
+
+    Regla importante:
+    - Los vacíos se conservan como "(blank)" para que la app refleje
+      lo que aparece en Excel mientras negocio define su significado.
+    """
     if pd.isna(value):
-        return ""
+        return "(blank)"
 
     text = str(value).strip()
     if not text:
-        return ""
+        return "(blank)"
 
     if ":" in text:
-        return text.split(":")[0].strip().upper()
+        code = text.split(":")[0].strip().upper()
+    else:
+        code = text.split()[0].strip().upper()
 
-    return text.split()[0].strip().upper()
+    return code or "(blank)"
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Obtiene etiqueta visual de canal
 # --------------------------------------------------------------
 def get_channel_display_label(channel_code: str) -> str:
-    return config.REPORT_1_CHANNEL_LABELS.get(channel_code, channel_code)
+    clean_code = str(channel_code).strip()
+    if clean_code.upper() == "(BLANK)":
+        return "(blank)"
+    return config.REPORT_1_CHANNEL_LABELS.get(clean_code, clean_code)
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Identifica códigos asociados a afiliadas
+# --------------------------------------------------------------
+def is_affiliate_channel_code(channel_code) -> bool:
+    """
+    Evita que AF / AFI / Afiliadas entren a Reporte 1.
+
+    Esta regla se aplica a Plan por Cliente porque ahí pueden existir
+    renglones de afiliadas aunque ventas ya venga filtrada por segmento.
+    """
+    clean_code = str(channel_code or "").strip().upper()
+    return clean_code in {"AF", "AFI", "AFILIADAS", "AFFILIATES"}
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -876,6 +902,7 @@ def prepare_plan_client_for_report_1(df_plan_client: pd.DataFrame) -> pd.DataFra
         raise ValueError("No existe columna 'Channel' en Plan por Cliente.")
 
     df["__channel_code__"] = df["Channel"].apply(extract_channel_code)
+    df = df[~df["__channel_code__"].apply(is_affiliate_channel_code)].copy()
 
     month_columns = get_plan_client_month_columns(df)
     if not month_columns:
@@ -922,8 +949,27 @@ def get_plan_channel_totals_for_report_1(
         .to_dict()
     )
 
-    mtd_grouped = {str(k): float(v) for k, v in mtd_grouped.items() if str(k).strip()}
-    ytd_grouped = {str(k): float(v) for k, v in ytd_grouped.items() if str(k).strip()}
+    def normalize_report_1_dict_key(raw_key) -> str:
+        clean_key = str(raw_key).strip().upper()
+        if not clean_key:
+            clean_key = "(BLANK)"
+        if clean_key in {"NAN", "NONE", "NULL", "NAT"}:
+            clean_key = "(BLANK)"
+        if clean_key == "(BLANK)":
+            return "(BLANK)"
+        return clean_key
+
+    def normalize_grouped_dict(values: dict) -> dict[str, float]:
+        normalized: dict[str, float] = {}
+        for key, value in values.items():
+            clean_key = normalize_report_1_dict_key(key)
+            if is_affiliate_channel_code(clean_key):
+                continue
+            normalized[clean_key] = normalized.get(clean_key, 0.0) + float(value)
+        return normalized
+
+    mtd_grouped = normalize_grouped_dict(mtd_grouped)
+    ytd_grouped = normalize_grouped_dict(ytd_grouped)
 
     return mtd_grouped, ytd_grouped
 
@@ -937,6 +983,7 @@ def filter_sales_for_report_1(
     single_segment: str | None = None,
 ) -> pd.DataFrame:
     df = standardize_columns(df_processed_sales).copy()
+    df = exclude_afi_affiliates(df)
 
     required_cols = ["Segm Neg", "Oficina de Ventas", config.COL_GSNR, config.COL_YEAR, config.COL_MONTH]
     missing = [col for col in required_cols if col not in df.columns]
@@ -1000,7 +1047,17 @@ def get_sales_channel_totals_for_report_1(
     )
 
     def clean_dict(values: dict) -> dict[str, float]:
-        return {str(k): float(v) for k, v in values.items() if str(k).strip()}
+        cleaned = {}
+        for key, value in values.items():
+            clean_key = str(key).strip().upper()
+            if not clean_key:
+                clean_key = "(BLANK)"
+            if clean_key in {"NAN", "NONE", "NULL", "NAT"}:
+                clean_key = "(BLANK)"
+            if is_affiliate_channel_code(clean_key):
+                continue
+            cleaned[clean_key] = cleaned.get(clean_key, 0.0) + float(value)
+        return cleaned
 
     return (
         clean_dict(mtd_actual),
@@ -1042,6 +1099,53 @@ def build_report_1_row(
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
+# Ordena códigos del Reporte 1 sin ocultar códigos nuevos
+# --------------------------------------------------------------
+def get_ordered_report_1_codes(
+    codes_present: set[str],
+    exclude_codes: set[str] | None = None,
+) -> list[str]:
+    """
+    Mantiene el orden corporativo configurado para los códigos conocidos,
+    pero agrega al final cualquier código nuevo que aparezca en Actual, Plan o PY.
+
+    Antes, si un código no estaba en config.REPORT_1_CHANNEL_ORDER, no se mostraba.
+    Con esta función, el orden de config funciona como preferencia visual,
+    no como candado de filas.
+    """
+    exclude_codes = exclude_codes or set()
+
+    clean_codes = set()
+    for code in codes_present:
+        clean_code = str(code).strip().upper()
+        if not clean_code:
+            clean_code = "(BLANK)"
+        if clean_code in exclude_codes:
+            continue
+        if is_affiliate_channel_code(clean_code):
+            continue
+        clean_codes.add(clean_code)
+
+    configured_order = [
+        str(code).strip().upper()
+        for code in getattr(config, "REPORT_1_CHANNEL_ORDER", [])
+        if str(code).strip()
+    ]
+
+    configured_codes = [
+        code for code in configured_order
+        if code in clean_codes and code not in exclude_codes
+    ]
+
+    extra_codes = sorted(
+        code for code in clean_codes
+        if code not in set(configured_order) and code not in exclude_codes
+    )
+
+    return configured_codes + extra_codes
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
 # Construye tabla WITHOUT KENS
 # --------------------------------------------------------------
 def build_report_1_without_kens_table(
@@ -1050,12 +1154,11 @@ def build_report_1_without_kens_table(
     py_dict: dict[str, float],
 ) -> pd.DataFrame:
     codes_present = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
-    codes_present.discard("IT")
 
-    ordered_codes = [
-        code for code in config.REPORT_1_CHANNEL_ORDER
-        if code in codes_present and code != "IT"
-    ]
+    ordered_codes = get_ordered_report_1_codes(
+        codes_present=codes_present,
+        exclude_codes={"IT", "AF", "AFI"},
+    )
 
     rows = []
     total_actual = 0.0
@@ -1066,6 +1169,9 @@ def build_report_1_without_kens_table(
         actual = float(actual_dict.get(code, 0.0))
         plan = float(plan_dict.get(code, 0.0))
         py = float(py_dict.get(code, 0.0))
+
+        if actual == 0 and plan == 0 and py == 0:
+            continue
 
         total_actual += actual
         total_plan += plan
@@ -1103,16 +1209,19 @@ def build_report_1_with_kens_table(
 ) -> pd.DataFrame:
     detail_codes_present = set(actual_dict.keys()) | set(py_dict.keys())
 
-    ordered_detail_codes = [
-        code for code in config.REPORT_1_CHANNEL_ORDER
-        if code in detail_codes_present
-    ]
+    ordered_detail_codes = get_ordered_report_1_codes(
+        codes_present=detail_codes_present,
+        exclude_codes={"AF", "AFI"},
+    )
 
     rows = []
 
     for code in ordered_detail_codes:
         actual = float(actual_dict.get(code, 0.0))
         py = float(py_dict.get(code, 0.0))
+
+        if actual == 0 and py == 0:
+            continue
 
         rows.append(
             build_report_1_row(
@@ -1260,14 +1369,27 @@ def find_first_existing_column(df: pd.DataFrame, candidate_columns: list[str]) -
 # Normaliza texto visible para Región
 # --------------------------------------------------------------
 def normalize_report_2_label(value) -> str:
+    """
+    Normaliza Región para Reporte 2 sin ocultar categorías sin mapeo.
+
+    Regla dinámica:
+    - Si en Actual, Plan o PY existe una región vacía / N/A / #N/A,
+      debe conservarse como #N/A para que cuadre contra Excel.
+    - No se convierte a cadena vacía porque después desaparece del reporte.
+    """
     if pd.isna(value):
-        return ""
+        return "#N/A"
 
     text = str(value).strip()
     if not text:
-        return ""
+        return "#N/A"
 
-    return text.upper()
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    return upper_text
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -1276,12 +1398,21 @@ def normalize_report_2_label(value) -> str:
 # ZZZZ se excluye después en filtros
 # --------------------------------------------------------------
 def normalize_report_2_segment_label(value) -> str:
+    """
+    Normaliza Segmento para Reporte 2 sin borrar N/A.
+
+    GOBA se sigue mostrando como BARRILITO, pero valores vacíos, NaN,
+    N/A o #N/A se conservan como #N/A para mantener la lógica dinámica.
+    """
     if pd.isna(value):
-        return ""
+        return "#N/A"
 
     text = str(value).strip().upper()
     if not text:
-        return ""
+        return "#N/A"
+
+    if text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
 
     if text == "GOBA":
         return "BARRILITO"
@@ -1339,12 +1470,21 @@ def normalize_report_2_product_label(value) -> str:
 # Normaliza Channel para Reporte 3
 # --------------------------------------------------------------
 def normalize_report_3_channel_label(value) -> str:
+    """
+    Normaliza Channel para Reporte 3 sin ocultar canales sin mapeo.
+
+    GOBA se sigue mostrando como BARRILITO, pero valores vacíos, NaN,
+    N/A o #N/A se conservan como #N/A para que el total cuadre.
+    """
     if pd.isna(value):
-        return ""
+        return "#N/A"
 
     text = str(value).strip().upper()
     if not text:
-        return ""
+        return "#N/A"
+
+    if text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
 
     if text == "GOBA":
         return "BARRILITO"
@@ -1425,10 +1565,10 @@ def prepare_sales_for_report_2(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     df["__region__"] = df[region_col].apply(normalize_report_2_label)
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
+    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
+    # Sólo se conserva la exclusión de ZZZZ porque es regla de negocio.
     df = df[
-        (df["__segment__"] != "")
-        & (df["__segment__"] != "ZZZZ")
-        & (df["__region__"] != "")
+        df["__segment__"] != "ZZZZ"
     ].copy()
 
     return df
@@ -1461,10 +1601,10 @@ def prepare_plan_sku_for_report_2(df_plan_sku: pd.DataFrame) -> pd.DataFrame:
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col])
 
+    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
+    # Sólo se conserva la exclusión de ZZZZ porque es regla de negocio.
     df = df[
-        (df["__segment__"] != "")
-        & (df["__segment__"] != "ZZZZ")
-        & (df["__region__"] != "")
+        df["__segment__"] != "ZZZZ"
     ].copy()
 
     return df
@@ -1714,6 +1854,9 @@ def build_report_2_segment_region_table(
             plan_value = float(plan_dict.get(key, 0.0))
             py_value = float(py_dict.get(key, 0.0))
 
+            if actual_value == 0 and plan_value == 0 and py_value == 0:
+                continue
+
             total_actual += actual_value
             total_plan += plan_value
             total_py += py_value
@@ -1727,6 +1870,9 @@ def build_report_2_segment_region_table(
                     py=py_value,
                 )
             )
+
+        if total_actual == 0 and total_plan == 0 and total_py == 0:
+            continue
 
         rows.append(
             build_report_2_row(
@@ -2426,7 +2572,8 @@ def prepare_sales_for_report_3(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     df["__channel__"] = build_report_3_channel_series(df)
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
-    df = df[df["__channel__"] != ""].copy()
+    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
+    # Si existe información en Actual, Plan o PY, debe mostrarse.
 
     return df
 
@@ -2448,7 +2595,8 @@ def prepare_plan_sku_for_report_3(df_plan_sku: pd.DataFrame) -> pd.DataFrame:
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col])
 
-    df = df[df["__channel__"] != ""].copy()
+    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
+    # Si existe información en Actual, Plan o PY, debe mostrarse.
 
     return df
 
