@@ -239,6 +239,74 @@ def load_file_to_dataframe(
 
     raise ValueError(f"Tipo de archivo no soportado: {extension}")
 
+def load_uploaded_excel_workbook(uploaded_file):
+    """
+    Lee una sola vez el archivo Excel cargado manualmente y devuelve un
+    objeto ExcelFile reutilizable.
+
+    Esta función evita que Streamlit Cloud tenga que abrir el mismo Excel
+    tres veces para BASE SAP, Plan Cliente y Plan SKU.
+    """
+    if uploaded_file is None:
+        raise ValueError("No se recibió ningún archivo.")
+
+    extension = get_file_extension(uploaded_file)
+
+    if extension not in ("xlsx", "xls"):
+        raise ValueError(
+            "La carga única del dashboard requiere un archivo Excel (.xlsx o .xls)."
+        )
+
+    file_bytes = uploaded_file.getvalue()
+    return pd.ExcelFile(BytesIO(file_bytes))
+
+
+def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
+    """
+    Lee una sola carga manual del Excel corporativo y devuelve los tres
+    DataFrames principales del dashboard.
+
+    Retorna:
+    - df_sales: hoja BASE SAP
+    - df_plan_client: hoja Plan2026 by Client
+    - df_plan_sku: hoja Plan2026 by SKU
+
+    Nota importante:
+    La lógica de recorte y limpieza se conserva igual que en las funciones
+    individuales; únicamente se optimiza la lectura para no abrir el archivo
+    tres veces en Streamlit Cloud.
+    """
+    workbook = load_uploaded_excel_workbook(uploaded_file)
+
+    df_sales = pd.read_excel(
+        workbook,
+        sheet_name="BASE SAP",
+        header=5,
+    )
+    df_sales = trim_sales_main_table(df_sales)
+
+    df_plan_client = pd.read_excel(
+        workbook,
+        sheet_name="Plan2026 by Client",
+        header=13,
+        usecols="A:T",
+    )
+    df_plan_client = trim_plan_client_main_table(df_plan_client)
+
+    df_plan_sku = pd.read_excel(
+        workbook,
+        sheet_name="Plan2026 by SKU",
+        header=7,
+    )
+    df_plan_sku = standardize_columns(df_plan_sku)
+
+    return {
+        "df_sales": df_sales,
+        "df_plan_client": df_plan_client,
+        "df_plan_sku": df_plan_sku,
+    }
+
+
 # ----------------------------------------------------------
 # FUNCIÓN ESPECIAL:
 # Carga ventas desde BASE SAP

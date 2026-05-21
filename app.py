@@ -453,12 +453,16 @@ def clear_current_session_data() -> bool:
             "sales_file_name": "",
             "plan_client_file_name": "",
             "plan_sku_file_name": "",
+            "master_file_name": "",
+            "master_upload_signature": "",
             "persistent_data_loaded": False,
             "persistent_data_metadata": None,
             "suppress_persistent_autoload": True,
             "sales_upload_signature": "",
             "plan_client_upload_signature": "",
             "plan_sku_upload_signature": "",
+            "master_upload_signature": "",
+            "master_file_name": "",
         }
 
         for key, value in keys_to_reset.items():
@@ -1453,42 +1457,18 @@ def render_dimension_filter_block(
         st.info("No hay valores disponibles para filtrar en este bloque.")
         return []
 
-    # Cuando cambia el universo de categorías disponibles, Streamlit puede
-    # conservar selecciones anteriores en sesión. Si antes estaban seleccionadas
-    # todas las opciones disponibles, entonces se actualiza automáticamente
-    # a todas las opciones nuevas, incluyendo #N/A.
-    options_state_key = f"{widget_key}__available_options"
-    previous_options = st.session_state.get(options_state_key)
-    previous_options_set = set(previous_options or [])
-    current_options_set = set(available_options)
+    default_values = get_valid_applied_filter_values(applied_key, available_options)
 
     current_widget_values = st.session_state.get(widget_key)
-    current_widget_set = set(current_widget_values or [])
-
-    options_changed = previous_options is None or previous_options_set != current_options_set
-    user_had_all_previous_options = (
-        previous_options is None
-        or not previous_options_set
-        or current_widget_set == previous_options_set
-    )
-
-    if options_changed and user_had_all_previous_options:
-        st.session_state[widget_key] = available_options.copy()
-        st.session_state[applied_key] = available_options.copy()
+    if current_widget_values is None:
+        st.session_state[widget_key] = default_values.copy()
     else:
-        default_values = get_valid_applied_filter_values(applied_key, available_options)
-
-        if current_widget_values is None:
-            st.session_state[widget_key] = default_values.copy()
-        else:
-            valid_widget_values = [
-                value for value in current_widget_values if value in available_options
-            ]
-            if not valid_widget_values:
-                valid_widget_values = default_values.copy()
-            st.session_state[widget_key] = valid_widget_values
-
-    st.session_state[options_state_key] = available_options.copy()
+        valid_widget_values = [
+            value for value in current_widget_values if value in available_options
+        ]
+        if not valid_widget_values:
+            valid_widget_values = default_values.copy()
+        st.session_state[widget_key] = valid_widget_values
 
     st.multiselect(
         filter_label,
@@ -2440,9 +2420,6 @@ def render_report_1_view() -> None:
 
     payload = st.session_state.get("report1_payload")
 
-    active_year_report1 = payload["summary"]["latest_year"]
-    active_month_report1 = payload["summary"]["latest_month"]
-
     applied_without_kens_labels = get_valid_applied_filter_values(
         "report1_without_kens_dimension_applied",
         without_kens_options,
@@ -2466,16 +2443,16 @@ def render_report_1_view() -> None:
             ytd_kens_df=convert_report_table_for_export(payload["ytd_kens_table"]),
             report_title=build_report_context_title(
                 "Reporte 1 - Channel Corp",
-                active_year_report1,
-                active_month_report1,
+                selected_year_without_kens,
+                selected_month_without_kens,
             ),
         )
         render_icon_download_button(
             data=report_1_bytes,
             file_name=build_excel_filename(
                 "reporte_1",
-                active_year_report1,
-                active_month_report1,
+                selected_year_without_kens,
+                selected_month_without_kens,
             ),
             key="download_report_1_icon_top",
             help_text="Descargar Reporte 1",
@@ -2493,8 +2470,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "MTD Channel CORP WITHOUT KENS",
-                    active_year_report1,
-                    active_month_report1,
+                    selected_year_without_kens,
+                    selected_month_without_kens,
                 ),
                 filtered_mtd_without_kens,
             ),
@@ -2506,8 +2483,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "YTD Channel CORP WITHOUT KENS",
-                    active_year_report1,
-                    active_month_report1,
+                    selected_year_without_kens,
+                    selected_month_without_kens,
                 ),
                 filtered_ytd_without_kens,
             ),
@@ -2573,8 +2550,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "MTD Channel CORP WITH KENS",
-                    active_year_report1,
-                    active_month_report1,
+                    selected_year_without_kens,
+                    selected_month_without_kens,
                 ),
                 filtered_mtd_kens,
             ),
@@ -2586,8 +2563,8 @@ def render_report_1_view() -> None:
             build_report_1_table_html(
                 build_report_context_title(
                     "YTD Channel CORP WITH KENS",
-                    active_year_report1,
-                    active_month_report1,
+                    selected_year_without_kens,
+                    selected_month_without_kens,
                 ),
                 filtered_ytd_kens,
             ),
@@ -2887,8 +2864,8 @@ def render_report_2_view() -> None:
             st.markdown(
                 styles.build_info_card(
                     "Segmentos visibles",
-                    "Dinámicos",
-                    "Se muestran los segmentos con Actual, Plan o PY",
+                    "ACCO / BARRILITO / KENS",
+                    "Segmentos consolidados visibles en esta vista",
                 ),
                 unsafe_allow_html=True,
             )
@@ -2932,8 +2909,6 @@ def render_report_2_view() -> None:
             segment_region_options,
         )
 
-        segment_apply_clicked = False
-
         if selected_year_segment is not None and selected_month_segment is not None:
             if st.button(
                 "Aplicar filtro - Segment x Region",
@@ -2949,25 +2924,8 @@ def render_report_2_view() -> None:
                     selected_year=selected_year_segment,
                     selected_month=selected_month_segment,
                 )
-                segment_apply_clicked = True
 
         payload = st.session_state.get("report2_payload")
-
-        # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
-        # Esto evita tener que dar dos o tres clics para que aparezcan categorías nuevas como #N/A o VARIOS.
-        segment_region_options = get_filter_options_from_multiple_tables(
-            [
-                payload["mtd_segment_region_table"],
-                payload["ytd_segment_region_table"],
-            ],
-            build_report_2_segment_region_display_label,
-        )
-
-        if segment_apply_clicked:
-            st.session_state["report2_segment_dimension_applied"] = segment_region_options.copy()
-
-        active_year_segment = payload["summary"]["latest_year"]
-        active_month_segment = payload["summary"]["latest_month"]
 
         applied_segment_region_labels = get_valid_applied_filter_values(
             "report2_segment_dimension_applied",
@@ -2990,16 +2948,16 @@ def render_report_2_view() -> None:
                 ytd_segment_df=convert_report_table_for_export(payload["ytd_segment_region_table"]),
                 report_title=build_report_context_title(
                     "Reporte 2 - Segment x Region",
-                    active_year_segment,
-                    active_month_segment,
+                    selected_year_segment,
+                    selected_month_segment,
                 ),
             )
             render_icon_download_button(
                 data=segment_bytes,
                 file_name=build_excel_filename(
                     "reporte_2_segment_region",
-                    active_year_segment,
-                    active_month_segment,
+                    selected_year_segment,
+                    selected_month_segment,
                 ),
                 key="download_report_2_segment_icon",
                 help_text="Descargar Segment x Region",
@@ -3017,8 +2975,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "MTD Segment x Region",
-                        active_year_segment,
-                        active_month_segment,
+                        selected_year_segment,
+                        selected_month_segment,
                     ),
                     filtered_mtd_segment,
                     "SEGMENTO / REGIÓN",
@@ -3032,8 +2990,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "YTD Segment x Region",
-                        active_year_segment,
-                        active_month_segment,
+                        selected_year_segment,
+                        selected_month_segment,
                     ),
                     filtered_ytd_segment,
                     "SEGMENTO / REGIÓN",
@@ -3079,8 +3037,6 @@ def render_report_2_view() -> None:
             category_options,
         )
 
-        category_apply_clicked = False
-
         if selected_year_category is not None and selected_month_category is not None:
             if st.button(
                 "Aplicar filtro - Category",
@@ -3096,23 +3052,8 @@ def render_report_2_view() -> None:
                     selected_year=selected_year_category,
                     selected_month=selected_month_category,
                 )
-                category_apply_clicked = True
 
         payload_category = st.session_state.get("report2_category_payload")
-
-        category_options = get_filter_options_from_multiple_tables(
-            [
-                payload_category["mtd_category_table"],
-                payload_category["ytd_category_table"],
-            ],
-            lambda row: str(row.get("Category", "")).strip(),
-        )
-
-        if category_apply_clicked:
-            st.session_state["report2_category_dimension_applied"] = category_options.copy()
-
-        active_year_category = payload_category["summary"]["latest_year"]
-        active_month_category = payload_category["summary"]["latest_month"]
 
         st.markdown(
             '<div class="report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
@@ -3140,16 +3081,16 @@ def render_report_2_view() -> None:
                 ytd_category_df=convert_report_table_for_export(payload_category["ytd_category_table"]),
                 report_title=build_report_context_title(
                     "Reporte 2 - Category",
-                    active_year_category,
-                    active_month_category,
+                    selected_year_category,
+                    selected_month_category,
                 ),
             )
             render_icon_download_button(
                 data=category_bytes,
                 file_name=build_excel_filename(
                     "reporte_2_category",
-                    active_year_category,
-                    active_month_category,
+                    selected_year_category,
+                    selected_month_category,
                 ),
                 key="download_report_2_category_icon",
                 help_text="Descargar Category",
@@ -3162,8 +3103,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "MTD Category",
-                        active_year_category,
-                        active_month_category,
+                        selected_year_category,
+                        selected_month_category,
                     ),
                     filtered_mtd_category,
                     "CATEGORY",
@@ -3177,8 +3118,8 @@ def render_report_2_view() -> None:
                 build_report_2_table_html(
                     build_report_context_title(
                         "YTD Category",
-                        active_year_category,
-                        active_month_category,
+                        selected_year_category,
+                        selected_month_category,
                     ),
                     filtered_ytd_category,
                     "CATEGORY",
@@ -3416,8 +3357,6 @@ def render_report_3_view() -> None:
         channel_options,
     )
 
-    channel_apply_clicked = False
-
     if selected_year_channel is not None and selected_month_channel is not None:
         if st.button(
             "Aplicar filtro - Channel",
@@ -3433,25 +3372,8 @@ def render_report_3_view() -> None:
                 selected_year=selected_year_channel,
                 selected_month=selected_month_channel,
             )
-            channel_apply_clicked = True
 
     payload = st.session_state.get("report3_payload")
-
-    # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
-    # Esto evita tener que dar dos o tres clics para que aparezcan canales nuevos como #N/A.
-    channel_options = get_filter_options_from_multiple_tables(
-        [
-            payload["mtd_channel_table"],
-            payload["ytd_channel_table"],
-        ],
-        build_report_3_display_label,
-    )
-
-    if channel_apply_clicked:
-        st.session_state["report3_channel_dimension_applied"] = channel_options.copy()
-
-    active_year_channel = payload["summary"]["latest_year"]
-    active_month_channel = payload["summary"]["latest_month"]
 
     applied_channel_labels = get_valid_applied_filter_values(
         "report3_channel_dimension_applied",
@@ -3474,16 +3396,16 @@ def render_report_3_view() -> None:
             ytd_channel_df=convert_report_table_for_export(payload["ytd_channel_table"]),
             report_title=build_report_context_title(
                 "Reporte 3 - Channel",
-                active_year_channel,
-                active_month_channel,
+                selected_year_channel,
+                selected_month_channel,
             ),
         )
         render_icon_download_button(
             data=report_3_bytes,
             file_name=build_excel_filename(
                 "reporte_3",
-                active_year_channel,
-                active_month_channel,
+                selected_year_channel,
+                selected_month_channel,
             ),
             key="download_report_3_icon",
             help_text="Descargar Reporte 3",
@@ -3501,8 +3423,8 @@ def render_report_3_view() -> None:
             build_report_3_table_html(
                 build_report_context_title(
                     "MTD Channel",
-                    active_year_channel,
-                    active_month_channel,
+                    selected_year_channel,
+                    selected_month_channel,
                 ),
                 filtered_mtd_channel,
             ),
@@ -3514,8 +3436,8 @@ def render_report_3_view() -> None:
             build_report_3_table_html(
                 build_report_context_title(
                     "YTD Channel",
-                    active_year_channel,
-                    active_month_channel,
+                    selected_year_channel,
+                    selected_month_channel,
                 ),
                 filtered_ytd_channel,
             ),
@@ -3968,17 +3890,66 @@ def render_upload_view() -> None:
     upload_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta etapa:</b><br>
-        Cargar correctamente la base de ventas y los archivos comparativos
-        de plan por cliente y plan por SKU, manteniendo persistencia y vista previa.
+        Cargar correctamente el archivo corporativo de ventas y planes,
+        manteniendo persistencia, validaciones y vistas previas por hoja.
         """
     )
     st.markdown(upload_box_html, unsafe_allow_html=True)
 
+    # =====================================================
+    # RESUMEN DEL ESTADO DE CARGA
+    # =====================================================
+    st.markdown(
+        '<div class="base-mtd-section-heading">Resumen del estado de carga</div>',
+        unsafe_allow_html=True,
+    )
+
+    sales_loaded = st.session_state.get("df_sales") is not None
+    plan_client_loaded = st.session_state.get("df_plan_client") is not None
+    plan_sku_loaded = st.session_state.get("df_plan_sku") is not None
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown(
+            styles.build_info_card(
+                "Ventas",
+                "Cargado" if sales_loaded else "Pendiente",
+                "Hoja BASE SAP del archivo corporativo",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col2:
+        st.markdown(
+            styles.build_info_card(
+                "Plan Cliente",
+                "Cargado" if plan_client_loaded else "Pendiente",
+                "Hoja Plan2026 by Client",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col3:
+        st.markdown(
+            styles.build_info_card(
+                "Plan SKU",
+                "Cargado" if plan_sku_loaded else "Pendiente",
+                "Hoja Plan2026 by SKU",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    st.markdown("---")
 
     # =====================================================
     # CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
+    # Se conserva intacta como opción futura/respaldo.
     # =====================================================
-    st.markdown("### Carga automática desde SharePoint sincronizado")
+    st.markdown(
+        '<div class="base-mtd-section-heading">Carga automática desde SharePoint sincronizado</div>',
+        unsafe_allow_html=True,
+    )
     st.caption(
         "Esta opción lee el Excel desde la carpeta de SharePoint sincronizada con OneDrive. "
         "La carga manual se conserva como respaldo."
@@ -4000,31 +3971,93 @@ def render_upload_view() -> None:
     st.markdown("---")
 
     # =====================================================
-    # 1. ARCHIVO DE VENTAS
+    # CARGA MANUAL ÚNICA DEL ARCHIVO CORPORATIVO
     # =====================================================
-    st.markdown("### 1. Archivo de ventas")
-    uploaded_sales = st.file_uploader(
-        "Carga el archivo de ventas",
-        type=config.ALLOWED_FILE_TYPES,
-        key=f"{config.FILE_KEY_SALES}_{st.session_state.get('upload_reset_counter', 0)}",
+    st.markdown(
+        '<div class="base-mtd-section-heading">Carga manual del archivo corporativo</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Sube una sola vez el Excel corporativo. La app leerá internamente las hojas BASE SAP, "
+        "Plan2026 by Client y Plan2026 by SKU."
     )
 
-    if uploaded_sales is not None:
-        try:
-            st.session_state["suppress_persistent_autoload"] = True
-            df_sales = data_loader.load_sales_file(uploaded_sales)
-            is_valid_sales, missing_sales = validators.validate_required_columns(
-                df_sales,
-                config.EXPECTED_COLUMNS_SALES,
-            )
+    uploaded_master_file = st.file_uploader(
+        "Carga el archivo corporativo completo",
+        type=config.ALLOWED_FILE_TYPES,
+        key=f"master_dashboard_file_{st.session_state.get('upload_reset_counter', 0)}",
+    )
 
-            st.session_state["df_sales"] = df_sales
-            st.session_state["sales_valid"] = is_valid_sales
-            st.session_state["sales_missing_columns"] = missing_sales
-            st.session_state["sales_file_name"] = uploaded_sales.name
+    if uploaded_master_file is not None:
+        try:
+            master_signature = f"{uploaded_master_file.name}|{len(uploaded_master_file.getvalue())}"
+
+            if master_signature != st.session_state.get("master_upload_signature", ""):
+                st.session_state["suppress_persistent_autoload"] = True
+
+                with st.spinner("Leyendo archivo corporativo y separando hojas..."):
+                    payload = data_loader.load_dashboard_excel_from_uploaded_file(uploaded_master_file)
+                    df_sales = payload.get("df_sales")
+                    df_plan_client = payload.get("df_plan_client")
+                    df_plan_sku = payload.get("df_plan_sku")
+
+                is_valid_sales, missing_sales = validators.validate_required_columns(
+                    df_sales,
+                    config.EXPECTED_COLUMNS_SALES,
+                )
+                is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
+                    df_plan_client,
+                    config.EXPECTED_COLUMNS_PLAN_CLIENT,
+                )
+                is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
+                    df_plan_sku,
+                    config.EXPECTED_COLUMNS_PLAN_SKU,
+                )
+
+                st.session_state["df_sales"] = df_sales
+                st.session_state["df_plan_client"] = df_plan_client
+                st.session_state["df_plan_sku"] = df_plan_sku
+
+                st.session_state["sales_valid"] = is_valid_sales
+                st.session_state["plan_client_valid"] = is_valid_plan_client
+                st.session_state["plan_sku_valid"] = is_valid_plan_sku
+
+                st.session_state["sales_missing_columns"] = missing_sales
+                st.session_state["plan_client_missing_columns"] = missing_plan_client
+                st.session_state["plan_sku_missing_columns"] = missing_plan_sku
+
+                st.session_state["master_upload_signature"] = master_signature
+                st.session_state["master_file_name"] = uploaded_master_file.name
+                st.session_state["sales_file_name"] = f"{uploaded_master_file.name} | BASE SAP"
+                st.session_state["plan_client_file_name"] = f"{uploaded_master_file.name} | Plan2026 by Client"
+                st.session_state["plan_sku_file_name"] = f"{uploaded_master_file.name} | Plan2026 by SKU"
+
+                st.session_state["df_processed_sales"] = None
+                st.session_state["persistent_data_loaded"] = False
+                st.session_state["persistent_data_metadata"] = None
+
+                clear_report_payloads()
+
+                if all([is_valid_sales, is_valid_plan_client, is_valid_plan_sku]):
+                    st.success("Archivo corporativo cargado correctamente. Las tres hojas mínimas fueron validadas.")
+                else:
+                    st.warning(
+                        "El archivo corporativo se cargó, pero alguna hoja no contiene las columnas mínimas esperadas. "
+                        "Revisa las validaciones de cada bloque."
+                    )
 
         except Exception as exc:
             st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
+
+    st.markdown("---")
+
+    # =====================================================
+    # VISTA PREVIA - ARCHIVO DE VENTAS
+    # =====================================================
+    st.markdown(
+        '<div class="base-mtd-section-heading">Archivo de ventas</div>',
+        unsafe_allow_html=True,
+    )
 
     if st.session_state.get("df_sales") is not None:
         sales_missing = st.session_state.get("sales_missing_columns", [])
@@ -4043,35 +4076,18 @@ def render_upload_view() -> None:
             rows=10,
             convert_currency=False,
         )
+    else:
+        st.info("Aún no se ha cargado la hoja BASE SAP.")
 
     st.markdown("---")
 
     # =====================================================
-    # 2. ARCHIVO DE PLAN POR CLIENTE
+    # VISTA PREVIA - PLAN POR CLIENTE
     # =====================================================
-    st.markdown("### 2. Archivo de plan por cliente")
-    uploaded_plan_client = st.file_uploader(
-        "Carga el archivo Plan2026 by Client",
-        type=config.ALLOWED_FILE_TYPES,
-        key=f"{config.FILE_KEY_PLAN_CLIENT}_{st.session_state.get('upload_reset_counter', 0)}",
+    st.markdown(
+        '<div class="base-mtd-section-heading">Archivo de plan por cliente</div>',
+        unsafe_allow_html=True,
     )
-
-    if uploaded_plan_client is not None:
-        try:
-            st.session_state["suppress_persistent_autoload"] = True
-            df_plan_client = data_loader.load_plan_client_file(uploaded_plan_client)
-            is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
-                df_plan_client,
-                config.EXPECTED_COLUMNS_PLAN_CLIENT,
-            )
-
-            st.session_state["df_plan_client"] = df_plan_client
-            st.session_state["plan_client_valid"] = is_valid_plan_client
-            st.session_state["plan_client_missing_columns"] = missing_plan_client
-            st.session_state["plan_client_file_name"] = uploaded_plan_client.name
-
-        except Exception as exc:
-            st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
 
     if st.session_state.get("df_plan_client") is not None:
         plan_client_missing = st.session_state.get("plan_client_missing_columns", [])
@@ -4090,35 +4106,18 @@ def render_upload_view() -> None:
             rows=10,
             convert_currency=False,
         )
+    else:
+        st.info("Aún no se ha cargado la hoja Plan2026 by Client.")
 
     st.markdown("---")
 
     # =====================================================
-    # 3. ARCHIVO DE PLAN POR SKU
+    # VISTA PREVIA - PLAN POR SKU
     # =====================================================
-    st.markdown("### 3. Archivo de plan por SKU")
-    uploaded_plan_sku = st.file_uploader(
-        "Carga el archivo Plan2026 by SKU",
-        type=config.ALLOWED_FILE_TYPES,
-        key=f"{config.FILE_KEY_PLAN_SKU}_{st.session_state.get('upload_reset_counter', 0)}",
+    st.markdown(
+        '<div class="base-mtd-section-heading">Archivo de plan por SKU</div>',
+        unsafe_allow_html=True,
     )
-
-    if uploaded_plan_sku is not None:
-        try:
-            st.session_state["suppress_persistent_autoload"] = True
-            df_plan_sku = data_loader.load_plan_sku_file(uploaded_plan_sku)
-            is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
-                df_plan_sku,
-                config.EXPECTED_COLUMNS_PLAN_SKU,
-            )
-
-            st.session_state["df_plan_sku"] = df_plan_sku
-            st.session_state["plan_sku_valid"] = is_valid_plan_sku
-            st.session_state["plan_sku_missing_columns"] = missing_plan_sku
-            st.session_state["plan_sku_file_name"] = uploaded_plan_sku.name
-
-        except Exception as exc:
-            st.error(f"{config.MSG_UPLOAD_ERROR} Detalle: {exc}")
 
     if st.session_state.get("df_plan_sku") is not None:
         plan_sku_missing = st.session_state.get("plan_sku_missing_columns", [])
@@ -4137,58 +4136,26 @@ def render_upload_view() -> None:
             rows=10,
             convert_currency=False,
         )
+    else:
+        st.info("Aún no se ha cargado la hoja Plan2026 by SKU.")
 
     st.markdown("---")
 
     # =====================================================
-    # RESUMEN
+    # GUARDAR CARGA PARA VIEWERS
     # =====================================================
-    st.markdown("### 4. Resumen del estado de carga")
+    st.markdown(
+        '<div class="base-mtd-section-heading">Guardar carga para usuarios viewer</div>',
+        unsafe_allow_html=True,
+    )
 
     sales_loaded = st.session_state.get("df_sales") is not None
     plan_client_loaded = st.session_state.get("df_plan_client") is not None
     plan_sku_loaded = st.session_state.get("df_plan_sku") is not None
 
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            styles.build_info_card(
-                "Ventas",
-                "Cargado" if sales_loaded else "Pendiente",
-                "Archivo base de ventas",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            styles.build_info_card(
-                "Plan Cliente",
-                "Cargado" if plan_client_loaded else "Pendiente",
-                "Archivo comparativo por cliente",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            styles.build_info_card(
-                "Plan SKU",
-                "Cargado" if plan_sku_loaded else "Pendiente",
-                "Archivo comparativo por material",
-            ),
-            unsafe_allow_html=True,
-        )
-
-
-
-    st.markdown("---")
-    st.markdown("### 5. Guardar carga para usuarios viewer")
-
     if sales_loaded and plan_client_loaded and plan_sku_loaded:
         st.info(
-            "Cuando los tres archivos estén validados, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
+            "Cuando las tres hojas estén validadas, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
         )
         st.button(
             "Guardar carga administrativa para viewers",
@@ -4196,13 +4163,16 @@ def render_upload_view() -> None:
             use_container_width=True,
         )
     else:
-        st.caption("Carga los tres archivos para habilitar el guardado administrativo.")
+        st.caption("Carga el archivo corporativo completo para habilitar el guardado administrativo.")
 
     # =====================================================
     # LIMPIEZA DE SESIÓN Y CARGA GUARDADA
     # =====================================================
     st.markdown("---")
-    st.markdown("### 6. Limpieza de carga guardada")
+    st.markdown(
+        '<div class="base-mtd-section-heading">Limpieza de carga guardada</div>',
+        unsafe_allow_html=True,
+    )
     st.caption(
         "Usa estos botones si Streamlit Cloud sigue mostrando datos anteriores "
         "o si necesitas empezar una carga completamente desde cero."
