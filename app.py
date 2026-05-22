@@ -13,6 +13,7 @@ import pickle
 
 import streamlit as st
 
+import charts
 import config
 import data_loader
 import data_processor
@@ -1056,7 +1057,7 @@ def render_sidebar() -> str:
         st.caption("Etapa actual: Etapa 8")
         st.caption(
             "Módulos activos: config.py, styles.py, data_loader.py, "
-            "validators.py, data_processor.py, exports.py y app.py"
+            "validators.py, data_processor.py, exports.py, charts.py y app.py"
         )
 
         return selected_option
@@ -3883,6 +3884,8 @@ def render_report_4_view() -> None:
         unsafe_allow_html=True,
     )
 
+    # Primero se muestra la tabla ejecutiva principal.
+    # Después se coloca la gráfica, justo antes de los detalles desplegables.
     render_report_4_detail_block(
         "Vista ejecutiva: Top 15 + bloques resumen",
         payload["mtd_top_clients_table"],
@@ -3890,6 +3893,37 @@ def render_report_4_view() -> None:
         payload["summary"]["latest_year"],
         payload["summary"]["latest_month"],
     )
+
+    st.markdown("---")
+    st.markdown("### Ranking Clients")
+
+    chart_tab_mtd, chart_tab_ytd = st.tabs(["MTD", "YTD"])
+
+    with chart_tab_mtd:
+        mtd_chart = charts.build_report_4_ranking_chart(
+            df_report_4=payload["mtd_top_clients_table"],
+            title=f"Ranking Clientes MTD · Top 15 + bloques · {get_currency_kpi_suffix()}",
+            currency_mode=get_active_currency_mode(),
+            exchange_rate=get_active_exchange_rate(),
+        )
+
+        if mtd_chart is not None:
+            st.plotly_chart(mtd_chart, use_container_width=True)
+        else:
+            st.info("No hay información suficiente para graficar el ranking MTD.")
+
+    with chart_tab_ytd:
+        ytd_chart = charts.build_report_4_ranking_chart(
+            df_report_4=payload["ytd_top_clients_table"],
+            title=f"Ranking Clientes YTD · Top 15 + bloques · {get_currency_kpi_suffix()}",
+            currency_mode=get_active_currency_mode(),
+            exchange_rate=get_active_exchange_rate(),
+        )
+
+        if ytd_chart is not None:
+            st.plotly_chart(ytd_chart, use_container_width=True)
+        else:
+            st.info("No hay información suficiente para graficar el ranking YTD.")
 
     with st.expander("Ver detalle: Clients 16 to 50", expanded=False):
         render_report_4_detail_block(
@@ -3940,9 +3974,9 @@ def render_home_view() -> None:
         st.markdown(
             styles.build_info_card(
                 "Módulos base",
-                "7",
+                "8",
                 "config.py, styles.py, data_loader.py, validators.py, "
-                "data_processor.py, exports.py y app.py",
+                "data_processor.py, exports.py, charts.py y app.py",
             ),
             unsafe_allow_html=True,
         )
@@ -4353,6 +4387,22 @@ def render_overview_view() -> None:
     render_processed_data_summary()
 
     df_processed = st.session_state.get("df_processed_sales")
+
+    st.markdown(
+        '<div class="base-mtd-section-heading">Tendencia Mensual</div>',
+        unsafe_allow_html=True,
+    )
+
+    trend_fig = charts.build_monthly_gsnr_trend_chart(
+        df_processed_sales=df_processed,
+        currency_mode=get_active_currency_mode(),
+        exchange_rate=get_active_exchange_rate(),
+    )
+
+    if trend_fig is not None:
+        st.plotly_chart(trend_fig, use_container_width=True)
+    else:
+        st.info("No hay información suficiente para construir la tendencia mensual.")
 
     st.markdown(
         '<div class="base-mtd-section-heading">Vista previa de la base procesada</div>',
