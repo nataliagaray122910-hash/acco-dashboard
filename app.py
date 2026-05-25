@@ -4104,30 +4104,47 @@ def render_upload_view() -> None:
     st.markdown("---")
 
     # =====================================================
-    # CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
-    # Se conserva intacta como opción futura/respaldo.
+    # CARGA AUTOMÁTICA DESDE SHAREPOINT / ONEDRIVE
+    # BLOQUEADA TEMPORALMENTE
+    # =====================================================
+    # NOTA IMPORTANTE:
+    # Esta funcionalidad se deja visible, pero SIN USO.
+    # No se elimina la lógica interna para poder reactivarla en el futuro
+    # si el equipo decide volver a usar la ruta sincronizada.
+    #
+    # Mientras esté bloqueada:
+    # - el botón aparece deshabilitado
+    # - no se puede hacer clic
+    # - no se ejecuta load_synced_sharepoint_file_to_session()
+    # - la app trabaja únicamente con carga manual del archivo corporativo
     # =====================================================
     st.markdown(
-        '<div class="base-mtd-section-heading">Carga automática desde SharePoint sincronizado</div>',
+        '<div class="base-mtd-section-heading">Carga automática desde OneDrive / SharePoint</div>',
         unsafe_allow_html=True,
     )
     st.caption(
-        "Esta opción lee el Excel desde la carpeta de SharePoint sincronizada con OneDrive. "
-        "La carga manual se conserva como respaldo."
+        "Función temporalmente deshabilitada. Actualmente la app trabaja únicamente "
+        "con la carga manual del archivo corporativo."
     )
 
-    if getattr(config, "SYNCED_SHAREPOINT_ENABLED", False):
-        st.button(
-            getattr(
-                config,
-                "SYNCED_SHAREPOINT_BUTTON_LABEL",
-                "Actualizar desde SharePoint sincronizado",
-            ),
-            on_click=load_synced_sharepoint_file_to_session,
-            use_container_width=True,
-        )
-    else:
-        st.warning("La carga desde SharePoint sincronizado está deshabilitada en config.py.")
+    st.button(
+        getattr(
+            config,
+            "SYNCED_SHAREPOINT_BUTTON_LABEL",
+            "Actualizar desde OneDrive / SharePoint",
+        ),
+        disabled=True,
+        use_container_width=True,
+        help=(
+            "Función temporalmente deshabilitada. "
+            "Actualmente la app trabaja solo con carga manual."
+        ),
+    )
+
+    st.warning(
+        "La carga automática desde OneDrive/SharePoint está temporalmente deshabilitada. "
+        "Usa la carga manual del archivo corporativo."
+    )
 
     st.markdown("---")
 

@@ -64,7 +64,7 @@ BACKGROUND_PATH = "assets/fondo.jpg"
 # Lee el archivo desde la carpeta sincronizada de OneDrive/SharePoint
 # en la computadora donde se ejecuta la app localmente.
 
-SYNCED_SHAREPOINT_ENABLED = True
+SYNCED_SHAREPOINT_ENABLED = False
 
 SYNCED_SHAREPOINT_FILE_NAME = "BASE FINAL ACUMULADA VENTAS CORPO 2024-2026.xlsx"
 
