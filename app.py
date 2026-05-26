@@ -2389,7 +2389,7 @@ def render_report_1_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### 1. Construir Reporte 1")
+    st.markdown("### Construir Reporte")
     st.markdown(
         '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del bloque superior. En el bloque WITH KENS solo se conserva el filtro de oficina de ventas.</div>',
         unsafe_allow_html=True,
@@ -2409,7 +2409,7 @@ def render_report_1_view() -> None:
         return
 
     st.markdown("---")
-    st.markdown("### 2. Resumen del corte")
+    st.markdown("### Resumen ejecutivo")
 
     latest_month = payload["summary"]["latest_month"]
     latest_year = payload["summary"]["latest_year"]
@@ -2447,7 +2447,7 @@ def render_report_1_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### 3. Channel Corp MTD / YTD")
+    st.markdown("### Channel Corp MTD / YTD")
 
     selected_year_without_kens, selected_month_without_kens = render_period_filter_block(
         "Filtro del bloque: Channel Corp WITHOUT KENS",
@@ -2474,9 +2474,9 @@ def render_report_1_view() -> None:
 
     if selected_year_without_kens is not None and selected_month_without_kens is not None:
         if st.button(
-            "Aplicar filtro - Channel Corp WITHOUT KENS",
+            "Aplicar filtro",
             key="btn_report1_without_kens",
-            use_container_width=True,
+            use_container_width=False,
         ):
             sync_dimension_filter_to_applied_state(
                 "report1_without_kens_dimension_widget",
@@ -2565,7 +2565,7 @@ def render_report_1_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### 4. Channel Corp MTD / YTD WITH KENS")
+    st.markdown("### Channel Corp WITH KENS")
 
     payload = st.session_state.get("report1_payload")
 
@@ -2585,9 +2585,9 @@ def render_report_1_view() -> None:
     )
 
     if st.button(
-        "Aplicar filtro - Channel Corp WITH KENS",
+        "Aplicar filtro",
         key="btn_report1_kens_dimension_only",
-        use_container_width=True,
+        use_container_width=False,
     ):
         sync_dimension_filter_to_applied_state(
             "report1_kens_dimension_widget",
@@ -2903,7 +2903,7 @@ def render_report_2_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### 1. Construir Reporte Segment x Region")
+    st.markdown("### Construir Segment x Region")
     st.button(
         "Construir Reporte Segment x Region",
         on_click=run_report_2_build,
@@ -2913,7 +2913,7 @@ def render_report_2_view() -> None:
     payload = st.session_state.get("report2_payload")
 
     st.markdown("---")
-    st.markdown("### 2. Resumen del corte")
+    st.markdown("### Resumen ejecutivo")
 
     if payload is None:
         st.info("Aún no se ha construido el Reporte Segment x Region.")
@@ -2954,7 +2954,7 @@ def render_report_2_view() -> None:
             )
 
     st.markdown("---")
-    st.markdown("### 3. Segment x Region MTD / YTD")
+    st.markdown("### Segment x Region MTD / YTD")
 
     payload = st.session_state.get("report2_payload")
 
@@ -2986,9 +2986,9 @@ def render_report_2_view() -> None:
 
         if selected_year_segment is not None and selected_month_segment is not None:
             if st.button(
-                "Aplicar filtro - Segment x Region",
+                "Aplicar filtro",
                 key="btn_report2_segment",
-                use_container_width=True,
+                use_container_width=False,
             ):
                 sync_dimension_filter_to_applied_state(
                     "report2_segment_dimension_widget",
@@ -3092,8 +3092,11 @@ def render_report_2_view() -> None:
                 unsafe_allow_html=True,
             )
 
+        # Los heatmaps de Segment x Region se retiraron de la vista ejecutiva
+        # para mantener el reporte más limpio y concentrado en las tablas MTD/YTD.
+
     st.markdown("---")
-    st.markdown("### 4. Construir Reporte Category")
+    st.markdown("### Construir Category")
     st.button(
         "Construir Reporte Category",
         on_click=run_report_2_category_build,
@@ -3103,7 +3106,7 @@ def render_report_2_view() -> None:
     payload_category = st.session_state.get("report2_category_payload")
 
     st.markdown("---")
-    st.markdown("### 5. Category MTD / YTD")
+    st.markdown("### Category MTD / YTD")
 
     if payload_category is None:
         st.info("Aún no se ha construido el Reporte Category.")
@@ -3133,9 +3136,9 @@ def render_report_2_view() -> None:
 
         if selected_year_category is not None and selected_month_category is not None:
             if st.button(
-                "Aplicar filtro - Category",
+                "Aplicar filtro",
                 key="btn_report2_category",
-                use_container_width=True,
+                use_container_width=False,
             ):
                 sync_dimension_filter_to_applied_state(
                     "report2_category_dimension_widget",
@@ -3388,7 +3391,7 @@ def render_report_3_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### 1. Construir Reporte 3")
+    st.markdown("### Construir Reporte")
     st.button(
         "Construir Reporte 3",
         on_click=run_report_3_build,
@@ -3403,7 +3406,7 @@ def render_report_3_view() -> None:
         return
 
     st.markdown("---")
-    st.markdown("### 2. Resumen del corte")
+    st.markdown("### Resumen ejecutivo")
 
     latest_month = payload["summary"]["latest_month"]
     latest_year = payload["summary"]["latest_year"]
@@ -3441,7 +3444,7 @@ def render_report_3_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### 3. Channel MTD / YTD")
+    st.markdown("### Channel MTD / YTD")
 
     selected_year_channel, selected_month_channel = render_period_filter_block(
         "Filtro del bloque: Channel",
@@ -3470,9 +3473,9 @@ def render_report_3_view() -> None:
 
     if selected_year_channel is not None and selected_month_channel is not None:
         if st.button(
-            "Aplicar filtro - Channel",
+            "Aplicar filtro",
             key="btn_report3_channel",
-            use_container_width=True,
+            use_container_width=False,
         ):
             sync_dimension_filter_to_applied_state(
                 "report3_channel_dimension_widget",
@@ -3571,6 +3574,26 @@ def render_report_3_view() -> None:
             ),
             unsafe_allow_html=True,
         )
+
+    st.markdown("---")
+    st.markdown("### Mix de participación por Channel")
+    st.markdown(
+        '<div class="report-note">Dona interactiva con botones internos para cambiar entre Actual, Plan y PY en MTD/YTD. Se muestra debajo de las tablas para cerrar el reporte con una lectura visual del mix.</div>',
+        unsafe_allow_html=True,
+    )
+
+    donut_fig = charts.build_channel_mix_donut_interactive_chart(
+        df_mtd_channel=filtered_mtd_channel,
+        df_ytd_channel=filtered_ytd_channel,
+        title=f"Mix de participación por Channel · {get_currency_kpi_suffix()}",
+        currency_mode=get_active_currency_mode(),
+        exchange_rate=get_active_exchange_rate(),
+    )
+
+    if donut_fig is not None:
+        st.plotly_chart(donut_fig, use_container_width=True)
+    else:
+        st.info("No hay información suficiente para construir la dona interactiva.")
 
 # =========================================================
 # 17. REPORTE 4
@@ -3782,7 +3805,7 @@ def render_report_4_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### 1. Construir Reporte 4")
+    st.markdown("### Construir Reporte")
     st.button(
         "Construir Reporte 4",
         on_click=run_report_4_build,
@@ -3797,7 +3820,7 @@ def render_report_4_view() -> None:
         return
 
     st.markdown("---")
-    st.markdown("### 2. Resumen del corte")
+    st.markdown("### Resumen ejecutivo")
 
     latest_month = payload["summary"]["latest_month"]
     latest_year = payload["summary"]["latest_year"]
@@ -3835,7 +3858,7 @@ def render_report_4_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### 3. Ranking de Clientes MTD / YTD")
+    st.markdown("### Ranking de Clientes MTD / YTD")
 
     selected_year_clients, selected_month_clients = render_period_filter_block(
         "Filtro del bloque: Ranking de Clientes",
@@ -3845,9 +3868,9 @@ def render_report_4_view() -> None:
 
     if selected_year_clients is not None and selected_month_clients is not None:
         if st.button(
-            "Aplicar filtro - Ranking de Clientes",
+            "Aplicar filtro",
             key="btn_report4_clients",
-            use_container_width=True,
+            use_container_width=False,
         ):
             run_report_4_build(
                 selected_year=selected_year_clients,
@@ -3924,6 +3947,42 @@ def render_report_4_view() -> None:
             st.plotly_chart(ytd_chart, use_container_width=True)
         else:
             st.info("No hay información suficiente para graficar el ranking YTD.")
+
+    st.markdown("---")
+    st.markdown("### Pareto dinámico de concentración")
+    st.markdown(
+        '<div class="report-note">El Pareto ordena clientes por Actual para mostrar concentración de ventas. La línea negra indica el porcentaje acumulado y permite identificar qué tantos clientes explican la mayor parte del total.</div>',
+        unsafe_allow_html=True,
+    )
+
+    pareto_tabs = st.tabs([
+        "MTD vs Plan",
+        "MTD vs PY",
+        "YTD vs Plan",
+        "YTD vs PY",
+    ])
+
+    pareto_specs = [
+        (payload["mtd_top_clients_table"], "plan", "MTD vs Plan"),
+        (payload["mtd_top_clients_table"], "py", "MTD vs PY"),
+        (payload["ytd_top_clients_table"], "plan", "YTD vs Plan"),
+        (payload["ytd_top_clients_table"], "py", "YTD vs PY"),
+    ]
+
+    for pareto_tab, (pareto_df, comparison_type, pareto_title) in zip(pareto_tabs, pareto_specs):
+        with pareto_tab:
+            pareto_fig = charts.build_report_4_pareto_chart(
+                df_report_4=pareto_df,
+                title=f"Pareto Clientes {pareto_title} · {get_currency_kpi_suffix()}",
+                comparison_type=comparison_type,
+                currency_mode=get_active_currency_mode(),
+                exchange_rate=get_active_exchange_rate(),
+            )
+
+            if pareto_fig is not None:
+                st.plotly_chart(pareto_fig, use_container_width=True)
+            else:
+                st.info("No hay información suficiente para construir este Pareto.")
 
     with st.expander("Ver detalle: Clients 16 to 50", expanded=False):
         render_report_4_detail_block(

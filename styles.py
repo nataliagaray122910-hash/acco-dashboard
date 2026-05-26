@@ -1496,6 +1496,104 @@ def build_global_css() -> str:
         }}
     }}
 
+
+
+    /* =====================================================
+       REFINAMIENTO EJECUTIVO: TABLAS Y GRÁFICOS
+       ===================================================== */
+    .report-table-card,
+    .horizontal-table-card,
+    .custom-card,
+    .report-title-box,
+    .base-mtd-kpi-card {{
+        border: 1px solid #E8ECF3 !important;
+        box-shadow: 0 12px 30px rgba(15, 23, 42, 0.055) !important;
+    }}
+
+    .report-table-scroll {{
+        border: none !important;
+        background: #FFFFFF !important;
+        box-shadow: inset 0 0 0 1px #EEF1F5 !important;
+    }}
+
+    .report-cell {{
+        border-left: none !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: 1px solid #EEF1F5 !important;
+        min-height: 48px !important;
+        padding: 0.68rem 0.62rem !important;
+        background: #FFFFFF !important;
+    }}
+
+    .report-header {{
+        border-bottom: none !important;
+        box-shadow: none !important;
+        letter-spacing: 0.15px !important;
+        min-height: 50px !important;
+    }}
+
+    .report-label-cell,
+    .report4-sticky-cell,
+    .report4-code-cell,
+    .report-category-product-cell,
+    .report-sticky-cell {{
+        background: #FAFBFD !important;
+        color: #1F2A44 !important;
+        border-bottom: 1px solid #EEF1F5 !important;
+    }}
+
+    .report-total .report-cell,
+    .report-total .report-label-cell,
+    .report4-total-cell,
+    .report4-total-cell.report4-sticky-cell {{
+        background: #F3F6FA !important;
+        font-weight: 900 !important;
+    }}
+
+    .report-highlight .report-cell,
+    .report-highlight .report-label-cell,
+    .report4-highlight-cell,
+    .report4-highlight-cell.report4-sticky-cell {{
+        background: #E8F5EA !important;
+        font-weight: 900 !important;
+    }}
+
+    .report-table-title {{
+        font-size: 1.06rem !important;
+        margin-bottom: 0.95rem !important;
+    }}
+
+    .report-note {{
+        color: #667085 !important;
+        font-size: 0.93rem !important;
+    }}
+
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 0.25rem !important;
+        border-bottom: 1px solid #EEF1F5 !important;
+    }}
+
+    .stTabs [data-baseweb="tab"] {{
+        border-radius: 999px 999px 0 0 !important;
+        padding: 0.55rem 0.9rem !important;
+        font-weight: 700 !important;
+    }}
+
+    /* Botones más compactos para filtros: deja de sentirse como barra completa */
+    div[data-testid="stButton"] > button {{
+        min-height: 46px !important;
+    }}
+
+    .js-plotly-plot .plotly .modebar {{
+        opacity: 0.35 !important;
+        transition: opacity 0.2s ease !important;
+    }}
+
+    .js-plotly-plot .plotly .modebar:hover {{
+        opacity: 1 !important;
+    }}
+
     /* =====================================================
        OCULTAR FOOTER
        ===================================================== */
@@ -1553,7 +1651,159 @@ def build_global_css() -> str:
             font-size: 0.9rem;
         }}
     }}
-    </style>
+    
+
+    /* =====================================================
+       OVERRIDE FINAL - TABLAS EJECUTIVAS LIMPIAS
+       Quita apariencia de Excel: sin bordes verticales, menos ruido,
+       encabezados recuperados y números más legibles.
+       ===================================================== */
+    .report-table-card {{
+        background: #FFFFFF !important;
+        border: 1px solid #E7EAF0 !important;
+        border-radius: 22px !important;
+        padding: 1.05rem 1.1rem !important;
+        box-shadow: 0 12px 28px rgba(15, 23, 42, 0.065) !important;
+        margin-bottom: 1.15rem !important;
+    }}
+
+    .report-table-title {{
+        font-size: 1.05rem !important;
+        font-weight: 850 !important;
+        color: #1F2A44 !important;
+        margin: 0 0 0.85rem 0 !important;
+        letter-spacing: 0.01em !important;
+    }}
+
+    .report-table-scroll {{
+        border: 1px solid #EEF1F5 !important;
+        border-radius: 16px !important;
+        background: #FFFFFF !important;
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55) !important;
+        overflow-x: auto !important;
+        overflow-y: auto !important;
+    }}
+
+    .report-cell {{
+        border-left: none !important;
+        border-right: none !important;
+        border-top: none !important;
+        border-bottom: 1px solid #EEF1F5 !important;
+        background: #FFFFFF !important;
+        min-height: 50px !important;
+        padding: 0.74rem 0.72rem !important;
+        font-size: 0.92rem !important;
+        color: #1F2A44 !important;
+    }}
+
+    .report-value-cell {{
+        justify-content: flex-end !important;
+        text-align: right !important;
+        color: #263244 !important;
+        font-weight: 500 !important;
+        font-variant-numeric: tabular-nums !important;
+        letter-spacing: 0.01em !important;
+    }}
+
+    .report-label-cell,
+    .report-sticky-cell,
+    .report4-sticky-cell,
+    .report-category-product-cell {{
+        background: #FBFCFE !important;
+        color: #1F2A44 !important;
+        font-weight: 750 !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
+        box-shadow: 4px 0 10px rgba(15, 23, 42, 0.045) !important;
+    }}
+
+    .report-header,
+    .report-header-neutral,
+    .report-header-sticky,
+    .report4-sticky-header,
+    .report-category-header-sticky {{
+        background: #1F2A44 !important;
+        color: #FFFFFF !important;
+        border-bottom: none !important;
+        font-weight: 850 !important;
+        letter-spacing: 0.02em !important;
+        text-transform: uppercase !important;
+    }}
+
+    .report-header-actual {{
+        background: #0B5A7A !important;
+        color: #FFFFFF !important;
+    }}
+
+    .report-header-plan {{
+        background: #D4A017 !important;
+        color: #FFFFFF !important;
+    }}
+
+    .report-header-py {{
+        background: #0B5A7A !important;
+        color: #FFFFFF !important;
+    }}
+
+    .report-negative {{
+        color: #C0392B !important;
+        font-weight: 800 !important;
+    }}
+
+    .report-total .report-cell,
+    .report4-total-cell {{
+        background: #F3F6FA !important;
+        color: #1F2A44 !important;
+        font-weight: 850 !important;
+        border-top: 1px solid #DCE3EC !important;
+    }}
+
+    .report-highlight .report-cell,
+    .report4-highlight-cell {{
+        background: #E8F3E6 !important;
+        color: #16351F !important;
+        font-weight: 850 !important;
+        border-top: 1px solid #CDE8D0 !important;
+    }}
+
+    .report-total .report-label-cell,
+    .report-total .report-sticky-cell,
+    .report-total .report4-sticky-cell {{
+        background: #F3F6FA !important;
+    }}
+
+    .report-highlight .report-label-cell,
+    .report-highlight .report-sticky-cell,
+    .report-highlight .report4-sticky-cell {{
+        background: #DCEFD8 !important;
+    }}
+
+    .report-note {{
+        color: #667085 !important;
+        font-size: 0.93rem !important;
+        margin: 0.2rem 0 0.85rem 0 !important;
+    }}
+
+    /* Reduce el peso visual de separadores de Streamlit */
+    hr {{
+        border: none !important;
+        border-top: 1px solid #E9EDF3 !important;
+        margin: 1.45rem 0 !important;
+    }}
+
+    /* Títulos más limpios, sin apariencia de documento numerado */
+    h3 {{
+        color: #1F2A44 !important;
+        font-weight: 850 !important;
+        letter-spacing: -0.01em !important;
+    }}
+
+    /* Botones de acción más compactos para filtros y construcción */
+    div[data-testid="stButton"] > button {{
+        min-height: 44px !important;
+        border-radius: 14px !important;
+    }}
+</style>
     """
 
 def _clean_info_box_text(text: str) -> tuple[str, str]:
@@ -1606,15 +1856,34 @@ def build_hero_section() -> str:
 
 def build_info_card(title: str, value: str, description: str = "") -> str:
     """
-    Genera una tarjeta visual simple.
+    Genera una tarjeta ejecutiva con icono, usando el mismo lenguaje visual
+    que Base MTD y Visión general.
     """
-    return f"""
-    <div class="custom-card">
-        <div class="card-title">{title}</div>
-        <div class="card-value">{value}</div>
-        <div class="card-description">{description}</div>
-    </div>
-    """
+    title_text = str(title or "").strip().lower()
+
+    if "periodo" in title_text or "fecha" in title_text:
+        icon = "◷"
+        color = "blue"
+    elif "plan" in title_text or "regla" in title_text:
+        icon = "↗"
+        color = "orange"
+    elif "cruce" in title_text or "código" in title_text or "codigo" in title_text:
+        icon = "⛓"
+        color = "green"
+    elif "bloque" in title_text or "orden" in title_text or "segment" in title_text:
+        icon = "▦"
+        color = "blue"
+    else:
+        icon = "•"
+        color = "blue"
+
+    return build_base_mtd_kpi_card(
+        title=title.upper(),
+        value=value,
+        description=description,
+        icon=icon,
+        color=color,
+    )
 
 def build_info_box(text: str) -> str:
     """
