@@ -356,7 +356,7 @@ BASE_MTD_FILTER_SUBTITLE = (
 
 BASE_MTD_CLIENT_TABLE_TITLE = "Base MTD vs Plan Cliente"
 BASE_MTD_SKU_TABLE_TITLE = "Base MTD vs Plan SKU"
-BASE_MTD_BTS_TABLE_TITLE = "Back To School (BTS)"
+BASE_MTD_BTS_TABLE_TITLE = "Back To School (BTS) MTD / YTD"
 BASE_MTD_PLAN_VALIDATION_TITLE = "Validación Plan Cliente vs Plan SKU"
 BASE_MTD_DOWNLOAD_LABEL = "Descargar Base MTD"
 
@@ -490,6 +490,33 @@ REQUIRED_COLUMNS_REPORT_2_PLAN_SKU = [
 ]
 
 REPORT_2_EXCLUDED_VENDOR_GROUP = "AFI: Afiliadas"
+
+# ---------------------------------------------------------
+# REGLAS ESPECÍFICAS BASE MTD / BTS
+# ---------------------------------------------------------
+# Base MTD general: Actual, PY, Plan Cliente y Plan SKU no consideran afiliadas.
+BASE_MTD_EXCLUDED_VENDOR_GROUPS = [
+    "AFI: Afiliadas",
+    "AFI",
+    "AF: Afiliadas",
+    "AF",
+]
+
+# BTS: solo GOBA/BARRILITO y se excluyen estos grupos de vendedores.
+BASE_MTD_BTS_EXCLUDED_VENDOR_GROUPS = [
+    "AFI: Afiliadas",
+    "AFI",
+    "AF: Afiliadas",
+    "AF",
+    "ECO: Ecommerce",
+    "ECO",
+    "EXP: Exportaciones",
+    "EXP",
+    "KEN: Kensington",
+    "KEN",
+    "NGI: Neg Internacionales",
+    "NGI",
+]
 
 REPORT_2_SEGMENT_ORDER = [
     "ACCO",

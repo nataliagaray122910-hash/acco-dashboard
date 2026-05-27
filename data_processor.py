@@ -481,12 +481,104 @@ def get_latest_actual_period_from_sales(
 # FUNCIÓN AUXILIAR:
 # Calcula actual y PY generales
 # --------------------------------------------------------------
+def get_vendor_group_exclusion_values() -> set[str]:
+    """Valores de Grupo de Vendedores que deben excluirse en Base MTD/BTS."""
+    configured_values = getattr(
+        config,
+        "BASE_MTD_EXCLUDED_VENDOR_GROUPS",
+        ["AFI: Afiliadas"],
+    )
+    return {normalize_report_2_label(value) for value in configured_values}
+
+
+def exclude_base_mtd_affiliates(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Excluye AFI: Afiliadas para los cálculos generales de Base MTD.
+
+    Esta regla aplica a Actual, PY, Plan Cliente y Plan SKU dentro de Base MTD,
+    sin modificar visualmente las tarjetas ni las tablas.
+    """
+    df = df.copy()
+
+    vendor_group_col = find_first_existing_column(
+        df,
+        [
+            "Grupo de vendedores",
+            "Grupo de Vendedores",
+            "Grupo vendedores",
+            "Channel",
+            "Canal",
+            "Sales region short",
+            "Sales Region Short",
+            "Region",
+            "Región",
+        ],
+    )
+
+    if vendor_group_col is None:
+        return df
+
+    excluded_values = get_vendor_group_exclusion_values()
+    vendor_series = df[vendor_group_col].apply(normalize_report_2_label)
+
+    return df.loc[~vendor_series.isin(excluded_values)].copy()
+
+
+def filter_sales_for_base_mtd_bts(df_processed_sales: pd.DataFrame) -> pd.DataFrame:
+    """
+    Filtra ventas para BTS conforme al Excel de referencia.
+
+    Reglas:
+    - Solo GOBA/BARRILITO.
+    - No considera AFI, ECO, EXP, KEN ni NGI dentro de Grupo de Vendedores.
+    """
+    df = standardize_columns(df_processed_sales).copy()
+
+    segment_col = find_first_existing_column(df, ["Segm Neg", "Segmento", "Segment"])
+    vendor_group_col = find_first_existing_column(
+        df,
+        [
+            "Grupo de vendedores",
+            "Grupo de Vendedores",
+            "Grupo vendedores",
+            "Sales region short",
+            "Sales Region Short",
+            "Region",
+            "Región",
+        ],
+    )
+
+    if segment_col is not None:
+        segment_series = df[segment_col].apply(normalize_report_2_segment_label)
+        df = df.loc[segment_series.isin({"GOBA", "BARRILITO"})].copy()
+
+    if vendor_group_col is not None:
+        excluded_values = {
+            normalize_report_2_label(value)
+            for value in getattr(
+                config,
+                "BASE_MTD_BTS_EXCLUDED_VENDOR_GROUPS",
+                [
+                    "AFI: Afiliadas",
+                    "ECO: Ecommerce",
+                    "EXP: Exportaciones",
+                    "KEN: Kensington",
+                    "NGI: Neg Internacionales",
+                ],
+            )
+        }
+        vendor_series = df[vendor_group_col].apply(normalize_report_2_label)
+        df = df.loc[~vendor_series.isin(excluded_values)].copy()
+
+    return df
+
+
 def calculate_actual_and_py_totals(
     df_processed_sales: pd.DataFrame,
     latest_year: int,
     latest_month: int,
 ) -> dict:
-    df = df_processed_sales.copy()
+    df = exclude_base_mtd_affiliates(df_processed_sales)
 
     current_year_df = df[df[config.COL_YEAR] == latest_year].copy()
     previous_year_df = df[df[config.COL_YEAR] == (latest_year - 1)].copy()
@@ -514,6 +606,7 @@ def calculate_actual_and_py_totals(
         "ytd_py": float(ytd_py),
     }
 
+
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Suma valores del plan por cliente
@@ -523,6 +616,8 @@ def get_plan_client_totals(
     latest_month: int,
 ) -> tuple[float, float]:
     df = standardize_columns(df_plan_client)
+    df = remove_total_like_rows(df)
+    df = exclude_base_mtd_affiliates(df)
 
     month_columns = get_plan_client_month_columns(df)
 
@@ -533,24 +628,12 @@ def get_plan_client_totals(
 
     month_col = month_columns[latest_month]
     months_to_sum = [month_columns[m] for m in sorted(month_columns.keys()) if m <= latest_month]
-    total_row_idx = find_first_total_row(df)
 
-    if total_row_idx is not None:
-        mtd_plan_client = clean_numeric_series(
-            pd.Series([df.loc[total_row_idx, month_col]])
-        ).iloc[0] * 1000
-
-        ytd_plan_client = (
-            sum(
-                clean_numeric_series(pd.Series([df.loc[total_row_idx, col]])).iloc[0]
-                for col in months_to_sum
-            ) * 1000
-        )
-    else:
-        mtd_plan_client = clean_numeric_series(df[month_col]).sum() * 1000
-        ytd_plan_client = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum) * 1000
+    mtd_plan_client = clean_numeric_series(df[month_col]).sum() * 1000
+    ytd_plan_client = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum) * 1000
 
     return float(mtd_plan_client), float(ytd_plan_client)
+
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -561,6 +644,7 @@ def get_plan_sku_totals(
     latest_month: int,
 ) -> tuple[float, float]:
     df = standardize_columns(df_plan_sku)
+    df = exclude_base_mtd_affiliates(df)
 
     gs_columns = get_plan_sku_gs_columns(df)
 
@@ -576,6 +660,7 @@ def get_plan_sku_totals(
     ytd_plan_sku = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum)
 
     return float(mtd_plan_sku), float(ytd_plan_sku)
+
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -616,10 +701,21 @@ def calculate_bts_totals(
     latest_year: int,
     latest_month: int,
 ) -> dict:
-    df = df_processed_sales.copy()
+    df = filter_sales_for_base_mtd_bts(df_processed_sales)
     capped_month = min(latest_month, 8)
 
-    bts_actual = df[
+    current_year_df = df[df[config.COL_YEAR] == latest_year].copy()
+    previous_year_df = df[df[config.COL_YEAR] == (latest_year - 1)].copy()
+
+    bts_mtd_actual = current_year_df[
+        current_year_df[config.COL_MONTH] == latest_month
+    ][config.COL_GSNR].sum()
+
+    bts_mtd_py = previous_year_df[
+        previous_year_df[config.COL_MONTH] == latest_month
+    ][config.COL_GSNR].sum()
+
+    bts_ytd_actual = df[
         (
             (df[config.COL_YEAR] == latest_year - 1)
             & (df[config.COL_MONTH].between(10, 12))
@@ -631,7 +727,7 @@ def calculate_bts_totals(
         )
     ][config.COL_GSNR].sum()
 
-    bts_py_comparable = df[
+    bts_ytd_py_comparable = df[
         (
             (df[config.COL_YEAR] == latest_year - 2)
             & (df[config.COL_MONTH].between(10, 12))
@@ -656,10 +752,16 @@ def calculate_bts_totals(
     ][config.COL_GSNR].sum()
 
     return {
-        "bts_actual": float(bts_actual),
-        "bts_py_comparable": float(bts_py_comparable),
+        "bts_mtd_actual": float(bts_mtd_actual),
+        "bts_mtd_py": float(bts_mtd_py),
+        "bts_ytd_actual": float(bts_ytd_actual),
+        "bts_ytd_py_comparable": float(bts_ytd_py_comparable),
+        # Alias conservados para no romper tarjetas ni referencias existentes.
+        "bts_actual": float(bts_ytd_actual),
+        "bts_py_comparable": float(bts_ytd_py_comparable),
         "bts_py_full": float(bts_py_full),
     }
+
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -712,20 +814,33 @@ def build_horizontal_plan_table(
 # Construye tabla BTS
 # --------------------------------------------------------------
 def build_bts_table(
-    bts_actual: float,
-    bts_py_comparable: float,
+    bts_mtd_actual: float,
+    bts_mtd_py: float,
+    bts_ytd_actual: float,
+    bts_ytd_py_comparable: float,
 ) -> pd.DataFrame:
     rows = [
         {
-            "Periodo": "BTS",
-            "Actual": bts_actual,
-            "PY": bts_py_comparable,
-            "Var VS PY": bts_actual - bts_py_comparable,
-            "%Var VS PY": safe_divide(bts_actual - bts_py_comparable, bts_py_comparable),
-        }
+            "Periodo": "MTD",
+            "Actual": bts_mtd_actual,
+            "PY": bts_mtd_py,
+            "Var VS PY": bts_mtd_actual - bts_mtd_py,
+            "%Var VS PY": safe_divide(bts_mtd_actual - bts_mtd_py, bts_mtd_py),
+        },
+        {
+            "Periodo": "YTD",
+            "Actual": bts_ytd_actual,
+            "PY": bts_ytd_py_comparable,
+            "Var VS PY": bts_ytd_actual - bts_ytd_py_comparable,
+            "%Var VS PY": safe_divide(
+                bts_ytd_actual - bts_ytd_py_comparable,
+                bts_ytd_py_comparable,
+            ),
+        },
     ]
 
     return pd.DataFrame(rows)
+
 
 # --------------------------------------------------------------
 # FUNCIÓN PRINCIPAL:
@@ -790,8 +905,10 @@ def build_mtd_payload(
     )
 
     bts_table = build_bts_table(
-        bts_totals["bts_actual"],
-        bts_totals["bts_py_comparable"],
+        bts_totals["bts_mtd_actual"],
+        bts_totals["bts_mtd_py"],
+        bts_totals["bts_ytd_actual"],
+        bts_totals["bts_ytd_py_comparable"],
     )
 
     summary = {

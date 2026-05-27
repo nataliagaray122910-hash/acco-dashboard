@@ -4740,14 +4740,14 @@ def render_mtd_base_view() -> None:
     )
 
     st.caption(
-        "En BTS se compara el periodo actual contra PY acumulado al mismo corte. "
-        "La lógica respeta el ciclo Back To School de octubre a agosto."
+        "En BTS se compara MTD y YTD contra PY al mismo corte. "
+        "La lógica considera solo Barrilito y respeta el ciclo Back To School de octubre a agosto."
     )
 
     st.markdown(
         build_bts_table_html(
             build_report_context_title(
-                "BTS Actual vs PY comparable",
+                "BTS MTD / YTD vs PY comparable",
                 payload["latest_year"],
                 payload["latest_month"],
             ),
