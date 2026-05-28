@@ -1045,18 +1045,3 @@ def build_report_4_ranking_chart(
     )
 
     return fig
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

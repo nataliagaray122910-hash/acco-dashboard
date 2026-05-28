@@ -663,11 +663,22 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
 def get_menu_options_for_current_user() -> list[str]:
     """
     Admin ve todo. Viewer no ve Carga de datos.
-    """
-    if is_admin_user():
-        return config.MAIN_MENU_OPTIONS
 
-    return [option for option in config.MAIN_MENU_OPTIONS if option != "Carga de datos"]
+    Dashboard se agrega al final del flujo, debajo de Base MTD, porque
+    depende de la base procesada, Base MTD y reportes previamente construidos.
+    """
+    base_options = [option for option in list(config.MAIN_MENU_OPTIONS) if option != "Dashboard"]
+
+    if "Base MTD" in base_options:
+        insert_position = base_options.index("Base MTD") + 1
+        base_options.insert(insert_position, "Dashboard")
+    else:
+        base_options.append("Dashboard")
+
+    if is_admin_user():
+        return base_options
+
+    return [option for option in base_options if option != "Carga de datos"]
 
 
 def render_persistent_data_status() -> None:
@@ -4012,6 +4023,577 @@ def render_report_4_view() -> None:
         )
 
 
+
+# =========================================================
+# 17.1 DASHBOARD EJECUTIVO - ETAPA 1
+# =========================================================
+def load_dashboard_view_state() -> None:
+    """
+    El Dashboard no calcula ni reconstruye información.
+    Solo habilita la visualización cuando ya existen todos los insumos.
+    """
+    st.session_state["dashboard_loaded"] = True
+
+
+def get_dashboard_missing_dependencies() -> list[str]:
+    """
+    Valida el flujo completo antes de mostrar el Dashboard.
+    Orden requerido:
+    1) Ventas procesadas
+    2) Base MTD construida
+    3) Reportes 1, 2 Segment, 2 Category, 3 y 4 construidos
+    """
+    missing_dependencies: list[str] = []
+
+    df_processed = st.session_state.get("df_processed_sales")
+    if df_processed is None or getattr(df_processed, "empty", False):
+        missing_dependencies.append("Primero procesa la base de ventas en Visión general.")
+
+    if st.session_state.get("mtd_payload") is None:
+        missing_dependencies.append("Primero construye la Base MTD.")
+
+    if st.session_state.get("report1_payload") is None:
+        missing_dependencies.append("Primero construye Canal Corporativo.")
+
+    if st.session_state.get("report2_payload") is None:
+        missing_dependencies.append("Primero construye Segmento x Región.")
+
+    if st.session_state.get("report2_category_payload") is None:
+        missing_dependencies.append("Primero construye Category.")
+
+    if st.session_state.get("report3_payload") is None:
+        missing_dependencies.append("Primero construye Desempeño Comercial.")
+
+    if st.session_state.get("report4_payload") is None:
+        missing_dependencies.append("Primero construye Ranking Clientes.")
+
+    return missing_dependencies
+
+
+def get_dashboard_month_label_en(month_number: int) -> str:
+    month_labels = {
+        1: "January",
+        2: "February",
+        3: "March",
+        4: "April",
+        5: "May",
+        6: "June",
+        7: "July",
+        8: "August",
+        9: "September",
+        10: "October",
+        11: "November",
+        12: "December",
+    }
+    return month_labels.get(int(month_number), str(month_number))
+
+
+def dashboard_safe_get_row(df_table, period_label: str):
+    if df_table is None or df_table.empty:
+        return None
+
+    if "Periodo" not in df_table.columns:
+        return None
+
+    filtered = df_table[
+        df_table["Periodo"].astype(str).str.upper().str.strip() == str(period_label).upper()
+    ]
+
+    if filtered.empty:
+        return None
+
+    return filtered.iloc[0]
+
+
+def dashboard_format_value(value, is_percent: bool = False, allow_blank: bool = True) -> str:
+    formatted = format_monetary_value(
+        value,
+        is_percent=is_percent,
+        allow_blank=allow_blank,
+    )
+    return formatted if formatted != "" else "-"
+
+
+def dashboard_value_class(value) -> str:
+    if is_blank_number(value):
+        return "dashboard-kpi-muted"
+
+    try:
+        return "dashboard-kpi-negative" if float(value) < 0 else "dashboard-kpi-neutral"
+    except (TypeError, ValueError):
+        return "dashboard-kpi-neutral"
+
+
+def dashboard_td(value, is_percent: bool = False, allow_blank: bool = True) -> str:
+    return (
+        f'<td class="{dashboard_value_class(value)}">'
+        f'{escape(dashboard_format_value(value, is_percent=is_percent, allow_blank=allow_blank))}'
+        '</td>'
+    )
+
+
+def build_dashboard_metric_row(
+    metric_name: str,
+    actual,
+    plan,
+    py,
+    var_plan,
+    pct_var_plan,
+    var_py,
+    pct_var_py,
+    row_class: str = "",
+) -> str:
+    return (
+        f'<tr class="{escape(row_class)}">'
+        f'<td class="dashboard-kpi-name">{escape(metric_name)}</td>'
+        f'{dashboard_td(actual)}'
+        f'{dashboard_td(plan)}'
+        f'{dashboard_td(py)}'
+        f'{dashboard_td(var_plan)}'
+        f'{dashboard_td(pct_var_plan, is_percent=True)}'
+        f'{dashboard_td(var_py)}'
+        f'{dashboard_td(pct_var_py, is_percent=True)}'
+        '</tr>'
+    )
+
+
+def dashboard_percent_closed_td(value, allow_blank: bool = True) -> str:
+    """
+    Formato especial para % achievement del Dashboard.
+    Se muestra como porcentaje cerrado, sin decimales, igual que el archivo de referencia.
+    """
+    if is_blank_number(value):
+        formatted_value = "-" if allow_blank else "0%"
+        cell_class = "dashboard-kpi-muted"
+    else:
+        numeric_value = float(value)
+        formatted_value = f"{numeric_value * 100:,.0f}%"
+        cell_class = "dashboard-kpi-negative" if numeric_value < 0 else "dashboard-kpi-neutral"
+
+    return f'<td class="{cell_class}">{escape(formatted_value)}</td>'
+
+
+def build_dashboard_achievement_row(gsnr_row) -> str:
+    if gsnr_row is None:
+        achievement_plan = None
+        achievement_py = None
+    else:
+        actual_value = safe_float(gsnr_row.get("Actual"))
+        plan_value = safe_float(gsnr_row.get("Plan"))
+        py_value = safe_float(gsnr_row.get("PY"))
+        achievement_plan = None if plan_value == 0 else actual_value / plan_value
+        achievement_py = None if py_value == 0 else actual_value / py_value
+
+    # En el dashboard de referencia, el % achievement va debajo de las columnas
+    # de variación contra Plan y contra PY, no debajo de las columnas %Var.
+    return (
+        '<tr class="dashboard-achievement-row">'
+        '<td class="dashboard-kpi-name">% achievement</td>'
+        f'{dashboard_td(None)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_percent_closed_td(achievement_plan)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_percent_closed_td(achievement_py)}'
+        f'{dashboard_td(None)}'
+        '</tr>'
+    )
+
+
+def build_dashboard_kpi_table_html(title: str, rows_html: str) -> str:
+    return (
+        '<div class="dashboard-kpi-panel">'
+        f'<div class="dashboard-kpi-panel-title">{escape(title)}</div>'
+        '<div class="dashboard-kpi-table-wrap">'
+        '<table class="dashboard-kpi-table">'
+        '<thead>'
+        '<tr>'
+        '<th>KPI</th>'
+        '<th>Actual</th>'
+        '<th>Plan</th>'
+        '<th>PY</th>'
+        '<th>Var vs Plan</th>'
+        '<th>%Var vs Plan</th>'
+        '<th>Var vs PY</th>'
+        '<th>%Var vs PY</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        f'{rows_html}'
+        '</tbody>'
+        '</table>'
+        '</div>'
+        '</div>'
+    )
+
+
+def build_dashboard_css_html() -> str:
+    return f"""
+<style>
+.dashboard-stage-card {{
+    background: #FFFFFF;
+    border: 1px solid #E7EAF0;
+    border-radius: 22px;
+    padding: 1.15rem 1.1rem 1.25rem 1.1rem;
+    box-shadow: 0 12px 28px rgba(15, 23, 42, 0.06);
+    margin-bottom: 1rem;
+}}
+
+.dashboard-main-title-box {{
+    border: 2px solid #111111;
+    padding: 0.55rem 1rem;
+    text-align: center;
+    margin-bottom: 1.25rem;
+}}
+
+.dashboard-main-title {{
+    color: #E60023;
+    font-size: 1.85rem;
+    line-height: 1.1;
+    font-weight: 900;
+    letter-spacing: 0.15px;
+}}
+
+.dashboard-header-row {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    margin-bottom: 0.45rem;
+}}
+
+.dashboard-period-left {{
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 1.2rem;
+    padding-left: 5.5rem;
+}}
+
+.dashboard-period-right {{
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.7rem;
+}}
+
+.dashboard-period-label {{
+    color: #E60023;
+    font-weight: 900;
+    font-size: 1.08rem;
+    line-height: 1.35;
+    text-align: right;
+}}
+
+.dashboard-period-value {{
+    color: #000000;
+    font-weight: 850;
+    font-size: 1.08rem;
+    line-height: 1.35;
+}}
+
+.dashboard-currency-label {{
+    margin-top: 0.45rem;
+    margin-left: 4.1rem;
+    color: #000000;
+    font-weight: 800;
+    font-size: 0.86rem;
+}}
+
+.dashboard-kpi-grid {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.15rem;
+    margin-top: 0.25rem;
+}}
+
+.dashboard-kpi-panel-title {{
+    border: 1.5px solid #111111;
+    text-align: center;
+    color: #000000;
+    background: #FFFFFF;
+    font-size: 1.05rem;
+    font-weight: 900;
+    padding: 0.35rem 0.65rem;
+    margin-bottom: 0.18rem;
+}}
+
+.dashboard-kpi-table-wrap {{
+    overflow-x: auto;
+}}
+
+.dashboard-kpi-table {{
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-variant-numeric: tabular-nums;
+}}
+
+.dashboard-kpi-table th {{
+    background: #FFFFFF;
+    color: #000000;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-align: center;
+    padding: 0.23rem 0.24rem;
+    border-bottom: 2px solid #111111;
+    white-space: nowrap;
+}}
+
+.dashboard-kpi-table th:first-child {{
+    width: 28%;
+}}
+
+.dashboard-kpi-table td {{
+    color: #000000;
+    font-size: 0.82rem;
+    font-weight: 650;
+    text-align: right;
+    padding: 0.31rem 0.34rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    white-space: nowrap;
+}}
+
+.dashboard-kpi-name {{
+    text-align: center !important;
+    color: #000000 !important;
+    font-weight: 900 !important;
+}}
+
+.dashboard-gsnr-row td {{
+    background: #C6EFCE !important;
+}}
+
+.dashboard-achievement-row td {{
+    background: #FFFFFF !important;
+    font-weight: 800 !important;
+}}
+
+.dashboard-bts-row td {{
+    background: #EAF7E5 !important;
+}}
+
+.dashboard-kpi-negative {{
+    color: #C0392B !important;
+    font-weight: 900 !important;
+}}
+
+.dashboard-kpi-neutral {{
+    color: #000000 !important;
+}}
+
+.dashboard-kpi-muted {{
+    color: #000000 !important;
+}}
+
+.dashboard-lock-box {{
+    background: #FFFFFF;
+    border: 1px solid #E7EAF0;
+    border-left: 5px solid #E60023;
+    border-radius: 18px;
+    padding: 1rem 1.15rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    margin-top: 0.9rem;
+}}
+
+.dashboard-lock-title {{
+    font-size: 1.05rem;
+    font-weight: 900;
+    color: {config.COLOR_SECONDARY};
+    margin-bottom: 0.45rem;
+}}
+
+.dashboard-lock-text {{
+    font-size: 0.95rem;
+    color: #434C5E;
+    line-height: 1.65;
+}}
+
+@media (max-width: 1100px) {{
+    .dashboard-header-row,
+    .dashboard-kpi-grid {{
+        grid-template-columns: 1fr;
+    }}
+
+    .dashboard-period-left {{
+        padding-left: 0;
+        justify-content: center;
+    }}
+
+    .dashboard-currency-label {{
+        margin-left: 0;
+        text-align: center;
+    }}
+}}
+</style>
+"""
+
+
+def build_dashboard_stage_one_html(payload: dict) -> str:
+    latest_month = int(payload["latest_month"])
+    latest_year = int(payload["latest_year"])
+
+    month_label = get_dashboard_month_label_en(latest_month)
+    period_label = f"{month_label} 1-20"
+    currency_label = "$Kmxn" if get_currency_status_label() == "MXN" else "$Kusd"
+
+    client_table = payload.get("client_table")
+    bts_table = payload.get("bts_table")
+
+    mtd_gsnr = dashboard_safe_get_row(client_table, "MTD")
+    ytd_gsnr = dashboard_safe_get_row(client_table, "YTD")
+    mtd_bts = dashboard_safe_get_row(bts_table, "MTD")
+    ytd_bts = dashboard_safe_get_row(bts_table, "YTD")
+
+    month_rows = (
+        build_dashboard_metric_row(
+            metric_name="GSNR",
+            actual=None if mtd_gsnr is None else mtd_gsnr.get("Actual"),
+            plan=None if mtd_gsnr is None else mtd_gsnr.get("Plan"),
+            py=None if mtd_gsnr is None else mtd_gsnr.get("PY"),
+            var_plan=None if mtd_gsnr is None else mtd_gsnr.get("Var VS Plan"),
+            pct_var_plan=None if mtd_gsnr is None else mtd_gsnr.get("%Var VS Plan"),
+            var_py=None if mtd_gsnr is None else mtd_gsnr.get("Var VS PY"),
+            pct_var_py=None if mtd_gsnr is None else mtd_gsnr.get("%Var VS PY"),
+            row_class="dashboard-gsnr-row",
+        )
+        + build_dashboard_achievement_row(mtd_gsnr)
+        + build_dashboard_metric_row(
+            metric_name=f"BTS ({month_label})",
+            actual=None if mtd_bts is None else mtd_bts.get("Actual"),
+            plan=None,
+            py=None if mtd_bts is None else mtd_bts.get("PY"),
+            var_plan=None,
+            pct_var_plan=None,
+            var_py=None if mtd_bts is None else mtd_bts.get("Var VS PY"),
+            pct_var_py=None if mtd_bts is None else mtd_bts.get("%Var VS PY"),
+            row_class="dashboard-bts-row",
+        )
+    )
+
+    ytd_rows = (
+        build_dashboard_metric_row(
+            metric_name="GSNR",
+            actual=None if ytd_gsnr is None else ytd_gsnr.get("Actual"),
+            plan=None if ytd_gsnr is None else ytd_gsnr.get("Plan"),
+            py=None if ytd_gsnr is None else ytd_gsnr.get("PY"),
+            var_plan=None if ytd_gsnr is None else ytd_gsnr.get("Var VS Plan"),
+            pct_var_plan=None if ytd_gsnr is None else ytd_gsnr.get("%Var VS Plan"),
+            var_py=None if ytd_gsnr is None else ytd_gsnr.get("Var VS PY"),
+            pct_var_py=None if ytd_gsnr is None else ytd_gsnr.get("%Var VS PY"),
+            row_class="dashboard-gsnr-row",
+        )
+        + build_dashboard_achievement_row(ytd_gsnr)
+        + build_dashboard_metric_row(
+            metric_name=f"BTS (Oct-{month_label})",
+            actual=None if ytd_bts is None else ytd_bts.get("Actual"),
+            plan=None,
+            py=None if ytd_bts is None else ytd_bts.get("PY"),
+            var_plan=None,
+            pct_var_plan=None,
+            var_py=None if ytd_bts is None else ytd_bts.get("Var VS PY"),
+            pct_var_py=None if ytd_bts is None else ytd_bts.get("%Var VS PY"),
+            row_class="dashboard-bts-row",
+        )
+    )
+
+    return (
+        '<div class="dashboard-stage-card">'
+        '<div class="dashboard-main-title-box">'
+        '<div class="dashboard-main-title">Mexico Dashboard 2026</div>'
+        '</div>'
+        '<div class="dashboard-header-row">'
+        '<div>'
+        '<div class="dashboard-period-left">'
+        '<div class="dashboard-period-label">Month<br>Year</div>'
+        f'<div class="dashboard-period-value">{escape(month_label)}<br>{latest_year}</div>'
+        '</div>'
+        f'<div class="dashboard-currency-label">{escape(currency_label)}</div>'
+        '</div>'
+        '<div class="dashboard-period-right">'
+        '<div class="dashboard-period-label">Period:</div>'
+        f'<div class="dashboard-period-value">{escape(period_label)}</div>'
+        '</div>'
+        '</div>'
+        '<div class="dashboard-kpi-grid">'
+        f'{build_dashboard_kpi_table_html("Sales Month", month_rows)}'
+        f'{build_dashboard_kpi_table_html("Sales YTD", ytd_rows)}'
+        '</div>'
+        '</div>'
+    )
+
+
+def render_dashboard_dependency_box(missing_dependencies: list[str]) -> None:
+    items_html = "".join(
+        f"<li>{escape(message)}</li>"
+        for message in missing_dependencies
+    )
+
+    st.markdown(
+        (
+            '<div class="dashboard-lock-box">'
+            '<div class="dashboard-lock-title">Dashboard pendiente de cargar</div>'
+            '<div class="dashboard-lock-text">'
+            'Para cargar el Dashboard ejecutivo primero deben existir todos los insumos construidos:'
+            f'<ul>{items_html}</ul>'
+            '</div>'
+            '</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+
+def render_dashboard_view() -> None:
+    st.markdown(build_dashboard_css_html(), unsafe_allow_html=True)
+
+    st.markdown(
+        '<div class="section-title">Dashboard</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        styles.build_info_box(
+            """
+            <b>Objetivo de esta vista:</b><br>
+            Mostrar el Dashboard ejecutivo consolidado. En esta primera etapa solo se presenta
+            el encabezado y los KPIs principales de Sales Month y Sales YTD.
+            """
+        ),
+        unsafe_allow_html=True,
+    )
+
+    st.button(
+        "Cargar Dashboard",
+        on_click=load_dashboard_view_state,
+        use_container_width=True,
+    )
+
+    if not st.session_state.get("dashboard_loaded", False):
+        st.info("Da clic en Cargar Dashboard para validar los insumos y mostrar la vista ejecutiva.")
+        return
+
+    missing_dependencies = get_dashboard_missing_dependencies()
+
+    if missing_dependencies:
+        render_dashboard_dependency_box(missing_dependencies)
+        return
+
+    payload = st.session_state.get("mtd_payload")
+
+    if payload is None:
+        st.info("Aún no existe información de Base MTD para el Dashboard.")
+        return
+
+    st.markdown(
+        '<div class="base-mtd-compact-note">Los valores se muestran en miles. Los negativos se muestran en rojo; los valores positivos se mantienen neutros.</div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        build_dashboard_stage_one_html(payload),
+        unsafe_allow_html=True,
+    )
+
 # =========================================================
 # 18. VISTAS PRINCIPALES
 # =========================================================
@@ -4796,6 +5378,8 @@ def main() -> None:
             render_upload_view()
         else:
             render_home_view()
+    elif selected == "Dashboard":
+        render_dashboard_view()
     elif selected == "Visión general":
         render_overview_view()
     elif selected == "Canal Corporativo":

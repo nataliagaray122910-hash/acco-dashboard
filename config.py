@@ -120,7 +120,16 @@ MAIN_MENU_OPTIONS = [
     "Desempeño Comercial",
     "Ranking Clientes",
     "Base MTD",
+    "Dashboard",
 ]
+
+# ---------------------------------------------------------
+# DASHBOARD EJECUTIVO
+# ---------------------------------------------------------
+DASHBOARD_TITLE = "Mexico Dashboard 2026"
+DASHBOARD_SUBTITLE = "EXECUTIVE SALES PERFORMANCE"
+DASHBOARD_BUTTON_LABEL = "Cargar Dashboard"
+DASHBOARD_CURRENCY_LABEL = "$Kmxn"
 
 # =========================================================
 # CONFIGURACIÓN DE EXPORTACIONES
@@ -4483,5 +4492,3 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "Para construir el Reporte 4 primero debes tener ventas procesadas "
     "y plan por cliente cargado."
 )
-
-

@@ -57,7 +57,20 @@ def apply_login_background(image_path: str) -> str:
         position: relative !important;
         z-index: 2 !important;
     }}
-    </style>
+    
+
+    /* =====================================================
+       FIX DEFINITIVO - QUITAR RECTÁNGULO DEL TÍTULO
+       ===================================================== */
+    .dashboard-main-title {{
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }}
+
+
+</style>
     """
 
 def build_global_css() -> str:
@@ -942,7 +955,6 @@ def build_global_css() -> str:
         padding-left: 0.85rem;
     }}
 
-
     /* =====================================================
        HEADER CATEGORY FIJO EN VERTICAL Y HORIZONTAL
        ===================================================== */
@@ -988,7 +1000,6 @@ def build_global_css() -> str:
     .report-spacer {{
         height: 0.35rem;
     }}
-
 
     /* =====================================================
        FIX FINAL: ENCABEZADOS FIJOS Y PRIMERA COLUMNA FIJA
@@ -1092,7 +1103,6 @@ def build_global_css() -> str:
     .report-highlight .report-sticky-cell {{
         background: #DCEFD8 !important;
     }}
-
 
     /* =====================================================
        AJUSTE REPORTE 4: ALINEACIÓN + CLIENT NAME FIJO
@@ -1227,7 +1237,6 @@ def build_global_css() -> str:
     }}
 
 
-
     /* =====================================================
        FIX DEFINITIVO REPORTE 4:
        CLIENT NAME + ENCABEZADO FIJOS
@@ -1333,7 +1342,6 @@ def build_global_css() -> str:
         background: #DCEFD8 !important;
         font-weight: 800 !important;
     }}
-
 
 
     /* =====================================================
@@ -1495,7 +1503,6 @@ def build_global_css() -> str:
             grid-template-columns: 1fr;
         }}
     }}
-
 
 
     /* =====================================================
@@ -1803,6 +1810,218 @@ def build_global_css() -> str:
         min-height: 44px !important;
         border-radius: 14px !important;
     }}
+
+    /* =====================================================
+       DASHBOARD EJECUTIVO - PRIMERA ETAPA
+       ===================================================== */
+    
+.dashboard-stage-card {{
+        background: transparent !important;
+        border: none !important;
+        border-radius: 0 !important;
+        padding: 0 !important;
+        box-shadow: none !important;
+        margin-top: 0.75rem !important;
+        margin-bottom: 1rem !important;
+        outline: none !important;
+    }}
+
+    .dashboard-stage-card,
+    .dashboard-stage-card div,
+    .dashboard-stage-card section,
+    .dashboard-stage-card *,
+    .dashboard-kpi-panel,
+    .dashboard-kpi-panel *,
+    .dashboard-main-title {{
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+        background-image: none !important;
+    }}
+
+    .dashboard-main-title {{
+        text-align: center;
+        color: #E60023;
+        font-size: 1.7rem;
+        font-weight: 900;
+        letter-spacing: 0.2px;
+        margin: 0 0 1.15rem 0;
+        padding: 0;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }}
+    .dashboard-header-grid {{
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 1.2rem;
+        align-items: center;
+        margin-bottom: 0.85rem;
+    }}
+    .dashboard-period-box {{
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.85rem;
+        min-height: 48px;
+    }}
+    .dashboard-period-box-left {{
+        justify-content: flex-start;
+        padding-left: 2.5rem;
+    }}
+    .dashboard-period-label {{
+        color: #E60023;
+        font-size: 1.03rem;
+        font-weight: 900;
+        line-height: 1.25;
+        text-align: right;
+    }}
+    .dashboard-period-value {{
+        color: #0F172A;
+        font-size: 1.05rem;
+        font-weight: 900;
+        line-height: 1.25;
+    }}
+    .dashboard-currency-label {{
+        font-size: 0.78rem;
+        color: #0F172A;
+        font-weight: 800;
+        text-align: left;
+        margin-left: 2.5rem;
+        margin-bottom: 0.15rem;
+    }}
+    .dashboard-kpi-grid {{
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.35rem;
+        align-items: start;
+    }}
+    .dashboard-kpi-panel {{
+        background: transparent;
+        border: none !important;
+        border-radius: 0;
+        overflow: visible;
+        box-shadow: none !important;
+    }}
+    .dashboard-kpi-panel-title {{
+        width: 190px;
+        margin: 0.55rem auto 0.7rem auto;
+        padding: 0.15rem 0.75rem;
+        border: none !important;
+        color: #111111;
+        background: transparent;
+        font-size: 0.98rem;
+        line-height: 1.15;
+        font-weight: 900;
+        text-align: center;
+        box-shadow: none !important;
+        outline: none !important;
+    }}
+    .dashboard-table-wrap {{
+        width: 100%;
+        overflow-x: auto;
+    }}
+    .dashboard-kpi-table {{
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 0.82rem;
+        font-variant-numeric: tabular-nums;
+    }}
+    .dashboard-kpi-table th {{
+        background: #FFFFFF;
+        color: #111827;
+        font-weight: 900;
+        border-bottom: 2px solid #111111;
+        padding: 0.35rem 0.35rem;
+        text-align: right;
+        white-space: nowrap;
+    }}
+    .dashboard-kpi-table th:first-child {{
+        text-align: center;
+        width: 20%;
+    }}
+    .dashboard-kpi-table td {{
+        padding: 0.36rem 0.35rem;
+        border-bottom: 1px solid #E7EAF0;
+        text-align: right;
+        color: #111827;
+        font-weight: 700;
+        white-space: nowrap;
+    }}
+    .dashboard-kpi-table td:first-child {{
+        text-align: center;
+        font-weight: 900;
+        color: #111827;
+    }}
+    .dashboard-row-gsnr td,
+    .dashboard-row-bts td {{
+        background: #D8F3DC;
+    }}
+    .dashboard-row-achievement td {{
+        background: #FFFFFF;
+    }}
+    .dashboard-negative {{
+        color: #C0392B !important;
+        font-weight: 900 !important;
+    }}
+    .dashboard-neutral {{
+        color: #111827;
+    }}
+    .dashboard-muted-cell {{
+        color: #8A94A6 !important;
+        font-weight: 600 !important;
+    }}
+    .dashboard-lock-box {{
+        background: #FFFFFF;
+        border: 1px solid #E7EAF0;
+        border-left: 5px solid #E60023;
+        border-radius: 18px;
+        padding: 1rem 1.15rem;
+        margin-top: 0.75rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }}
+    .dashboard-lock-title {{
+        color: #1F2A44;
+        font-size: 1rem;
+        font-weight: 900;
+        margin-bottom: 0.35rem;
+    }}
+    .dashboard-lock-text {{
+        color: #4B5563;
+        font-size: 0.94rem;
+        line-height: 1.55;
+    }}
+    @media (max-width: 1100px) {{
+        .dashboard-header-grid,
+        .dashboard-kpi-grid {{
+            grid-template-columns: 1fr;
+        }}
+        .dashboard-period-box-left {{
+            justify-content: center;
+            padding-left: 0;
+        }}
+        .dashboard-currency-label {{
+            margin-left: 0;
+            text-align: center;
+        }}
+    }}
+
+
+
+    /* =====================================================
+       FIX DEFINITIVO - QUITAR RECTÁNGULO DEL TÍTULO
+       ===================================================== */
+    .dashboard-main-title {{
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        box-shadow: none !important;
+    }}
+
+
 </style>
     """
 
@@ -1958,4 +2177,3 @@ def build_base_mtd_kpi_card(
         </div>
     </div>
     """
-
