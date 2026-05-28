@@ -688,6 +688,14 @@ def build_global_css() -> str:
         padding: 0.2rem 0.3rem !important;
     }}
 
+    section[data-testid="stSidebar"] div[role="radiogroup"] label,
+    section[data-testid="stSidebar"] div[role="radiogroup"] label p,
+    section[data-testid="stSidebar"] div[role="radiogroup"] span {{
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        line-height: 1.35 !important;
+    }}
+
     section[data-testid="stSidebar"] input[type="radio"] {{
         accent-color: #E60023 !important;
     }}
