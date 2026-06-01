@@ -18,6 +18,7 @@ import config
 import data_loader
 import data_processor
 import exports
+import persistence
 import styles
 import validators
 
@@ -395,17 +396,14 @@ def is_admin_user() -> bool:
 
 def get_persistent_data_folder() -> Path:
     """
-    Carpeta temporal dentro del entorno de la app.
-    En Streamlit Cloud puede perderse si la app reinicia; sirve para Fase 1.
+    Carpeta local de respaldo para ejecución en localhost.
+    La persistencia principal se administra desde persistence.py.
     """
-    folder_name = getattr(config, "PERSISTENT_DATA_PATH", "persistent_data")
-    folder = Path(folder_name)
-    folder.mkdir(parents=True, exist_ok=True)
-    return folder
+    return persistence.get_local_persistence_folder()
 
 
 def get_persistent_data_file() -> Path:
-    return get_persistent_data_folder() / "latest_dashboard_data.pkl"
+    return persistence.get_local_persistence_file()
 
 
 def delete_persistent_data() -> bool:
@@ -414,10 +412,7 @@ def delete_persistent_data() -> bool:
     de la sesión actual.
     """
     try:
-        persistent_file = get_persistent_data_file()
-
-        if persistent_file.exists():
-            persistent_file.unlink()
+        persistence.delete_dashboard_payload()
 
         st.session_state["persistent_data_loaded"] = False
         st.session_state["persistent_data_metadata"] = None
@@ -432,7 +427,6 @@ def delete_persistent_data() -> bool:
     except Exception as exc:
         set_error_message(f"No fue posible borrar la carga guardada. Detalle: {exc}")
         return False
-
 
 def clear_current_session_data() -> bool:
     """
@@ -485,7 +479,7 @@ def clear_current_session_data() -> bool:
 
 
 def persistent_data_exists() -> bool:
-    return get_persistent_data_file().exists()
+    return persistence.persistent_data_exists()
 
 
 def clear_report_payloads() -> None:
@@ -545,7 +539,11 @@ def build_persistent_metadata() -> dict:
 def save_current_data_for_viewers() -> bool:
     """
     Guarda la carga actual para que usuarios viewer puedan consultarla
-    sin subir archivos. Es persistencia temporal de Fase 1.
+    sin subir archivos.
+
+    La sesión se conserva en st.session_state para velocidad, pero el respaldo
+    real se delega a persistence.py para no depender únicamente del entorno
+    temporal de Streamlit Cloud.
     """
     required_data_loaded = all(
         [
@@ -573,7 +571,7 @@ def save_current_data_for_viewers() -> bool:
 
     payload = {
         "metadata": metadata,
-        "payload_version": "viewer_raw_inputs_only_v2",
+        "payload_version": "viewer_raw_inputs_only_v3",
         "df_sales": st.session_state.get("df_sales"),
         "df_plan_client": st.session_state.get("df_plan_client"),
         "df_plan_sku": st.session_state.get("df_plan_sku"),
@@ -592,8 +590,7 @@ def save_current_data_for_viewers() -> bool:
     }
 
     try:
-        with open(get_persistent_data_file(), "wb") as file:
-            pickle.dump(payload, file)
+        persistence.save_dashboard_payload(payload)
 
         st.session_state["persistent_data_loaded"] = True
         st.session_state["persistent_data_metadata"] = metadata
@@ -605,7 +602,6 @@ def save_current_data_for_viewers() -> bool:
     except Exception as exc:
         set_error_message(f"No fue posible guardar la carga administrativa. Detalle: {exc}")
         return False
-
 
 def load_persistent_data_to_session(show_message: bool = False) -> bool:
     """
@@ -619,8 +615,10 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         return False
 
     try:
-        with open(get_persistent_data_file(), "rb") as file:
-            payload = pickle.load(file)
+        payload = persistence.load_dashboard_payload()
+
+        if payload is None:
+            return False
 
         st.session_state["df_sales"] = payload.get("df_sales")
         st.session_state["df_plan_client"] = payload.get("df_plan_client")
@@ -658,7 +656,6 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
     except Exception as exc:
         set_error_message(f"No fue posible cargar la información guardada. Detalle: {exc}")
         return False
-
 
 def get_menu_options_for_current_user() -> list[str]:
     """

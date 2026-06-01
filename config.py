@@ -35,6 +35,19 @@ ADMIN_USERS = ["admin"]
 # Carpeta temporal donde Streamlit guardará la última carga administrativa.
 # Nota: en Streamlit Cloud esta persistencia es útil para pruebas, pero puede perderse si la app reinicia.
 PERSISTENT_DATA_PATH = "persistent_data"
+PERSISTENT_DATA_FILE_NAME = "latest_dashboard_data.pkl.gz"
+
+# Backend de persistencia.
+# - "auto": usa GitHub si existen secretos; si no, usa local.
+# - "local": útil para localhost.
+# - "github": recomendado para Streamlit Cloud porque sobrevive reinicios.
+PERSISTENCE_BACKEND = "auto"
+
+# Configuración para GitHub Storage.
+# En Streamlit Cloud se recomienda manejar estos valores como Secrets:
+# GITHUB_TOKEN, GITHUB_REPO, GITHUB_BRANCH, GITHUB_PERSISTENCE_PATH.
+GITHUB_BRANCH = "main"
+GITHUB_PERSISTENCE_PATH = "persistent_data/latest_dashboard_data.pkl.gz"
 
 # ---------------------------------------------------------
 # PALETA DE COLORES CORPORATIVA
