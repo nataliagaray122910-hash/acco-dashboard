@@ -190,6 +190,32 @@ def _github_request(method: str, url: str, token: str, body: dict | None = None)
         raise RuntimeError(f"GitHub API respondió {exc.code}. Detalle: {detail}") from exc
 
 
+def _github_request_raw_bytes(url: str, token: str) -> bytes | None:
+    """
+    Descarga el archivo como bytes crudos desde GitHub.
+
+    Esto es necesario cuando el archivo persistente pesa más de 1 MB.
+    En ese caso, GitHub puede regresar el metadata JSON con content vacío,
+    por lo que no basta leer el campo base64 "content".
+    """
+    request = urllib.request.Request(url=url, method="GET")
+    request.add_header("Authorization", f"Bearer {token}")
+    request.add_header("Accept", "application/vnd.github.raw")
+    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+
+    try:
+        with urllib.request.urlopen(request, timeout=90) as response:
+            response_bytes = response.read()
+            if not response_bytes:
+                return None
+            return response_bytes
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        detail = exc.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"GitHub RAW respondió {exc.code}. Detalle: {detail}") from exc
+
+
 def _github_get_file_info() -> dict | None:
     cfg = _github_required_config()
     url = _github_api_url(cfg["repo"], cfg["path"])
@@ -224,16 +250,29 @@ def _github_save(payload: dict) -> bool:
 
 
 def _github_load() -> dict | None:
+    cfg = _github_required_config()
+
     file_info = _github_get_file_info()
     if not file_info:
         return None
 
     content_text = file_info.get("content", "")
-    if not content_text:
+
+    # Archivos pequeños: GitHub devuelve el contenido en base64 dentro del JSON.
+    if content_text:
+        content_bytes = base64.b64decode(content_text.replace("\n", ""))
+        return _deserialize_payload(content_bytes)
+
+    # Archivos grandes: GitHub puede devolver metadata con content vacío.
+    # En ese caso se fuerza lectura RAW desde la API de contents.
+    raw_url = _github_api_url(cfg["repo"], cfg["path"])
+    raw_url = f"{raw_url}?ref={urllib.parse.quote(str(cfg['branch']))}"
+
+    raw_bytes = _github_request_raw_bytes(raw_url, cfg["token"])
+    if not raw_bytes:
         return None
 
-    content_bytes = base64.b64decode(content_text.replace("\n", ""))
-    return _deserialize_payload(content_bytes)
+    return _deserialize_payload(raw_bytes)
 
 
 def _github_delete() -> bool:
@@ -297,3 +336,4 @@ def get_persistence_status_label() -> str:
     if backend == "github":
         return "GitHub Storage"
     return "Local"
+
