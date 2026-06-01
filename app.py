@@ -482,6 +482,39 @@ def persistent_data_exists() -> bool:
     return persistence.persistent_data_exists()
 
 
+def should_autoload_persistent_data() -> bool:
+    """
+    Decide si la app debe intentar recuperar la última carga guardada.
+
+    En Streamlit Cloud, después de un reboot la memoria temporal se pierde.
+    Por eso, si no hay DataFrames en sesión y existe una carga guardada en
+    persistence.py, la app debe restaurarla automáticamente sin pedir que el
+    admin vuelva a subir el Excel.
+    """
+    if st.session_state.get("df_sales") is not None:
+        return False
+
+    if st.session_state.get("suppress_persistent_autoload", False):
+        return False
+
+    return True
+
+
+def ensure_persistent_data_loaded_if_available(show_message: bool = False) -> bool:
+    """
+    Intenta cargar la última carga administrativa guardada cuando la sesión
+    actual está vacía.
+
+    Este helper se llama tanto en el flujo principal como en la vista de carga,
+    para que Streamlit Cloud pueda recuperarse correctamente después de reboot,
+    sleep o reinicio del servidor.
+    """
+    if not should_autoload_persistent_data():
+        return st.session_state.get("df_sales") is not None
+
+    return load_persistent_data_to_session(show_message=show_message)
+
+
 def clear_report_payloads() -> None:
     """
     Limpia reportes construidos cuando cambia la fuente de datos.
@@ -4681,6 +4714,11 @@ def render_upload_view() -> None:
         render_persistent_data_status()
         return
 
+    # Refuerzo para Streamlit Cloud:
+    # si la app acaba de despertar/reiniciar y la sesión está vacía,
+    # se restaura aquí la última carga guardada antes de pintar las tarjetas.
+    ensure_persistent_data_loaded_if_available(show_message=False)
+
     st.markdown(
         '<div class="section-title">Carga de datos</div>',
         unsafe_allow_html=True,
@@ -5358,11 +5396,10 @@ def main() -> None:
         render_login_screen()
         return
 
-    if (
-        st.session_state.get("df_sales") is None
-        and not st.session_state.get("suppress_persistent_autoload", False)
-    ):
-        load_persistent_data_to_session(show_message=False)
+    # En localhost la sesión suele sobrevivir, pero en Streamlit Cloud puede
+    # perderse por reboot/sleep. Por eso restauramos la última carga guardada
+    # en cuanto el usuario entra, siempre que la sesión esté vacía.
+    ensure_persistent_data_loaded_if_available(show_message=False)
 
     render_main_header()
     render_global_alerts()
