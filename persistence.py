@@ -29,6 +29,7 @@ import gzip
 import json
 import os
 import pickle
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -169,25 +170,60 @@ def _github_api_url(repo: str, path: str) -> str:
 
 
 def _github_request(method: str, url: str, token: str, body: dict | None = None) -> dict | None:
-    data = None if body is None else json.dumps(body).encode("utf-8")
-    request = urllib.request.Request(url=url, data=data, method=method)
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Accept", "application/vnd.github+json")
-    request.add_header("X-GitHub-Api-Version", "2022-11-28")
-    if body is not None:
-        request.add_header("Content-Type", "application/json")
+    """
+    Ejecuta una llamada JSON a la API de GitHub con reintentos.
 
-    try:
-        with urllib.request.urlopen(request, timeout=45) as response:
-            response_bytes = response.read()
-            if not response_bytes:
+    GitHub puede responder 502/503/504 de forma temporal, especialmente cuando
+    se actualiza un archivo grande mediante Contents API. En esos casos no se
+    debe fallar al primer intento: se espera unos segundos y se reintenta.
+    """
+    data = None if body is None else json.dumps(body).encode("utf-8")
+    retry_status_codes = {502, 503, 504}
+    max_attempts = int(_get_config_value("GITHUB_API_MAX_ATTEMPTS", 4) or 4)
+    base_sleep_seconds = float(_get_config_value("GITHUB_API_RETRY_SLEEP_SECONDS", 3) or 3)
+    timeout_seconds = int(_get_config_value("GITHUB_API_TIMEOUT_SECONDS", 180) or 180)
+
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        request = urllib.request.Request(url=url, data=data, method=method)
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("Accept", "application/vnd.github+json")
+        request.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if body is not None:
+            request.add_header("Content-Type", "application/json")
+
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                response_bytes = response.read()
+                if not response_bytes:
+                    return None
+                return json.loads(response_bytes.decode("utf-8"))
+
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
                 return None
-            return json.loads(response_bytes.decode("utf-8"))
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"GitHub API respondió {exc.code}. Detalle: {detail}") from exc
+
+            detail = exc.read().decode("utf-8", errors="ignore")
+            last_error = RuntimeError(f"GitHub API respondió {exc.code}. Detalle: {detail}")
+
+            if exc.code in retry_status_codes and attempt < max_attempts:
+                time.sleep(base_sleep_seconds * attempt)
+                continue
+
+            raise last_error from exc
+
+        except urllib.error.URLError as exc:
+            last_error = RuntimeError(f"No fue posible conectar con GitHub API. Detalle: {exc}")
+            if attempt < max_attempts:
+                time.sleep(base_sleep_seconds * attempt)
+                continue
+            raise last_error from exc
+
+    if last_error:
+        raise last_error
+
+    return None
 
 
 def _github_request_raw_bytes(url: str, token: str) -> bytes | None:
@@ -198,22 +234,50 @@ def _github_request_raw_bytes(url: str, token: str) -> bytes | None:
     En ese caso, GitHub puede regresar el metadata JSON con content vacío,
     por lo que no basta leer el campo base64 "content".
     """
-    request = urllib.request.Request(url=url, method="GET")
-    request.add_header("Authorization", f"Bearer {token}")
-    request.add_header("Accept", "application/vnd.github.raw")
-    request.add_header("X-GitHub-Api-Version", "2022-11-28")
+    retry_status_codes = {502, 503, 504}
+    max_attempts = int(_get_config_value("GITHUB_API_MAX_ATTEMPTS", 4) or 4)
+    base_sleep_seconds = float(_get_config_value("GITHUB_API_RETRY_SLEEP_SECONDS", 3) or 3)
+    timeout_seconds = int(_get_config_value("GITHUB_RAW_TIMEOUT_SECONDS", 180) or 180)
 
-    try:
-        with urllib.request.urlopen(request, timeout=90) as response:
-            response_bytes = response.read()
-            if not response_bytes:
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        request = urllib.request.Request(url=url, method="GET")
+        request.add_header("Authorization", f"Bearer {token}")
+        request.add_header("Accept", "application/vnd.github.raw")
+        request.add_header("X-GitHub-Api-Version", "2022-11-28")
+
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+                response_bytes = response.read()
+                if not response_bytes:
+                    return None
+                return response_bytes
+
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
                 return None
-            return response_bytes
-    except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
-        detail = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"GitHub RAW respondió {exc.code}. Detalle: {detail}") from exc
+
+            detail = exc.read().decode("utf-8", errors="ignore")
+            last_error = RuntimeError(f"GitHub RAW respondió {exc.code}. Detalle: {detail}")
+
+            if exc.code in retry_status_codes and attempt < max_attempts:
+                time.sleep(base_sleep_seconds * attempt)
+                continue
+
+            raise last_error from exc
+
+        except urllib.error.URLError as exc:
+            last_error = RuntimeError(f"No fue posible descargar RAW desde GitHub. Detalle: {exc}")
+            if attempt < max_attempts:
+                time.sleep(base_sleep_seconds * attempt)
+                continue
+            raise last_error from exc
+
+    if last_error:
+        raise last_error
+
+    return None
 
 
 def _github_get_file_info() -> dict | None:
@@ -336,4 +400,3 @@ def get_persistence_status_label() -> str:
     if backend == "github":
         return "GitHub Storage"
     return "Local"
-
