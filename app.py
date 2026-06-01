@@ -486,18 +486,15 @@ def should_autoload_persistent_data() -> bool:
     """
     Decide si la app debe intentar recuperar la última carga guardada.
 
-    En Streamlit Cloud, después de un reboot la memoria temporal se pierde.
-    Por eso, si no hay DataFrames en sesión y existe una carga guardada en
-    persistence.py, la app debe restaurarla automáticamente sin pedir que el
-    admin vuelva a subir el Excel.
+    Regla corregida para Streamlit Cloud:
+    - Si la sesión ya tiene datos cargados, no se toca nada.
+    - Si la sesión está vacía, SIEMPRE se intenta leer el respaldo persistente.
+
+    No se usa suppress_persistent_autoload para bloquear la recuperación
+    después de reboot, porque esa bandera podía impedir que la app jalara el
+    archivo aunque sí existiera en GitHub.
     """
-    if st.session_state.get("df_sales") is not None:
-        return False
-
-    if st.session_state.get("suppress_persistent_autoload", False):
-        return False
-
-    return True
+    return st.session_state.get("df_sales") is None
 
 
 def ensure_persistent_data_loaded_if_available(show_message: bool = False) -> bool:
@@ -505,12 +502,12 @@ def ensure_persistent_data_loaded_if_available(show_message: bool = False) -> bo
     Intenta cargar la última carga administrativa guardada cuando la sesión
     actual está vacía.
 
-    Este helper se llama tanto en el flujo principal como en la vista de carga,
-    para que Streamlit Cloud pueda recuperarse correctamente después de reboot,
-    sleep o reinicio del servidor.
+    Se llama al inicio del flujo principal y en Carga de datos. Si GitHub no
+    tiene payload o hay algún problema temporal, simplemente deja la sesión
+    vacía sin romper la app.
     """
-    if not should_autoload_persistent_data():
-        return st.session_state.get("df_sales") is not None
+    if st.session_state.get("df_sales") is not None:
+        return True
 
     return load_persistent_data_to_session(show_message=show_message)
 
@@ -639,23 +636,31 @@ def save_current_data_for_viewers() -> bool:
 def load_persistent_data_to_session(show_message: bool = False) -> bool:
     """
     Carga en la sesión actual la última información guardada por admin.
-    Esto permite que viewers consulten reportes sin cargar archivos.
+
+    Corrección clave:
+    En vez de depender primero de persistent_data_exists(), se intenta cargar
+    directamente el payload. Esto evita que una verificación previa bloquee la
+    restauración en Streamlit Cloud aunque el archivo sí exista en GitHub.
     """
     if st.session_state.get("persistent_data_loaded") and st.session_state.get("df_sales") is not None:
         return True
 
-    if not persistent_data_exists():
-        return False
-
     try:
         payload = persistence.load_dashboard_payload()
 
-        if payload is None:
+        if not payload:
             return False
 
-        st.session_state["df_sales"] = payload.get("df_sales")
-        st.session_state["df_plan_client"] = payload.get("df_plan_client")
-        st.session_state["df_plan_sku"] = payload.get("df_plan_sku")
+        df_sales = payload.get("df_sales")
+        df_plan_client = payload.get("df_plan_client")
+        df_plan_sku = payload.get("df_plan_sku")
+
+        if df_sales is None or df_plan_client is None or df_plan_sku is None:
+            return False
+
+        st.session_state["df_sales"] = df_sales
+        st.session_state["df_plan_client"] = df_plan_client
+        st.session_state["df_plan_sku"] = df_plan_sku
 
         # IMPORTANTE:
         # La carga administrativa compartida solo trae las bases originales.
