@@ -351,6 +351,35 @@ def render_preview_expander(
     with st.expander(title, expanded=False):
         st.dataframe(preview_df, width="stretch")
 
+
+def remove_private_processed_columns(df_table):
+    """
+    Oculta columnas internas/sensibles de la base procesada en vistas previas
+    y cualquier descarga directa de esa sección.
+
+    Nota: la base procesada completa se conserva en sesión para cálculos,
+    reportes, tarjetas y gráficas. Esto solo afecta lo que se muestra/exporta
+    desde Visión general.
+    """
+    if df_table is None:
+        return df_table
+
+    hidden_columns = {
+        "Gross Margin",
+        "Costo Vtas Netas",
+        getattr(config, "COL_GROSS_MARGIN", "Gross Margin"),
+    }
+
+    columns_to_drop = [
+        column_name for column_name in df_table.columns
+        if str(column_name).strip() in hidden_columns
+    ]
+
+    if not columns_to_drop:
+        return df_table
+
+    return df_table.drop(columns=columns_to_drop, errors="ignore")
+
 # =========================================================
 # 4.2 HELPERS DE ALERTAS VISUALES
 # =========================================================
@@ -5109,7 +5138,7 @@ def render_overview_view() -> None:
     if df_processed is not None and not df_processed.empty:
         render_preview_expander(
             "Vista previa - Base procesada",
-            df_processed,
+            remove_private_processed_columns(df_processed),
             rows=20,
             convert_currency=True,
         )
@@ -5132,14 +5161,13 @@ def render_overview_view() -> None:
             config.COL_MONTH,
             "Material",
             config.COL_GSNR,
-            config.COL_GROSS_MARGIN,
         ]
 
         available_columns = [col for col in columns_to_show if col in df_processed.columns]
 
         render_preview_expander(
             "Vista previa - Columnas clave",
-            df_processed[available_columns],
+            remove_private_processed_columns(df_processed[available_columns]),
             rows=20,
             convert_currency=True,
         )
