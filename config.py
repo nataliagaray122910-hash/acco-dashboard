@@ -403,7 +403,7 @@ REPORT_1_TITLE = "Reporte 1"
 REPORT_1_MAIN_HEADING = "Canal Corporativo MTD / YTD"
 REPORT_1_SUBHEADING = (
     "Comparativo ejecutivo entre Actual, Plan y PY para Canal Corporativo, "
-    "separando ACCO + BARRILITO y KENS."
+    "separando ACCO + BARR + KENS y solo KENS."
 )
 
 # ---------------------------------------------------------
