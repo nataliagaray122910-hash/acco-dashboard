@@ -1274,7 +1274,9 @@ def build_report_1_without_kens_table(
 
     ordered_codes = get_ordered_report_1_codes(
         codes_present=codes_present,
-        exclude_codes={"IT", "AF", "AFI"},
+        # Bloque superior actualizado: ahora es Channel Corp completo.
+        # Ya no se excluye IT porque KENS también debe formar parte del bloque superior.
+        exclude_codes={"AF", "AFI"},
     )
 
     rows = []
@@ -1394,7 +1396,8 @@ def build_report_1_payload(
 
     sales_without_kens = filter_sales_for_report_1(
         df_processed_sales,
-        segment_values=config.REPORT_1_SEGMENTS_WITHOUT_KENS,
+        # Bloque superior actualizado: ACCO + BARRILITO + KENS.
+        segment_values=list(config.REPORT_1_SEGMENTS_WITHOUT_KENS) + [config.REPORT_1_SEGMENT_KENS],
     )
 
     (
@@ -1451,7 +1454,7 @@ def build_report_1_payload(
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
-        "segments_without_kens_label": "ACCO + BARRILITO",
+        "segments_without_kens_label": "ACCO + BARR + KENS",
         "segment_kens_label": "KENS",
     }
 

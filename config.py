@@ -409,8 +409,8 @@ REPORT_1_SUBHEADING = (
 # ---------------------------------------------------------
 # TEXTOS DE FILTROS - REPORTE 1
 # ---------------------------------------------------------
-REPORT_1_FILTER_WITHOUT_KENS_TITLE = "Filtro del bloque: Channel Corp WITHOUT KENS"
-REPORT_1_FILTER_WITH_KENS_TITLE = "Filtro del bloque: Channel Corp WITH KENS"
+REPORT_1_FILTER_WITHOUT_KENS_TITLE = "Filtro del bloque: Channel Corp"
+REPORT_1_FILTER_WITH_KENS_TITLE = "Filtro del bloque: Channel Corp ONLY KENS"
 
 # ---------------------------------------------------------
 # COLUMNAS REQUERIDAS PARA REPORTE 1
@@ -4505,3 +4505,4 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "Para construir el Reporte 4 primero debes tener ventas procesadas "
     "y plan por cliente cargado."
 )
+

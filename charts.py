@@ -106,6 +106,7 @@ def apply_corporate_layout(fig, title: str, height: int = 430):
             bgcolor="white",
             font_size=13,
             font_family="Segoe UI, Arial, sans-serif",
+            align="left",
         ),
         transition=dict(duration=500, easing="cubic-in-out"),
     )
@@ -514,45 +515,85 @@ def build_channel_mix_donut_interactive_chart(
     exchange_rate: float = 20.0,
 ):
     """
-    Dona única con botones internos en COLUMNA, colocados al lado izquierdo.
-    Mantiene una sola gráfica y anima el cambio entre MTD/YTD y Actual/Plan/PY.
+    Dona multinivel con solo 2 botones internos: MTD y YTD.
+
+    Cada vista muestra 3 anillos concéntricos:
+    - Anillo interno: Actual
+    - Anillo medio: Plan
+    - Anillo externo: PY
+
+    Los colores se mantienen por Channel y el hover aclara periodo, métrica,
+    canal, valor y participación para evitar confusión visual.
     """
     currency_label = normalize_currency_mode(currency_mode)
 
-    series_specs = [
-        ("MTD Actual", df_mtd_channel, "Actual"),
-        ("MTD Plan", df_mtd_channel, "Plan"),
-        ("MTD PY", df_mtd_channel, "PY"),
-        ("YTD Actual", df_ytd_channel, "Actual"),
-        ("YTD Plan", df_ytd_channel, "Plan"),
-        ("YTD PY", df_ytd_channel, "PY"),
+    period_sources = {
+        "MTD": df_mtd_channel,
+        "YTD": df_ytd_channel,
+    }
+
+    metric_specs = [
+        {
+            "metric": "Actual",
+            "ring_label": "Anillo interno",
+            "hole": 0.44,
+            "line_width": 4,
+            "opacity": 0.98,
+            "show_text": False,
+        },
+        {
+            "metric": "Plan",
+            "ring_label": "Anillo medio",
+            "hole": 0.62,
+            "line_width": 4,
+            "opacity": 0.88,
+            "show_text": False,
+        },
+        {
+            "metric": "PY",
+            "ring_label": "Anillo externo",
+            "hole": 0.78,
+            "line_width": 4,
+            "opacity": 0.78,
+            "show_text": True,
+        },
     ]
 
-    prepared = []
-    all_labels = []
-    for label, df_source, value_col in series_specs:
-        labels, values, customdata, total = _prepare_channel_mix_series(
-            df_source,
-            value_col,
-            currency_mode,
-            exchange_rate,
-        )
-        prepared.append(
-            {
-                "label": label,
-                "value_col": value_col,
+    prepared: dict[str, dict] = {}
+    all_labels: list[str] = []
+
+    for period_label, df_source in period_sources.items():
+        prepared[period_label] = {"period": period_label, "metrics": {}, "actual_total": 0.0}
+
+        for metric_spec in metric_specs:
+            metric_name = metric_spec["metric"]
+            labels, values, customdata, total = _prepare_channel_mix_series(
+                df_source,
+                metric_name,
+                currency_mode,
+                exchange_rate,
+            )
+
+            prepared[period_label]["metrics"][metric_name] = {
                 "labels": labels,
                 "values": values,
                 "customdata": customdata,
                 "total": total,
             }
-        )
-        all_labels.extend(labels)
 
-    if not any(item["labels"] for item in prepared):
+            if metric_name == "Actual":
+                prepared[period_label]["actual_total"] = total
+
+            all_labels.extend(labels)
+
+    if not any(
+        prepared[period]["metrics"][metric_spec["metric"]]["labels"]
+        for period in prepared
+        for metric_spec in metric_specs
+    ):
         return None
 
-    unique_labels = []
+    unique_labels: list[str] = []
     for channel in all_labels:
         if channel not in unique_labels:
             unique_labels.append(channel)
@@ -566,48 +607,175 @@ def build_channel_mix_donut_interactive_chart(
         "#7C3AED",
         "#64748B",
     ]
-    color_map = {label: palette[index % len(palette)] for index, label in enumerate(unique_labels)}
+    color_map = {
+        label: palette[index % len(palette)]
+        for index, label in enumerate(unique_labels)
+    }
 
-    first = next(item for item in prepared if item["labels"])
+    first_period = "MTD" if any(
+        prepared["MTD"]["metrics"][metric_spec["metric"]]["labels"]
+        for metric_spec in metric_specs
+    ) else "YTD"
 
-    def _pie_trace(item):
+    def _empty_trace(metric_spec: dict, period_label: str):
+        # Trace mínimo para conservar los 3 anillos aunque algún periodo/métrica no tenga datos.
         return go.Pie(
-            labels=item["labels"],
-            values=item["values"],
-            customdata=item["customdata"],
-            hole=0.68,
+            labels=["Sin datos"],
+            values=[1],
+            hole=metric_spec["hole"],
             sort=False,
             direction="clockwise",
-            domain=dict(x=[0.28, 0.96], y=[0.08, 0.92]),
-            marker=dict(
-                colors=[color_map[label] for label in item["labels"]],
-                line=dict(color="white", width=4),
-            ),
-            textinfo="label+percent",
-            textposition="outside",
+            domain=dict(x=[0.26, 0.96], y=[0.08, 0.92]),
+            marker=dict(colors=["#E5E7EB"], line=dict(color="white", width=metric_spec["line_width"])),
+            opacity=0.28,
+            textinfo="none",
             hovertemplate=(
-                "<b>%{label}</b><br>"
-                "Valor: %{customdata} K " + currency_label + "<br>"
-                "Participación: %{percent}"
+                f"<b>{period_label} · {metric_spec['metric']}</b><br>"
+                "Sin información disponible"
                 "<extra></extra>"
             ),
-            pull=[0.025 if i == 0 else 0 for i in range(len(item["labels"]))],
+            showlegend=False,
         )
 
-    fig = go.Figure(data=[_pie_trace(first)])
+    def _ring_trace(period_label: str, metric_spec: dict, showlegend: bool = False):
+        metric_name = metric_spec["metric"]
+        metric_data = prepared[period_label]["metrics"][metric_name]
 
-    buttons = []
+        if not metric_data["labels"]:
+            return _empty_trace(metric_spec, period_label)
+
+        labels = metric_data["labels"]
+        values = metric_data["values"]
+        totals_by_metric = metric_data["total"]
+        hovertext = []
+
+        for label, value in zip(labels, values):
+            numeric_value = safe_float(value)
+            share = 0.0 if totals_by_metric == 0 else (numeric_value / totals_by_metric) * 100
+            hovertext.append(
+                "<b>" + str(label) + "</b><br>"
+                + "Vista seleccionada: <b>" + period_label + "</b><br>"
+                + "Anillo: <b>" + metric_spec["ring_label"] + "</b><br>"
+                + "Dato del anillo: <b>" + metric_name + "</b><br>"
+                + "Valor: <b>" + f"{numeric_value:,.0f}" + " K " + currency_label + "</b><br>"
+                + "Participación dentro de " + metric_name + ": <b>" + f"{share:,.2f}%" + "</b>"
+            )
+
+        return go.Pie(
+            labels=labels,
+            values=values,
+            hovertext=hovertext,
+            hole=metric_spec["hole"],
+            sort=False,
+            direction="clockwise",
+            domain=dict(x=[0.26, 0.96], y=[0.08, 0.92]),
+            marker=dict(
+                colors=[color_map[label] for label in labels],
+                line=dict(color="white", width=metric_spec["line_width"]),
+            ),
+            opacity=metric_spec["opacity"],
+            textinfo="label+percent" if metric_spec["show_text"] else "none",
+            textposition="outside" if metric_spec["show_text"] else "none",
+            hovertemplate="%{hovertext}<extra></extra>",
+            pull=[0.018 if i == 0 else 0 for i in range(len(labels))],
+            showlegend=showlegend,
+            legendgroup=metric_name,
+            name=metric_name,
+        )
+
+    def _period_traces(period_label: str):
+        # Orden importante:
+        # 1) Actual se dibuja primero y deja visible el centro.
+        # 2) Plan se encima y deja visible el anillo interno.
+        # 3) PY se encima y deja visible los anillos interno y medio.
+        return [
+            _ring_trace(period_label, metric_specs[0], showlegend=True),
+            _ring_trace(period_label, metric_specs[1], showlegend=False),
+            _ring_trace(period_label, metric_specs[2], showlegend=False),
+        ]
+
+    def _period_annotations(period_label: str):
+        actual_total = prepared[period_label]["metrics"]["Actual"]["total"]
+        plan_total = prepared[period_label]["metrics"]["Plan"]["total"]
+        py_total = prepared[period_label]["metrics"]["PY"]["total"]
+
+        return [
+            dict(
+                text=(
+                    f"<b>{period_label}</b><br>"
+                    f"<span style='font-size:12px;color:#667085'>Actual total</span><br>"
+                    f"<b>{actual_total:,.0f}</b><br>"
+                    f"<span style='font-size:12px'>K {currency_label}</span>"
+                ),
+                x=0.61,
+                y=0.50,
+                xref="paper",
+                yref="paper",
+                font=dict(size=20, color=config.COLOR_SECONDARY),
+                align="center",
+                showarrow=False,
+            ),
+            dict(
+                text=(
+                    "<b>Lectura del anillo</b><br>"
+                    "Interno · Actual<br>"
+                    "Medio · Plan<br>"
+                    "Externo · PY"
+                ),
+                x=0.03,
+                y=0.68,
+                xref="paper",
+                yref="paper",
+                font=dict(size=12, color=config.COLOR_SECONDARY),
+                align="left",
+                showarrow=False,
+                bordercolor="#E7EAF0",
+                borderwidth=1,
+                borderpad=10,
+                bgcolor="#FFFFFF",
+            ),
+            dict(
+                text=(
+                    f"Actual: <b>{actual_total:,.0f}</b> K {currency_label}<br>"
+                    f"Plan: <b>{plan_total:,.0f}</b> K {currency_label}<br>"
+                    f"PY: <b>{py_total:,.0f}</b> K {currency_label}"
+                ),
+                x=0.03,
+                y=0.38,
+                xref="paper",
+                yref="paper",
+                font=dict(size=12, color="#667085"),
+                align="left",
+                showarrow=False,
+            ),
+        ]
+
+    fig = go.Figure(data=_period_traces(first_period))
+
     frames = []
-    for item in prepared:
-        if not item["labels"]:
+    buttons = []
+
+    for period_label in ["MTD", "YTD"]:
+        if not any(
+            prepared[period_label]["metrics"][metric_spec["metric"]]["labels"]
+            for metric_spec in metric_specs
+        ):
             continue
+
+        frames.append(
+            go.Frame(
+                name=period_label,
+                data=_period_traces(period_label),
+                layout=go.Layout(annotations=_period_annotations(period_label)),
+            )
+        )
 
         buttons.append(
             dict(
-                label=item["label"],
+                label=period_label,
                 method="animate",
                 args=[
-                    [item["label"]],
+                    [period_label],
                     {
                         "mode": "immediate",
                         "frame": {"duration": 520, "redraw": True},
@@ -617,68 +785,40 @@ def build_channel_mix_donut_interactive_chart(
             )
         )
 
-        frames.append(
-            go.Frame(
-                name=item["label"],
-                data=[_pie_trace(item)],
-                layout=go.Layout(
-                    annotations=[
-                        dict(
-                            text=f"<b>{item['total']:,.0f}</b><br><span style='font-size:12px'>K {currency_label}</span><br><span style='font-size:11px;color:#667085'>{item['label']}</span>",
-                            x=0.64,
-                            y=0.5,
-                            xref="paper",
-                            yref="paper",
-                            font=dict(size=22, color=config.COLOR_SECONDARY),
-                            showarrow=False,
-                        )
-                    ]
-                ),
-            )
-        )
-
     fig.frames = frames
 
-    fig = apply_corporate_layout(fig, title=title, height=510)
+    fig = apply_corporate_layout(fig, title=title, height=560)
     fig.update_layout(
         showlegend=True,
         legend=dict(
             orientation="h",
             yanchor="bottom",
-            y=-0.10,
+            y=-0.11,
             xanchor="center",
-            x=0.64,
+            x=0.61,
             font=dict(size=12),
+            title=dict(text="Channel"),
         ),
-        annotations=[
-            dict(
-                text=f"<b>{first['total']:,.0f}</b><br><span style='font-size:12px'>K {currency_label}</span><br><span style='font-size:11px;color:#667085'>{first['label']}</span>",
-                x=0.64,
-                y=0.5,
-                xref="paper",
-                yref="paper",
-                font=dict(size=22, color=config.COLOR_SECONDARY),
-                showarrow=False,
-            )
-        ],
+        annotations=_period_annotations(first_period),
         updatemenus=[
             dict(
                 type="buttons",
-                direction="down",
+                direction="right",
                 x=0.03,
-                y=0.78,
+                y=0.88,
                 xanchor="left",
                 yanchor="top",
                 showactive=True,
-                active=0,
+                active=0 if first_period == "MTD" else 1,
                 bgcolor="white",
                 bordercolor="#E7EAF0",
                 borderwidth=1,
-                font=dict(size=12, color=config.COLOR_SECONDARY),
+                font=dict(size=13, color=config.COLOR_SECONDARY),
                 buttons=buttons,
+                pad=dict(r=8, t=4, b=4, l=4),
             )
         ],
-        margin=dict(l=25, r=30, t=86, b=72),
+        margin=dict(l=25, r=30, t=90, b=90),
     )
 
     return fig

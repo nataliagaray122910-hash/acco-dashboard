@@ -2429,15 +2429,14 @@ def render_report_1_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD del Canal Corporativo, con ACCO + BARRILITO
-        por separado de KENS, usando BASE SAP y Plan2026 by Client.
+        Mostrar el comparativo ejecutivo MTD / YTD del Canal Corporativo, con el bloque completo ACCO + BARR + KENS y un bloque inferior exclusivo para KENS, usando BASE SAP y Plan2026 by Client.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
     st.markdown("### Construir Reporte")
     st.markdown(
-        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del bloque superior. En el bloque WITH KENS solo se conserva el filtro de oficina de ventas.</div>',
+        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del bloque superior. En el bloque ONLY KENS solo se conserva el filtro de oficina de ventas.</div>',
         unsafe_allow_html=True,
     )
 
@@ -2476,8 +2475,8 @@ def render_report_1_view() -> None:
         st.markdown(
             styles.build_info_card(
                 "Bloque superior",
-                "ACCO + BARRILITO",
-                "Comparativos WITHOUT KENS",
+                "ACCO + BARR + KENS",
+                "Comparativo completo",
             ),
             unsafe_allow_html=True,
         )
@@ -2487,7 +2486,7 @@ def render_report_1_view() -> None:
             styles.build_info_card(
                 "Bloque inferior",
                 "KENS",
-                "Comparativos WITH KENS",
+                "Solo KENS",
             ),
             unsafe_allow_html=True,
         )
@@ -2496,7 +2495,7 @@ def render_report_1_view() -> None:
     st.markdown("### Channel Corp MTD / YTD")
 
     selected_year_without_kens, selected_month_without_kens = render_period_filter_block(
-        "Filtro del bloque: Channel Corp WITHOUT KENS",
+        "Filtro del bloque: Channel Corp",
         "report1_without_kens_year",
         "report1_without_kens_month",
     )
@@ -2588,7 +2587,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "MTD Channel CORP WITHOUT KENS",
+                    "MTD Channel CORP",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2601,7 +2600,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "YTD Channel CORP WITHOUT KENS",
+                    "YTD Channel CORP",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2611,7 +2610,7 @@ def render_report_1_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### Channel Corp WITH KENS")
+    st.markdown("### Channel Corp ONLY KENS")
 
     payload = st.session_state.get("report1_payload")
 
@@ -2658,7 +2657,7 @@ def render_report_1_view() -> None:
     )
 
     st.markdown(
-        '<div class="report-note">En este bloque se muestran los renglones informativos por oficina de ventas y, al final, el renglón consolidado de <b>IT: IT Distributors</b>, que permanece visible y se recalcula conforme al filtro seleccionado.</div>',
+        '<div class="report-note">En este bloque se muestra únicamente el detalle correspondiente a <b>KENS</b>. Al final se conserva el renglón consolidado de <b>Total KENS</b>, que permanece visible y se recalcula conforme al filtro seleccionado.</div>',
         unsafe_allow_html=True,
     )
 
@@ -2668,7 +2667,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "MTD Channel CORP WITH KENS",
+                    "MTD Channel CORP ONLY KENS",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2681,7 +2680,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "YTD Channel CORP WITH KENS",
+                    "YTD Channel CORP ONLY KENS",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -3624,7 +3623,7 @@ def render_report_3_view() -> None:
     st.markdown("---")
     st.markdown("### Mix de participación por Channel")
     st.markdown(
-        '<div class="report-note">Dona interactiva con botones internos para cambiar entre Actual, Plan y PY en MTD/YTD. Se muestra debajo de las tablas para cerrar el reporte con una lectura visual del mix.</div>',
+        '<div class="report-note">Dona interactiva multinivel con solo dos botones internos: MTD y YTD. Cada vista muestra Actual, Plan y PY como anillos apilados para comparar el mix sin cambiar entre seis gráficas.</div>',
         unsafe_allow_html=True,
     )
 
