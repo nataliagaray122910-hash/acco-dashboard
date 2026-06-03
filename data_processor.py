@@ -3180,11 +3180,80 @@ def get_report_4_plan_client_code_column(df: pd.DataFrame) -> str | None:
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
+# Normaliza Categoría del Material para Reporte 4
+# --------------------------------------------------------------
+def normalize_report_4_material_category_value(value) -> str:
+    if pd.isna(value):
+        return ""
+
+    text = re.sub(r"\s+", " ", str(value).strip()).upper()
+    if not text or text in {"NAN", "NONE", "NULL", "NAT", "#N/A", "N/A", "NA"}:
+        return ""
+
+    return text
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Obtiene el código base de Categoría del Material
+# --------------------------------------------------------------
+def get_report_4_material_category_code(value) -> str:
+    normalized_value = normalize_report_4_material_category_value(value)
+    if not normalized_value:
+        return ""
+
+    if ":" in normalized_value:
+        return normalized_value.split(":", 1)[0].strip()
+
+    return normalized_value.split()[0].strip()
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Filtra ventas excluidas por Categoría del Material para Reporte 4
+# --------------------------------------------------------------
+def exclude_report_4_material_categories(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+
+    category_col = find_first_existing_column(
+        df,
+        getattr(
+            config,
+            "REPORT_4_MATERIAL_CATEGORY_COLUMN_CANDIDATES",
+            [
+                "Categoría del Material",
+                "Categoria del Material",
+                "Categoría Material",
+                "Categoria Material",
+            ],
+        ),
+    )
+
+    if category_col is None:
+        return df
+
+    excluded_codes = {
+        str(value).strip().upper()
+        for value in getattr(config, "REPORT_4_EXCLUDED_MATERIAL_CATEGORY_CODES", ["O14", "O15", "O16", "O17"])
+    }
+
+    excluded_labels = {
+        normalize_report_4_material_category_value(value)
+        for value in getattr(config, "REPORT_4_EXCLUDED_MATERIAL_CATEGORY_LABELS", [])
+    }
+
+    category_values = df[category_col].apply(normalize_report_4_material_category_value)
+    category_codes = df[category_col].apply(get_report_4_material_category_code)
+
+    keep_mask = ~(category_codes.isin(excluded_codes) | category_values.isin(excluded_labels))
+    return df.loc[keep_mask].copy()
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
 # Prepara ventas para Reporte 4
 # --------------------------------------------------------------
 def prepare_sales_for_report_4(df_processed_sales: pd.DataFrame) -> pd.DataFrame:
     df = standardize_columns(df_processed_sales)
     df = exclude_afi_affiliates(df)
+    df = exclude_report_4_material_categories(df)
 
     client_name_col = get_report_4_sales_client_name_column(df)
     client_code_col = get_report_4_sales_client_code_column(df)
