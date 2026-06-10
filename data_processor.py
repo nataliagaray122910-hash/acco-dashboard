@@ -3178,39 +3178,21 @@ def get_report_4_plan_client_code_column(df: pd.DataFrame) -> str | None:
 
     return find_first_existing_column(df, config.REPORT_4_PLAN_CLIENT_CODE_CANDIDATES)
 
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Normaliza Categoría del Material para Reporte 4
-# --------------------------------------------------------------
-def normalize_report_4_material_category_value(value) -> str:
-    if pd.isna(value):
-        return ""
-
-    text = re.sub(r"\s+", " ", str(value).strip()).upper()
-    if not text or text in {"NAN", "NONE", "NULL", "NAT", "#N/A", "N/A", "NA"}:
-        return ""
-
-    return text
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
-# Obtiene el código base de Categoría del Material
-# --------------------------------------------------------------
-def get_report_4_material_category_code(value) -> str:
-    normalized_value = normalize_report_4_material_category_value(value)
-    if not normalized_value:
-        return ""
-
-    if ":" in normalized_value:
-        return normalized_value.split(":", 1)[0].strip()
-
-    return normalized_value.split()[0].strip()
-
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Filtra ventas excluidas por Categoría del Material para Reporte 4
+# Excluye categorías de material para Reporte 4 (solo ventas Actual/PY)
 # --------------------------------------------------------------
 def exclude_report_4_material_categories(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aplica la regla de negocio del Ranking de Clientes únicamente sobre ventas.
+
+    Importante:
+    - Esta exclusión NO se aplica al Plan por Cliente.
+    - El Plan se toma tal cual viene en la hoja Plan2026 by Client.
+    - La exclusión replica el filtro de la tabla dinámica de ventas:
+      O14, O15, O16 y O17 no deben entrar en Actual ni PY.
+    """
     df = df.copy()
 
     category_col = find_first_existing_column(
@@ -3232,18 +3214,29 @@ def exclude_report_4_material_categories(df: pd.DataFrame) -> pd.DataFrame:
 
     excluded_codes = {
         str(value).strip().upper()
-        for value in getattr(config, "REPORT_4_EXCLUDED_MATERIAL_CATEGORY_CODES", ["O14", "O15", "O16", "O17"])
+        for value in getattr(config, "REPORT_4_EXCLUDED_MATERIAL_CATEGORY_CODES", [])
+        if str(value).strip()
     }
 
     excluded_labels = {
-        normalize_report_4_material_category_value(value)
+        str(value).strip().upper()
         for value in getattr(config, "REPORT_4_EXCLUDED_MATERIAL_CATEGORY_LABELS", [])
+        if str(value).strip()
     }
 
-    category_values = df[category_col].apply(normalize_report_4_material_category_value)
-    category_codes = df[category_col].apply(get_report_4_material_category_code)
+    def normalize_category_value(value) -> str:
+        if pd.isna(value):
+            return ""
+        return re.sub(r"\s+", " ", str(value).strip()).upper()
 
-    keep_mask = ~(category_codes.isin(excluded_codes) | category_values.isin(excluded_labels))
+    category_series = df[category_col].apply(normalize_category_value)
+
+    # Cubre tanto valores completos tipo "O14: POP MATERIAL"
+    # como valores abreviados tipo "O14".
+    category_codes = category_series.str.split(":", n=1).str[0].str.strip().str.upper()
+
+    keep_mask = ~category_series.isin(excluded_labels) & ~category_codes.isin(excluded_codes)
+
     return df.loc[keep_mask].copy()
 
 # --------------------------------------------------------------
@@ -3316,6 +3309,7 @@ def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFra
         df[col] = clean_numeric_series(df[col]) * 1000
 
     df = df[df["Cliente"] != ""].copy()
+
     return df
 
 # --------------------------------------------------------------
