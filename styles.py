@@ -2185,3 +2185,355 @@ def build_base_mtd_kpi_card(
         </div>
     </div>
     """
+
+
+def build_dashboard_css_html() -> str:
+    """
+    Estilos reutilizables del Dashboard ejecutivo.
+
+    Reglas visuales:
+    - No encierra Mexico Dashboard 2026.
+    - No encierra Sales Month / Sales YTD.
+    - Sí encierra títulos de reportes internos como Sales by Channel Monthly/YTD.
+    - Mantiene columnas alineadas con table-layout fixed y colgroup.
+    - Usa doble línea bajo encabezados y sobre Total Mexico.
+    - Total Mexico lleva franja verde.
+    """
+    return """
+<style>
+.dashboard-stage-card {
+    background: transparent !important;
+    border: none !important;
+    border-radius: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+    margin-top: 0.75rem !important;
+    margin-bottom: 1rem !important;
+    outline: none !important;
+}
+
+.dashboard-stage-card,
+.dashboard-main-title,
+.dashboard-main-title-box,
+.dashboard-kpi-panel,
+.dashboard-kpi-panel-title {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.dashboard-main-title-box {
+    border: none !important;
+    padding: 0 !important;
+    text-align: center !important;
+    margin-bottom: 1.85rem !important;
+    background: transparent !important;
+}
+
+.dashboard-main-title {
+    color: #E60023 !important;
+    font-size: 1.85rem !important;
+    line-height: 1.1 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.15px !important;
+    text-align: center !important;
+    background: transparent !important;
+    border: none !important;
+}
+
+.dashboard-header-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2rem;
+    align-items: start;
+    margin-bottom: 0.45rem;
+}
+
+.dashboard-period-left {
+    display: flex;
+    align-items: flex-start;
+    justify-content: flex-start;
+    gap: 1.2rem;
+    padding-left: 5.5rem;
+}
+
+.dashboard-period-right {
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.7rem;
+}
+
+.dashboard-period-label {
+    color: #E60023;
+    font-weight: 900;
+    font-size: 1.08rem;
+    line-height: 1.35;
+    text-align: right;
+}
+
+.dashboard-period-value {
+    color: #000000;
+    font-weight: 850;
+    font-size: 1.08rem;
+    line-height: 1.35;
+}
+
+.dashboard-currency-label {
+    margin-top: 0.45rem;
+    margin-left: 4.1rem;
+    color: #000000;
+    font-weight: 800;
+    font-size: 0.86rem;
+}
+
+.dashboard-kpi-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.15rem;
+    margin-top: 0.25rem;
+}
+
+.dashboard-kpi-panel {
+    background: transparent !important;
+    border: none !important;
+}
+
+.dashboard-kpi-panel-title {
+    border: none !important;
+    text-align: center;
+    color: #000000;
+    background: transparent !important;
+    font-size: 1.05rem;
+    font-weight: 900;
+    padding: 0.35rem 0.65rem;
+    margin-bottom: 0.18rem;
+}
+
+.dashboard-kpi-table-wrap,
+.dashboard-compact-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.dashboard-kpi-table,
+.dashboard-compact-table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+    font-variant-numeric: tabular-nums;
+}
+
+.dashboard-kpi-table th {
+    background: #FFFFFF;
+    color: #000000;
+    font-size: 0.74rem;
+    font-weight: 900;
+    text-align: center;
+    padding: 0.23rem 0.24rem;
+    border-bottom: 2px solid #111111;
+    white-space: nowrap;
+}
+
+.dashboard-kpi-table th:first-child {
+    width: 28%;
+}
+
+.dashboard-kpi-table td {
+    color: #000000;
+    font-size: 0.82rem;
+    font-weight: 650;
+    text-align: right;
+    padding: 0.31rem 0.34rem;
+    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+    white-space: nowrap;
+}
+
+.dashboard-kpi-name {
+    text-align: center !important;
+    color: #000000 !important;
+    font-weight: 900 !important;
+}
+
+.dashboard-gsnr-row td {
+    background: #C6EFCE !important;
+}
+
+.dashboard-achievement-row td {
+    background: #FFFFFF !important;
+    font-weight: 800 !important;
+}
+
+.dashboard-bts-row td {
+    background: #EAF7E5 !important;
+}
+
+.dashboard-kpi-negative,
+.dashboard-compact-table .dashboard-kpi-negative {
+    color: #C0392B !important;
+    font-weight: 900 !important;
+}
+
+.dashboard-kpi-neutral {
+    color: #000000 !important;
+}
+
+.dashboard-kpi-muted {
+    color: #000000 !important;
+}
+
+.dashboard-report-section {
+    margin-top: 1.65rem;
+}
+
+.dashboard-report-pair-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 1.15rem;
+    align-items: start;
+}
+
+.dashboard-compact-block {
+    width: 100%;
+    min-width: 0;
+}
+
+.dashboard-compact-title-box {
+    display: inline-block;
+    width: auto;
+    max-width: max-content;
+    color: #000000;
+    background: #C6EFCE;
+    border: 1.5px solid #111111;
+    font-size: 1.04rem;
+    font-weight: 900;
+    text-align: center;
+    line-height: 1.15;
+    padding: 0.18rem 0.42rem;
+    margin: 0 0 0.70rem 0;
+    box-sizing: border-box;
+}
+
+.dashboard-compact-table {
+    font-size: 0.88rem;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.dashboard-compact-table .dashboard-col-channel {
+    width: 24%;
+}
+
+.dashboard-compact-table .dashboard-col-num {
+    width: 10.85%;
+}
+
+.dashboard-compact-table .dashboard-col-pct {
+    width: 10.85%;
+}
+
+.dashboard-compact-table th {
+    background: #FFFFFF;
+    color: #000000;
+    font-size: 0.82rem;
+    font-weight: 900;
+    text-align: right;
+    padding: 0.25rem 0.24rem;
+    border-bottom: 4px double #111111 !important;
+    white-space: nowrap;
+    vertical-align: bottom;
+}
+
+.dashboard-compact-table th:first-child {
+    text-align: center;
+}
+
+.dashboard-compact-table thead tr {
+    border-bottom: 4px double #111111 !important;
+}
+
+.dashboard-compact-table tbody tr:first-child td {
+    border-top: 0 !important;
+}
+
+.dashboard-compact-table td {
+    color: #000000;
+    font-size: 0.86rem;
+    font-weight: 720;
+    text-align: right;
+    padding: 0.30rem 0.28rem;
+    border-bottom: none;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+.dashboard-compact-label {
+    text-align: left !important;
+    font-weight: 850 !important;
+    color: #000000 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.dashboard-compact-total td {
+    border-top: 4px double #111111 !important;
+    font-weight: 900 !important;
+    background: #EAF7E5 !important;
+}
+
+.dashboard-compact-total .dashboard-compact-label {
+    text-align: center !important;
+}
+
+.dashboard-ellipsis td {
+    text-align: center !important;
+    color: #1F2A44 !important;
+    font-weight: 900 !important;
+    letter-spacing: 0.16em;
+    border-bottom: none !important;
+    padding: 0.02rem 0 !important;
+    background: transparent !important;
+}
+
+.dashboard-lock-box {
+    background: #FFFFFF;
+    border: 1px solid #E7EAF0;
+    border-left: 5px solid #E60023;
+    border-radius: 18px;
+    padding: 1rem 1.15rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    margin-top: 0.9rem;
+}
+
+.dashboard-lock-title {
+    font-size: 1.05rem;
+    font-weight: 900;
+    color: #1F2A44;
+    margin-bottom: 0.45rem;
+}
+
+.dashboard-lock-text {
+    font-size: 0.95rem;
+    color: #434C5E;
+    line-height: 1.65;
+}
+
+@media (max-width: 1100px) {
+    .dashboard-header-row,
+    .dashboard-kpi-grid,
+    .dashboard-report-pair-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .dashboard-period-left {
+        padding-left: 0;
+        justify-content: center;
+    }
+
+    .dashboard-currency-label {
+        margin-left: 0;
+        text-align: center;
+    }
+}
+</style>
+"""
+
