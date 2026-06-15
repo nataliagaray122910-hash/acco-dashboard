@@ -2267,7 +2267,7 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
     rows_html = "".join(rows_html_parts)
 
     return (
-        '<div class="horizontal-table-card">'
+        '<div class="horizontal-table-card base-mtd-number-table-card">'
         f'<div class="horizontal-table-title">{escape(title)}</div>'
         f"{header_html}"
         f"{rows_html}"
@@ -2308,7 +2308,7 @@ def build_bts_table_html(title: str, df_table) -> str:
     rows_html = "".join(rows_html_parts)
 
     return (
-        '<div class="horizontal-table-card">'
+        '<div class="horizontal-table-card base-mtd-number-table-card">'
         f'<div class="horizontal-table-title">{escape(title)}</div>'
         f"{header_html}"
         f"{rows_html}"
@@ -5015,6 +5015,224 @@ def build_dashboard_report2_category_section_html() -> str:
     )
 
 
+def dashboard_get_report3_payload() -> dict | None:
+    return st.session_state.get("report3_payload")
+
+
+def build_dashboard_report3_empty_row(channel_value: str) -> dict:
+    return {
+        "Channel": str(channel_value or "").strip(),
+        "Actual": 0.0,
+        "Plan": 0.0,
+        "PY": 0.0,
+        "Var VS Plan": 0.0,
+        "%Var VS Plan": None,
+        "Var VS PY": 0.0,
+        "%Var VS PY": None,
+        "__is_total__": False,
+        "__is_grand_total__": False,
+    }
+
+
+def dashboard_report3_channel_order(mtd_table, ytd_table) -> list[str]:
+    """
+    Orden fijo para que el reporte de Desempeño Comercial quede completo
+    y con la misma altura en Monthly/YTD.
+    """
+    configured_labels = []
+
+    for channel_value in getattr(config, "REPORT_3_CHANNEL_ORDER", []):
+        label_value = str(channel_value or "").strip()
+        if label_value == "GOBA":
+            label_value = "BARRILITO"
+        if label_value and label_value not in configured_labels:
+            configured_labels.append(label_value)
+
+    existing_labels = []
+    for df_table in [mtd_table, ytd_table]:
+        if df_table is None or getattr(df_table, "empty", True):
+            continue
+
+        for _, row in df_table.iterrows():
+            if bool(row.get("__is_total__", False)) or bool(row.get("__is_grand_total__", False)):
+                continue
+
+            label_value = build_report_3_display_label(row)
+            if label_value and label_value not in existing_labels:
+                existing_labels.append(label_value)
+
+    extra_labels = [label for label in existing_labels if label not in configured_labels]
+
+    if configured_labels:
+        return configured_labels + extra_labels
+
+    return existing_labels
+
+
+def dashboard_complete_report3_table(df_table, ordered_labels: list[str]):
+    """
+    Completa canales faltantes con cero para que Monthly/YTD mantengan
+    la misma estructura visual.
+    """
+    if df_table is None or getattr(df_table, "empty", True):
+        rows = [build_dashboard_report3_empty_row(label) for label in ordered_labels]
+        rows.append({
+            **build_dashboard_report3_empty_row("Total Mexico"),
+            "__is_grand_total__": True,
+        })
+        return data_processor.pd.DataFrame(rows)
+
+    detail_by_label: dict[str, dict] = {}
+    total_rows: list[dict] = []
+
+    for _, row in df_table.iterrows():
+        row_dict = dict(row)
+
+        if bool(row_dict.get("__is_total__", False)) or bool(row_dict.get("__is_grand_total__", False)):
+            total_rows.append(row_dict)
+            continue
+
+        label_value = build_report_3_display_label(row_dict)
+        row_dict["Channel"] = label_value
+        detail_by_label[label_value] = row_dict
+
+    completed_rows: list[dict] = []
+
+    for label_value in ordered_labels:
+        completed_rows.append(
+            detail_by_label.get(
+                label_value,
+                build_dashboard_report3_empty_row(label_value),
+            )
+        )
+
+    if total_rows:
+        for total_row in total_rows:
+            total_row["Channel"] = "Total Mexico"
+            completed_rows.append(total_row)
+    else:
+        grand_actual = sum(safe_float(row.get("Actual")) for row in completed_rows)
+        grand_plan = sum(safe_float(row.get("Plan")) for row in completed_rows)
+        grand_py = sum(safe_float(row.get("PY")) for row in completed_rows)
+
+        total_template = build_dashboard_report3_empty_row("Total Mexico")
+        total_row = recalculate_row_metrics(
+            total_template,
+            actual=grand_actual,
+            plan=grand_plan,
+            py=grand_py,
+        )
+        total_row["Channel"] = "Total Mexico"
+        total_row["__is_grand_total__"] = True
+        completed_rows.append(total_row)
+
+    return data_processor.pd.DataFrame(completed_rows)
+
+
+def build_dashboard_report3_compact_table_html(title: str, df_table) -> str:
+    """
+    Desempeño Comercial / Reporte 3 en el formato estándar del Dashboard.
+    Como es pequeño, se muestra completo.
+    """
+    if df_table is None or getattr(df_table, "empty", True):
+        return (
+            '<div class="dashboard-compact-block">'
+            f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+            '<div class="dashboard-kpi-muted">Información no disponible.</div>'
+            '</div>'
+        )
+
+    rows_html_parts: list[str] = []
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+
+        row_class = ""
+        if is_total or is_grand_total:
+            row_class = ' class="dashboard-compact-total"'
+
+        label_value = str(row.get("Channel", "")).strip()
+        if not label_value:
+            label_value = build_report_3_display_label(row)
+
+        if is_total or is_grand_total:
+            label_value = "Total Mexico"
+
+        rows_html_parts.append(
+            f'<tr{row_class}>'
+            f'<td class="dashboard-compact-label">{escape(label_value)}</td>'
+            f'{dashboard_compact_td(row.get("Actual"))}'
+            f'{dashboard_compact_td(row.get("Plan"))}'
+            f'{dashboard_compact_td(row.get("PY"))}'
+            f'{dashboard_compact_td(row.get("Var VS Plan"))}'
+            f'{dashboard_compact_td(row.get("%Var VS Plan"), is_percent=True)}'
+            f'{dashboard_compact_td(row.get("Var VS PY"))}'
+            f'{dashboard_compact_td(row.get("%Var VS PY"), is_percent=True)}'
+            '</tr>'
+        )
+
+    rows_html = "".join(rows_html_parts)
+
+    return (
+        '<div class="dashboard-compact-block">'
+        f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+        '<div class="dashboard-compact-table-wrap">'
+        '<table class="dashboard-compact-table">'
+        '<colgroup>'
+        '<col class="dashboard-col-channel">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-pct">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-pct">'
+        '</colgroup>'
+        '<thead>'
+        '<tr>'
+        '<th>Channel</th>'
+        '<th>Actual</th>'
+        '<th>Plan</th>'
+        '<th>PY</th>'
+        '<th>Var vs Plan</th>'
+        '<th>%Var vs Plan</th>'
+        '<th>Var vs PY</th>'
+        '<th>%Var vs PY</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        f'{rows_html}'
+        '</tbody>'
+        '</table>'
+        '</div>'
+        '</div>'
+    )
+
+
+def build_dashboard_report3_section_html() -> str:
+    report3_payload = dashboard_get_report3_payload()
+
+    if report3_payload is None:
+        return ""
+
+    mtd_table = report3_payload.get("mtd_channel_table")
+    ytd_table = report3_payload.get("ytd_channel_table")
+
+    ordered_labels = dashboard_report3_channel_order(mtd_table, ytd_table)
+    mtd_table = dashboard_complete_report3_table(mtd_table, ordered_labels)
+    ytd_table = dashboard_complete_report3_table(ytd_table, ordered_labels)
+
+    return (
+        '<div class="dashboard-report-section">'
+        '<div class="dashboard-report-pair-grid">'
+        f'{build_dashboard_report3_compact_table_html("Sales by Channel Monthly", mtd_table)}'
+        f'{build_dashboard_report3_compact_table_html("Sales by Channel YTD", ytd_table)}'
+        '</div>'
+        '</div>'
+    )
+
+
 def build_dashboard_stage_one_html(payload: dict) -> str:
     latest_month = int(payload["latest_month"])
     latest_year = int(payload["latest_year"])
@@ -5108,6 +5326,7 @@ def build_dashboard_stage_one_html(payload: dict) -> str:
         f'{build_dashboard_report1_section_html()}'
         f'{build_dashboard_report2_segment_section_html()}'
         f'{build_dashboard_report2_category_section_html()}'
+        f'{build_dashboard_report3_section_html()}'
         '</div>'
     )
 

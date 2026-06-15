@@ -814,7 +814,25 @@ def build_global_css() -> str:
         font-variant-numeric: tabular-nums;
     }}
 
-    .negative-value {{
+    
+    /* =====================================================
+       BASE MTD - NÚMEROS MÁS GRANDES EN TABLAS EJECUTIVAS
+       Solo afecta los valores numéricos de las tablas de Base MTD.
+       No modifica encabezados, etiquetas de periodo ni tarjetas KPI.
+       ===================================================== */
+    .base-mtd-number-table-card .h-value {{
+        font-size: 1.18rem !important;
+        font-weight: 650 !important;
+        line-height: 1.25 !important;
+    }}
+
+    .base-mtd-number-table-card .negative-value {{
+        font-size: 1.18rem !important;
+        font-weight: 800 !important;
+        line-height: 1.25 !important;
+    }}
+
+.negative-value {{
         color: {config.COLOR_ERROR};
         font-weight: 700;
     }}
