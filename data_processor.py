@@ -285,11 +285,15 @@ def calculate_gross_margin(df_sales: pd.DataFrame) -> pd.DataFrame:
 # Procesa ventas sin depender de mapeos
 # --------------------------------------------------------------
 def process_sales_data(df_sales: pd.DataFrame) -> pd.DataFrame:
-    df = standardize_columns(df_sales)
+    df_raw_audit = standardize_columns(df_sales)
+
+
+    df = df_raw_audit.copy()
     df = clean_sales_numeric_columns(df)
     df = add_year_month_columns(df)
     df = calculate_gsnr(df)
     df = calculate_gross_margin(df)
+
 
     return df
 
@@ -772,6 +776,99 @@ def safe_divide(numerator: float, denominator: float) -> float:
         return 0.0
     return float(numerator) / float(denominator)
 
+
+def has_report_value(*values, tolerance: float = 1e-9) -> bool:
+    """
+    Regla general para TODOS los reportes:
+    una fila se muestra si existe valor en Actual, Plan o PY.
+    Solo se oculta cuando los tres valores son cero real.
+    """
+    for value in values:
+        try:
+            numeric_value = float(value)
+        except (TypeError, ValueError):
+            numeric_value = 0.0
+        if pd.notna(numeric_value) and abs(numeric_value) > tolerance:
+            return True
+    return False
+
+
+def is_forbidden_placeholder_segment(value) -> bool:
+    """
+    Segmentos técnicos que NO deben imprimirse como filas de reporte.
+    ZZZZ era un placeholder interno del archivo/plan y no una categoría real
+    para mostrar al usuario. #N/A, Blanks, VARIOS y Other NO se excluyen aquí.
+    """
+    try:
+        normalized_value = normalize_special_dimension_label(
+            value,
+            blank_as="Blanks",
+            goba_to_barrilito=True,
+        )
+    except Exception:
+        normalized_value = str(value or "").strip().upper()
+
+    return normalized_value in {"ZZZZ", "ZZZ"}
+
+
+def normalize_special_dimension_label(value, *, blank_as: str = "Blanks", goba_to_barrilito: bool = False) -> str:
+    """
+    Normalización única para dimensiones de reportes.
+
+    Regla crítica:
+    - #N/A, N/A, NA, NaN/None/vacío real -> #N/A
+    - (blank), Blank, Blanks -> Blanks, salvo que se pida otra salida
+    - VARIOS / Other / demás valores se respetan; no se mezclan con ECO/EXP/etc.
+    """
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return blank_as
+
+    if goba_to_barrilito and upper_text == "GOBA":
+        return "BARRILITO"
+
+    return upper_text
+
+
+def normalize_excel_pivot_dimension(value, *, blank_as: str = "#N/A", goba_to_barrilito: bool = False) -> str:
+    """
+    Normalización estricta para campos que vienen DIRECTO de una pivote de Excel.
+
+    Esta función NO busca respaldos ni rellena una dimensión con otra.
+    Si el campo real de la pivote viene vacío/NaN/#N/A, el resultado queda como #N/A
+    para que nunca se mezcle dentro de ECO, EXP, ACCO, BARRILITO, etc.
+    """
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return blank_as
+
+    if goba_to_barrilito and upper_text == "GOBA":
+        return "BARRILITO"
+
+    return upper_text
+
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Construye tabla horizontal MTD/YTD
@@ -944,35 +1041,57 @@ def build_mtd_payload(
 # --------------------------------------------------------------
 def extract_channel_code(value) -> str:
     """
-    Extrae el código base de canal/oficina.
+    Extrae el código base de Oficina de Ventas / Channel sin perder categorías.
 
-    Regla importante:
-    - Los vacíos se conservan como "(blank)" para que la app refleje
-      lo que aparece en Excel mientras negocio define su significado.
+    Regla forzada para Reporte 1:
+    - #N/A, N/A, NA -> "#N/A"
+    - vacío real / NaN / None / texto nan -> "Blanks"
+    - (blank), Blank, Blanks -> "Blanks"
+    - cualquier otro valor se conserva como código base antes de ":".
     """
     if pd.isna(value):
-        return "(blank)"
+        return "Blanks"
 
     text = str(value).strip()
     if not text:
-        return "(blank)"
+        return "Blanks"
+
+    upper_text = re.sub(r"\s+", " ", text).upper()
+
+    if upper_text in {"#N/A", "N/A", "NA"}:
+        return "#N/A"
+
+    if upper_text in {"NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
 
     if ":" in text:
         code = text.split(":")[0].strip().upper()
     else:
         code = text.split()[0].strip().upper()
 
-    return code or "(blank)"
+    if code in {"#N/A", "N/A", "NA"}:
+        return "#N/A"
+
+    if code in {"", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    return code
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Obtiene etiqueta visual de canal
 # --------------------------------------------------------------
 def get_channel_display_label(channel_code: str) -> str:
-    clean_code = str(channel_code).strip()
-    if clean_code.upper() == "(BLANK)":
-        return "(blank)"
-    return config.REPORT_1_CHANNEL_LABELS.get(clean_code, clean_code)
+    clean_code = str(channel_code or "").strip()
+    upper_code = clean_code.upper()
+
+    if upper_code in {"#N/A", "N/A", "NA"}:
+        return "#N/A"
+
+    if not clean_code or upper_code in {"NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    return config.REPORT_1_CHANNEL_LABELS.get(upper_code, clean_code)
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -1067,14 +1186,7 @@ def get_plan_channel_totals_for_report_1(
     )
 
     def normalize_report_1_dict_key(raw_key) -> str:
-        clean_key = str(raw_key).strip().upper()
-        if not clean_key:
-            clean_key = "(BLANK)"
-        if clean_key in {"NAN", "NONE", "NULL", "NAT"}:
-            clean_key = "(BLANK)"
-        if clean_key == "(BLANK)":
-            return "(BLANK)"
-        return clean_key
+        return extract_channel_code(raw_key)
 
     def normalize_grouped_dict(values: dict) -> dict[str, float]:
         normalized: dict[str, float] = {}
@@ -1094,6 +1206,36 @@ def get_plan_channel_totals_for_report_1(
 # FUNCIÓN AUXILIAR:
 # Filtra ventas para reporte 1
 # --------------------------------------------------------------
+def find_report_1_sales_channel_column(df: pd.DataFrame) -> str | None:
+    """
+    Reporte 1 - BASE SAP.
+
+    Regla estricta según la pivote de Excel:
+    - El reporte se agrupa por Oficina de Ventas.
+    - No se usa Channel, Canal, Grupo de vendedores ni ninguna columna alterna.
+    - Si Oficina de Ventas viene vacío/NaN, se conserva como Blanks mediante extract_channel_code().
+    """
+    return find_first_existing_column(
+        df,
+        [
+            "Oficina de Ventas",
+            "Oficina Ventas",
+            "Office Sales",
+            "Sales Office",
+        ],
+    )
+
+
+def normalize_report_1_segment_value(value) -> str:
+    """Normaliza segmento para filtrar Reporte 1 sin borrar #N/A."""
+    if pd.isna(value):
+        return "#N/A"
+    text = str(value).strip().upper()
+    if not text or text in {"NAN", "NONE", "NULL", "NAT", "N/A", "NA"}:
+        return "#N/A"
+    return text
+
+
 def filter_sales_for_report_1(
     df_processed_sales: pd.DataFrame,
     segment_values: list[str] | None = None,
@@ -1102,20 +1244,27 @@ def filter_sales_for_report_1(
     df = standardize_columns(df_processed_sales).copy()
     df = exclude_afi_affiliates(df)
 
-    required_cols = ["Segm Neg", "Oficina de Ventas", config.COL_GSNR, config.COL_YEAR, config.COL_MONTH]
-    missing = [col for col in required_cols if col not in df.columns]
-    if missing:
+    segment_col = find_first_existing_column(df, ["Segm Neg", "Segmento", "Segment"])
+    channel_col = find_report_1_sales_channel_column(df)
+    gsnr_col = find_first_existing_column(df, [config.COL_GSNR, "GSNR"])
+
+    required_cols = [segment_col, channel_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
+    if any(col is None for col in required_cols):
         raise ValueError(
-            f"Faltan columnas requeridas en ventas para Reporte 1: {', '.join(missing)}"
+            "Faltan columnas requeridas en ventas para Reporte 1. "
+            "Se requieren Segmento, Oficina de Ventas/Channel, GSNR, Año y Mes."
         )
 
-    df["__segment__"] = df["Segm Neg"].astype(str).str.strip().str.upper()
-    df["__channel_code__"] = df["Oficina de Ventas"].apply(extract_channel_code)
-    df[config.COL_GSNR] = clean_numeric_series(df[config.COL_GSNR])
+    df["__segment__"] = df[segment_col].apply(normalize_report_1_segment_value)
+    df["__channel_code__"] = df[channel_col].apply(extract_channel_code)
+    df[config.COL_GSNR] = clean_numeric_series(df[gsnr_col])
 
     if segment_values is not None:
-        valid_segments = [str(x).strip().upper() for x in segment_values]
-        df = df[df["__segment__"].isin(valid_segments)].copy()
+        # REGLA FORZADA R1 - LEER TODO:
+        # Este reporte se agrupa por Oficina de Ventas. No debe depender de una
+        # lista cerrada de segmentos, porque eso puede ocultar Blanks/#N/A/VARIOS
+        # u oficinas nuevas con venta. AFI ya fue excluido arriba; lo demás se conserva.
+        pass
 
     if single_segment is not None:
         target = str(single_segment).strip().upper()
@@ -1166,13 +1315,11 @@ def get_sales_channel_totals_for_report_1(
     def clean_dict(values: dict) -> dict[str, float]:
         cleaned = {}
         for key, value in values.items():
-            clean_key = str(key).strip().upper()
-            if not clean_key:
-                clean_key = "(BLANK)"
-            if clean_key in {"NAN", "NONE", "NULL", "NAT"}:
-                clean_key = "(BLANK)"
+            clean_key = extract_channel_code(key)
+
             if is_affiliate_channel_code(clean_key):
                 continue
+
             cleaned[clean_key] = cleaned.get(clean_key, 0.0) + float(value)
         return cleaned
 
@@ -1234,9 +1381,7 @@ def get_ordered_report_1_codes(
 
     clean_codes = set()
     for code in codes_present:
-        clean_code = str(code).strip().upper()
-        if not clean_code:
-            clean_code = "(BLANK)"
+        clean_code = normalize_special_dimension_label(code, blank_as="Blanks")
         if clean_code in exclude_codes:
             continue
         if is_affiliate_channel_code(clean_code):
@@ -1289,7 +1434,9 @@ def build_report_1_without_kens_table(
         plan = float(plan_dict.get(code, 0.0))
         py = float(py_dict.get(code, 0.0))
 
-        if actual == 0 and plan == 0 and py == 0:
+        # Se muestra si tiene venta en Actual, Plan o PY.
+        # Solo se oculta cuando los tres valores son cero real.
+        if not has_report_value(actual, plan, py):
             continue
 
         total_actual += actual
@@ -1326,7 +1473,7 @@ def build_report_1_with_kens_table(
     plan_dict: dict[str, float],
     py_dict: dict[str, float],
 ) -> pd.DataFrame:
-    detail_codes_present = set(actual_dict.keys()) | set(py_dict.keys())
+    detail_codes_present = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
 
     ordered_detail_codes = get_ordered_report_1_codes(
         codes_present=detail_codes_present,
@@ -1339,7 +1486,8 @@ def build_report_1_with_kens_table(
         actual = float(actual_dict.get(code, 0.0))
         py = float(py_dict.get(code, 0.0))
 
-        if actual == 0 and py == 0:
+        # Se muestra si tiene venta en Actual, Plan o PY.
+        if not has_report_value(actual, plan_dict.get(code, 0.0), py):
             continue
 
         rows.append(
@@ -1484,73 +1632,11 @@ def find_first_existing_column(df: pd.DataFrame, candidate_columns: list[str]) -
 
     return None
 
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Normaliza texto visible para Región
-# --------------------------------------------------------------
-def normalize_report_2_label(value) -> str:
+def normalize_dimension_candidate_value(value) -> str:
     """
-    Normaliza Región para Reporte 2 sin ocultar categorías sin mapeo.
-
-    Regla dinámica:
-    - Si en Actual, Plan o PY existe una región vacía / N/A / #N/A,
-      debe conservarse como #N/A para que cuadre contra Excel.
-    - No se convierte a cadena vacía porque después desaparece del reporte.
-    """
-    if pd.isna(value):
-        return "#N/A"
-
-    text = str(value).strip()
-    if not text:
-        return "#N/A"
-
-    upper_text = text.upper()
-
-    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
-        return "#N/A"
-
-    return upper_text
-
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Normaliza texto visible para Segmento
-# GOBA se sustituye por BARRILITO
-# ZZZZ se excluye después en filtros
-# --------------------------------------------------------------
-def normalize_report_2_segment_label(value) -> str:
-    """
-    Normaliza Segmento para Reporte 2 sin borrar N/A.
-
-    GOBA se sigue mostrando como BARRILITO, pero valores vacíos, NaN,
-    N/A o #N/A se conservan como #N/A para mantener la lógica dinámica.
-    """
-    if pd.isna(value):
-        return "#N/A"
-
-    text = str(value).strip().upper()
-    if not text:
-        return "#N/A"
-
-    if text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
-        return "#N/A"
-
-    if text == "GOBA":
-        return "BARRILITO"
-
-    return text
-
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Normaliza Category para Reporte 2
-# --------------------------------------------------------------
-def normalize_report_2_category_label(value) -> str:
-    """
-    Normaliza Category para Reporte 2.
-
-    Importante:
-    - Antes el código convertía #N/A, N/A, nan, None en vacío.
-    - Para este reporte sí necesitamos conservar esa bolsa como categoría visible,
-      porque en Excel también aparece y forma parte del total.
+    Normalización de apoyo SOLO para elegir columnas de dimensión.
+    No se usa para sumar importes; solo ayuda a decidir qué columna trae
+    las categorías reales del reporte.
     """
     if pd.isna(value):
         return "#N/A"
@@ -1564,7 +1650,519 @@ def normalize_report_2_category_label(value) -> str:
     if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
         return "#N/A"
 
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    if upper_text == "GOBA":
+        return "BARRILITO"
+
+    return upper_text
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR CRÍTICA:
+# Resuelve dimensiones por fila sin perder #N/A / Blanks / VARIOS.
+# --------------------------------------------------------------
+def is_explicit_na_like(value) -> bool:
+    if pd.isna(value):
+        return True
+    text = re.sub(r"\s+", " ", str(value).strip()).upper()
+    return text in {"", "#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}
+
+
+def is_explicit_blank_like(value) -> bool:
+    if pd.isna(value):
+        return False
+    text = re.sub(r"\s+", " ", str(value).strip()).upper()
+    return text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}
+
+
+def normalize_business_dimension_value(value, *, goba_to_barrilito: bool = False) -> str:
+    """
+    Normaliza una dimensión de negocio sin ocultar categorías especiales.
+
+    Regla global para reportes:
+    - vacío / NaN / N/A / #N/A -> #N/A
+    - blank explícito -> Blanks
+    - GOBA -> BARRILITO solo cuando el reporte lo requiere
+    - cualquier otra categoría se respeta en mayúsculas
+    """
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    if goba_to_barrilito and upper_text == "GOBA":
+        return "BARRILITO"
+
+    return upper_text
+
+
+def normalize_special_override_dimension(value) -> str | None:
+    """
+    Detecta SOLO valores especiales reales que deben ganar sobre Region/Channel.
+
+    Este fix es para los casos que se veían en Excel como #N/A o Blanks, pero
+    la app los metía en ECO/EXP porque otra columna traía ECO/EXP. Si una fila
+    trae Channel/Canal/Oficina explícitamente vacío, NaN, #N/A o Blanks, esa
+    fila debe conservarse como #N/A/Blanks y NO heredarse a ECO/EXP.
+    """
+    if pd.isna(value):
+        return "#N/A"
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return "#N/A"
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    return None
+
+
+def get_first_special_dimension_override(row: pd.Series, candidate_columns: list[str]) -> str | None:
+    """
+    Revisa varias columnas de la MISMA fila y conserva #N/A/Blanks reales.
+
+    Esto corrige el caso donde Excel sí tiene la categoría #N/A, pero otra
+    columna trae EXP/ECO y el reporte terminaba mandando esa venta ahí.
+    Solo regresa algo cuando el valor es explícitamente especial.
+    """
+    for col in candidate_columns:
+        if col not in row.index:
+            continue
+        special_value = normalize_special_override_dimension(row.get(col))
+        if special_value is not None:
+            return special_value
+    return None
+
+
+def get_all_matching_columns(df: pd.DataFrame, candidate_columns: list[str]) -> list[str]:
+    """Obtiene todas las columnas que coinciden con los nombres candidatos."""
+    found: list[str] = []
+    normalized_candidates = {normalize_text(name) for name in candidate_columns}
+    for col in df.columns:
+        if normalize_text(col) in normalized_candidates and col not in found:
+            found.append(col)
+    return found
+
+
+def choose_column_preferring_real_specials(df: pd.DataFrame, candidate_columns: list[str]) -> str | None:
+    """
+    Si hay columnas duplicadas/parecidas, elige la que trae más #N/A/Blanks reales.
+    Esto evita agarrar una columna alterna que ya venía rellena como EXP/ECO.
+    """
+    columns = get_all_matching_columns(df, candidate_columns)
+    if not columns:
+        return None
+
+    def _score(col: str) -> tuple[int, int, int]:
+        normalized = df[col].apply(normalize_special_override_dimension)
+        special_count = int(normalized.notna().sum())
+        non_zero_count = int(df[col].notna().sum())
+        # Menor índice gana en empate para respetar orden del archivo.
+        return (special_count, non_zero_count, -list(df.columns).index(col))
+
+    return sorted(columns, key=_score, reverse=True)[0]
+
+
+def resolve_special_dimension_override_from_row(row: pd.Series, candidate_columns: list[str]) -> str | None:
+    """Busca #N/A/Blanks explícitos por fila en columnas alternas de la dimensión."""
+    for col in candidate_columns:
+        if col not in row.index:
+            continue
+        override_value = normalize_special_override_dimension(row.get(col))
+        if override_value is not None:
+            return override_value
+    return None
+
+
+def get_existing_columns_in_order(df: pd.DataFrame, candidate_names: list[str]) -> list[str]:
+    return get_candidate_columns_by_names(df, candidate_names)
+
+
+def resolve_dimension_from_row(
+    row: pd.Series,
+    preferred_columns: list[str],
+    fallback_columns: list[str] | None = None,
+    *,
+    goba_to_barrilito: bool = False,
+) -> str:
+    """
+    Resuelve una categoría POR FILA.
+
+    Esto es lo que faltaba en R1/R2/R3: no basta con elegir una sola columna
+    para todo el DataFrame, porque hay filas donde una columna alterna trae EXP/ECO
+    y la dimensión real viene como #N/A o vacía. Esa fila NO se debe meter en EXP.
+
+    Orden:
+    1) si la columna preferida existe, se usa aunque venga vacía, porque vacío = #N/A.
+    2) si no existe ninguna preferida, se buscan columnas fallback.
+    3) jamás se reemplaza un #N/A/vacío real por EXP/ECO/NORTE/etc. de otra columna.
+    """
+    for col in preferred_columns:
+        if col in row.index:
+            return normalize_business_dimension_value(
+                row.get(col),
+                goba_to_barrilito=goba_to_barrilito,
+            )
+
+    for col in (fallback_columns or []):
+        if col in row.index:
+            return normalize_business_dimension_value(
+                row.get(col),
+                goba_to_barrilito=goba_to_barrilito,
+            )
+
+    return "#N/A"
+
+
+def get_candidate_columns_by_names(df: pd.DataFrame, candidate_names: list[str]) -> list[str]:
+    """
+    Devuelve columnas candidatas respetando el orden solicitado, sin duplicados.
+    """
+    if df is None or df.empty:
+        return []
+
+    columns = list(df.columns)
+    normalized_map: dict[str, list[str]] = {}
+
+    for col in columns:
+        normalized_map.setdefault(normalize_text(col), []).append(col)
+
+    result: list[str] = []
+
+    for name in candidate_names:
+        normalized_name = normalize_text(name)
+        for col in normalized_map.get(normalized_name, []):
+            if col not in result:
+                result.append(col)
+
+    return result
+
+
+def score_dimension_column(
+    df: pd.DataFrame,
+    column_name: str,
+    expected_values: set[str] | None = None,
+    priority_bonus: int = 0,
+) -> tuple[int, int, int, int, str]:
+    """
+    Califica una columna candidata.
+
+    La razón del score es resolver el problema actual:
+    cuando existen dos columnas posibles (por ejemplo Region y Sales region short,
+    o Channel y Grupo de vendedores), NO debemos escoger a ciegas la primera.
+    Debe ganar la columna que realmente trae más categorías útiles, incluyendo
+    #N/A, Blanks, VARIOS u Other.
+    """
+    if column_name not in df.columns:
+        return (-1, -1, -1, -1, column_name)
+
+    series = df[column_name]
+    normalized = series.apply(normalize_dimension_candidate_value)
+
+    non_empty_count = int((normalized.astype(str).str.strip() != "").sum())
+    unique_values = set(normalized.dropna().astype(str).str.strip())
+
+    special_values = {"#N/A", "Blanks", "VARIOS", "VARIOUS", "OTHER", "OTHERS"}
+    special_count = len(unique_values & special_values)
+
+    expected_count = 0
+    if expected_values:
+        expected_count = len(unique_values & expected_values)
+
+    useful_unique_count = len(unique_values - {"", "NAN", "NONE", "NULL", "NAT"})
+
+    return (
+        special_count,
+        expected_count,
+        useful_unique_count,
+        non_empty_count + int(priority_bonus),
+        column_name,
+    )
+
+
+def choose_best_dimension_column(
+    df: pd.DataFrame,
+    candidate_names: list[str],
+    expected_values: set[str] | None = None,
+) -> str | None:
+    """
+    Elige la mejor columna real para una dimensión.
+
+    Esto evita el error de meter ventas de #N/A en EXP/ECO solo porque el código
+    eligió otra columna que también existía, pero no era la del pivote.
+    """
+    candidates = get_candidate_columns_by_names(df, candidate_names)
+
+    if not candidates:
+        return None
+
+    scored: list[tuple[tuple[int, int, int, int, str], str]] = []
+
+    for priority_index, col in enumerate(candidates):
+        # Pequeño bono por prioridad, pero menor que encontrar #N/A/Blanks/VARIOS.
+        priority_bonus = max(len(candidates) - priority_index, 0)
+        score = score_dimension_column(
+            df,
+            col,
+            expected_values=expected_values,
+            priority_bonus=priority_bonus,
+        )
+        scored.append((score, col))
+
+    scored.sort(reverse=True, key=lambda item: item[0])
+    return scored[0][1]
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Detecta la columna correcta de región para Reporte 2
+# --------------------------------------------------------------
+def find_report_2_region_column(df: pd.DataFrame) -> str | None:
+    """
+    Detecta la columna REAL de Región para Segment x Region.
+
+    Corrección final:
+    Para este reporte el pivote usa la columna Region. Por eso se respeta
+    Region/Región antes que cualquier otra columna parecida. El scoring anterior
+    podía elegir una columna alterna y mezclar importes de #N/A, VARIOS o Blanks
+    dentro de ECO/EXP/NORTE/etc.
+    """
+    preferred_columns = [
+        "Region",
+        "REGION",
+        "Región",
+        "REGIÓN",
+    ]
+
+    column = find_first_existing_column(df, preferred_columns)
+    if column is not None:
+        return column
+
+    return None
+
+
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza texto visible para Región
+# --------------------------------------------------------------
+def normalize_report_2_label(value) -> str:
+    """Normaliza Región para Segment x Region igual que la pivote: vacío/#N/A queda #N/A."""
+    return normalize_excel_pivot_dimension(value, blank_as="#N/A")
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza texto visible para Segmento
+# GOBA se sustituye por BARRILITO
+# ZZZZ se excluye después en filtros
+# --------------------------------------------------------------
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza texto visible para Segmento
+# GOBA se sustituye por BARRILITO
+# ZZZZ se excluye después en filtros
+# --------------------------------------------------------------
+def normalize_report_2_segment_label(value) -> str:
+    """Normaliza Segmento sin borrar #N/A; GOBA se muestra como BARRILITO."""
+    return normalize_special_dimension_label(value, blank_as="Blanks", goba_to_barrilito=True)
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza Category para Reporte 2
+# --------------------------------------------------------------
+def normalize_report_2_category_label(value) -> str:
+    """Normaliza Category sin mezclar #N/A con Blanks."""
+    return normalize_special_dimension_label(value, blank_as="Blanks")
+
+
+def normalize_report_2_sales_category_label(value) -> str:
+    """BASE SAP: #N/A/NA se conserva como #N/A; Blanks se conserva como Blanks."""
+    return normalize_special_dimension_label(value, blank_as="Blanks")
+
+
+def normalize_report_2_plan_category_label(value) -> str | None:
+    """
+    Plan2026 by SKU: normaliza valores explícitos de Corpo Category.
+
+    Importante:
+    - Si el valor viene vacío/NaN, NO se decide aquí si es #N/A o Blanks.
+    - La decisión dinámica de vacíos se hace por fila en
+      resolve_report_2_plan_category_from_row().
+    """
+    if pd.isna(value):
+        return None
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return None
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    if upper_text in {"NAN", "NONE", "NULL", "NAT"}:
+        return None
+
     return text
+
+
+def classify_report_2_category_value(value) -> str | None:
+    """
+    Clasifica una etiqueta de categoría sin adivinar ni mezclar.
+
+    Regresa:
+    - "#N/A" cuando el valor trae explícitamente #N/A / N/A / NA.
+    - "Blanks" cuando el valor trae explícitamente blank / blanks / (blank).
+    - None cuando el valor realmente está vacío o no sirve para clasificar.
+    - La categoría original cuando es una categoría normal.
+    """
+    if pd.isna(value):
+        return None
+
+    text = re.sub(r"\s+", " ", str(value).strip())
+    if not text:
+        return None
+
+    upper_text = text.upper()
+
+    if upper_text in {"#N/A", "N/A", "NA"}:
+        return "#N/A"
+
+    if upper_text in {"(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return "Blanks"
+
+    if upper_text in {"NAN", "NONE", "NULL", "NAT"}:
+        return None
+
+    return text
+
+
+def get_report_2_category_helper_columns(row: pd.Series, category_col: str) -> list[str]:
+    """
+    Busca columnas auxiliares del Plan que pueden conservar la categoría real.
+
+    Importante para Plan2026 by SKU:
+    algunas filas pueden traer Corpo Category vacío, pero otra columna como
+    Rule: Seg-Corpo category conserva #N/A. Esa columna debe revisarse antes
+    de mandar la fila a Blanks.
+    """
+    helper_columns: list[str] = []
+    category_col_normalized = normalize_text(category_col)
+
+    priority_names = [
+        "Rule: Seg-Corpo category",
+        "Rule Seg-Corpo category",
+        "Rule: Seg Corpo category",
+        "Rule Seg Corpo category",
+        "Seg-Corpo category",
+        "Seg Corpo category",
+        "Rule: Seg-Corpo Category",
+        "Rule Seg-Corpo Category",
+        "Corpo Category",
+        "CorpoCategory",
+        "Category",
+    ]
+    priority_normalized = [normalize_text(name) for name in priority_names]
+
+    for target in priority_normalized:
+        for col in row.index:
+            normalized_col = normalize_text(col)
+            if normalized_col == category_col_normalized:
+                continue
+            if normalized_col == target and col not in helper_columns:
+                helper_columns.append(col)
+
+    for col in row.index:
+        normalized_col = normalize_text(col)
+        if normalized_col == category_col_normalized:
+            continue
+        if col in helper_columns:
+            continue
+        if "category" in normalized_col and (
+            "rule" in normalized_col
+            or "seg" in normalized_col
+            or "corpo" in normalized_col
+        ):
+            helper_columns.append(col)
+
+    return helper_columns
+
+
+def resolve_report_2_plan_category_from_row(row: pd.Series, category_col: str) -> str:
+    """
+    Resuelve Corpo Category del Plan SIN fijar categorías ni montos.
+
+    Regla dinámica:
+    1) Si Corpo Category trae una categoría explícita, se respeta:
+       - #N/A / N/A / NA -> #N/A
+       - (blank) / Blanks -> Blanks
+       - cualquier categoría normal -> igual
+    2) Si Corpo Category viene vacío/NaN:
+       - si la fila trae Material o Descripción del Material útil, se clasifica como #N/A.
+       - si NO trae Material ni Descripción útil, se clasifica como Blanks.
+
+    Nota:
+    No se usa local Sub category / Categoría del Material para decidir #N/A,
+    porque en el Plan existen filas tipo Blanks que sí traen subcategoría
+    pero NO traen material/descripcion real. Usar esa columna mete esos importes
+    dentro de #N/A y descuadra las sumas.
+    """
+    explicit_category = normalize_report_2_plan_category_label(row.get(category_col, None))
+    if explicit_category is not None:
+        return explicit_category
+
+    material_description_candidates = [
+        "Material",
+        "Descripción del Material",
+        "Descripcion del Material",
+        "Descripción Material",
+        "Descripcion Material",
+    ]
+
+    for candidate_col in material_description_candidates:
+        if candidate_col not in row.index:
+            continue
+
+        value = row.get(candidate_col)
+        if pd.isna(value):
+            continue
+
+        text = re.sub(r"\s+", " ", str(value).strip())
+        if not text:
+            continue
+
+        upper_text = text.upper()
+        if upper_text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+            continue
+
+        return "#N/A"
+
+    return "Blanks"
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -1590,27 +2188,15 @@ def normalize_report_2_product_label(value) -> str:
 # Normaliza Channel para Reporte 3
 # --------------------------------------------------------------
 def normalize_report_3_channel_label(value) -> str:
-    """
-    Normaliza Channel para Reporte 3 sin ocultar canales sin mapeo.
+    """Normaliza Channel para Reporte 3 sin ocultar #N/A, Blanks, VARIOS u Other."""
+    # Reporte 3 debe comportarse como la pivote: si Channel/REGION viene vacío o #N/A, se muestra #N/A.
+    return normalize_excel_pivot_dimension(value, blank_as="#N/A", goba_to_barrilito=True)
 
-    GOBA se sigue mostrando como BARRILITO, pero valores vacíos, NaN,
-    N/A o #N/A se conservan como #N/A para que el total cuadre.
-    """
-    if pd.isna(value):
-        return "#N/A"
 
-    text = str(value).strip().upper()
-    if not text:
-        return "#N/A"
-
-    if text in {"#N/A", "N/A", "NA", "NAN", "NONE", "NULL", "NAT"}:
-        return "#N/A"
-
-    if text == "GOBA":
-        return "BARRILITO"
-
-    return text
-
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Normaliza nombre cliente para Reporte 4
+# --------------------------------------------------------------
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
 # Normaliza nombre cliente para Reporte 4
@@ -1633,7 +2219,11 @@ def normalize_report_4_client_code(value) -> str:
     if pd.isna(value):
         return ""
 
-    return str(value).strip().upper()
+    text = str(value).strip().upper()
+    if text in {"", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
+        return ""
+
+    return text
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -1669,15 +2259,19 @@ def prepare_sales_for_report_2(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     df = standardize_columns(df_processed_sales)
     df = exclude_afi_affiliates(df)
 
+    # MISMA ESTRUCTURA QUE LA PIVOTE DE EXCEL:
+    # Rows = Segm Neg + Region.
+    # Regla estricta: NO se usan Channel/Canal/Oficina/Sales Region como respaldo.
+    # Si Region viene vacío/NaN/#N/A, se queda como #N/A.
     segment_col = find_first_existing_column(df, ["Segm Neg", "Segmento", "Segment"])
-    region_col = find_first_existing_column(df, ["Región", "Region"])
+    region_col = find_first_existing_column(df, ["Region", "REGION", "Región", "REGIÓN"])
     gsnr_col = find_first_existing_column(df, [config.COL_GSNR, "GSNR"])
 
     required_columns = [segment_col, region_col, gsnr_col, config.COL_YEAR, config.COL_MONTH]
     if any(col is None for col in required_columns):
         raise ValueError(
             "Faltan columnas requeridas en ventas para Reporte 2. "
-            "Se requieren Segmento, Región, GSNR, Año y Mes."
+            "Se requieren Segm Neg, Region, GSNR, Año y Mes."
         )
 
     df = df.copy()
@@ -1685,29 +2279,24 @@ def prepare_sales_for_report_2(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     df["__region__"] = df[region_col].apply(normalize_report_2_label)
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
-    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
-    # Sólo se conserva la exclusión de ZZZZ porque es regla de negocio.
-    df = df[
-        df["__segment__"] != "ZZZZ"
-    ].copy()
-
     return df
 
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Prepara plan SKU para Reporte 2
-# --------------------------------------------------------------
+
 def prepare_plan_sku_for_report_2(df_plan_sku: pd.DataFrame) -> pd.DataFrame:
     df = standardize_columns(df_plan_sku)
     df = exclude_afi_affiliates(df)
 
-    segment_col = find_first_existing_column(df, ["Segmento", "Segment", "Segm Neg"])
-    region_col = find_first_existing_column(df, ["Región", "Region"])
+    # MISMA ESTRUCTURA QUE LA PIVOTE DE EXCEL:
+    # Rows = Segmento + REGION.
+    # Regla estricta: NO se usan Channel/Canal/Sales Region como respaldo.
+    # Si REGION viene vacío/NaN/#N/A, se queda como #N/A.
+    segment_col = find_first_existing_column(df, ["Segmento", "SEGMENTO", "Segment", "Segm Neg"])
+    region_col = find_first_existing_column(df, ["REGION", "Region", "Región", "REGIÓN"])
 
     if segment_col is None or region_col is None:
         raise ValueError(
             "Faltan columnas requeridas en Plan por SKU para Reporte 2. "
-            "Se requieren Segmento y Región."
+            "Se requieren Segmento y REGION."
         )
 
     month_columns = get_plan_sku_gs_columns(df)
@@ -1721,18 +2310,9 @@ def prepare_plan_sku_for_report_2(df_plan_sku: pd.DataFrame) -> pd.DataFrame:
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col])
 
-    # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
-    # Sólo se conserva la exclusión de ZZZZ porque es regla de negocio.
-    df = df[
-        df["__segment__"] != "ZZZZ"
-    ].copy()
-
     return df
 
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Agrega ventas Segment x Region
-# --------------------------------------------------------------
+
 def get_sales_segment_region_totals_for_report_2(
     df_processed_sales: pd.DataFrame,
     selected_year: int,
@@ -1864,7 +2444,7 @@ def aggregated_segment_region_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, st
             normalize_report_2_segment_label(row["Segmento"]),
             normalize_report_2_label(row["Región"]),
         )
-        result[key] = float(row["Valor"])
+        result[key] = result.get(key, 0.0) + float(row["Valor"])
 
     return result
 
@@ -1939,7 +2519,9 @@ def build_report_2_segment_region_table(
     grouped_regions_by_segment: dict[str, list[str]] = {}
 
     for segment_value, region_value in all_keys:
-        if segment_value == "ZZZZ":
+        # ZZZZ es placeholder técnico: se elimina.
+        # #N/A, Blanks, VARIOS, Other y cualquier categoría real SÍ se conservan.
+        if is_forbidden_placeholder_segment(segment_value):
             continue
         grouped_regions_by_segment.setdefault(segment_value, []).append(region_value)
 
@@ -1955,9 +2537,6 @@ def build_report_2_segment_region_table(
     grand_total_py = 0.0
 
     for segment_value in ordered_segments:
-        if segment_value == "ZZZZ":
-            continue
-
         region_values = sorted(
             set(grouped_regions_by_segment.get(segment_value, [])),
             key=get_report_2_region_sort_key,
@@ -1974,7 +2553,8 @@ def build_report_2_segment_region_table(
             plan_value = float(plan_dict.get(key, 0.0))
             py_value = float(py_dict.get(key, 0.0))
 
-            if actual_value == 0 and plan_value == 0 and py_value == 0:
+            # Se muestra si tiene venta en Actual, Plan o PY.
+            if not has_report_value(actual_value, plan_value, py_value):
                 continue
 
             total_actual += actual_value
@@ -1991,19 +2571,19 @@ def build_report_2_segment_region_table(
                 )
             )
 
-        if total_actual == 0 and total_plan == 0 and total_py == 0:
-            continue
-
-        rows.append(
-            build_report_2_row(
-                segment_label=segment_value,
-                region_label=config.REPORT_2_TOTAL_LABEL,
-                actual=total_actual,
-                plan=total_plan,
-                py=total_py,
-                is_total=True,
+        # Solo se imprime el total del segmento si el segmento tuvo al menos
+        # un valor real en Actual, Plan o PY. Evita filas tipo ZZZZ | Total en cero.
+        if has_report_value(total_actual, total_plan, total_py):
+            rows.append(
+                build_report_2_row(
+                    segment_label=segment_value,
+                    region_label=config.REPORT_2_TOTAL_LABEL,
+                    actual=total_actual,
+                    plan=total_plan,
+                    py=total_py,
+                    is_total=True,
+                )
             )
-        )
 
         grand_total_actual += total_actual
         grand_total_plan += total_plan
@@ -2186,7 +2766,7 @@ def prepare_sales_for_report_2_category(df_processed_sales: pd.DataFrame) -> pd.
         )
 
     df = df.copy()
-    df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
+    df["__category__"] = df[category_col].apply(normalize_report_2_sales_category_label)
     df["__material__"] = df[material_col].apply(normalize_report_2_material_label)
     df["__description__"] = df[description_col].apply(normalize_report_2_material_description_label)
 
@@ -2251,7 +2831,10 @@ def prepare_plan_sku_for_report_2_category(df_plan_sku: pd.DataFrame) -> pd.Data
         raise ValueError("No se detectaron columnas mensuales válidas en Plan por SKU.")
 
     df = df.copy()
-    df["__category__"] = df[category_col].apply(normalize_report_2_category_label)
+    df["__category__"] = df.apply(
+        lambda row: resolve_report_2_plan_category_from_row(row, category_col),
+        axis=1,
+    )
     df["__material__"] = df[material_col].apply(normalize_report_2_material_label)
     df["__description__"] = df[description_col].apply(normalize_report_2_material_description_label)
 
@@ -2385,7 +2968,7 @@ def aggregated_category_df_to_dict(df: pd.DataFrame) -> dict[tuple[str, str, str
             normalize_report_2_product_label(row.get("Categoría del Material", "#N/A")),
             normalize_report_2_material_description_label(row.get("Descripción del Material", "#N/A")),
         )
-        result[key] = float(row["Valor"])
+        result[key] = result.get(key, 0.0) + float(row["Valor"])
 
     return result
 
@@ -2397,6 +2980,8 @@ def get_report_2_category_sort_key(category_value: str) -> str:
     normalized_value = normalize_report_2_category_label(category_value)
     if normalized_value == "#N/A":
         return "zzzzzz_#n/a"
+    if normalized_value == "Blanks":
+        return "zzzzzz_blanks"
     return normalized_value.lower()
 
 # --------------------------------------------------------------
@@ -2514,7 +3099,7 @@ def build_report_2_category_table(
             plan_value = float(plan_dict.get(key, 0.0))
             py_value = float(py_dict.get(key, 0.0))
 
-            if actual_value == 0 and plan_value == 0 and py_value == 0:
+            if not has_report_value(actual_value, plan_value, py_value):
                 continue
 
             rows.append(
@@ -2532,9 +3117,6 @@ def build_report_2_category_table(
             total_actual += actual_value
             total_plan += plan_value
             total_py += py_value
-
-        if total_actual == 0 and total_plan == 0 and total_py == 0:
-            continue
 
         rows.append(
             build_report_2_category_row(
@@ -2642,34 +3224,67 @@ def build_report_2_category_payload(
 # FUNCIÓN AUXILIAR:
 # Construye Channel para Reporte 3
 # Si existe Canal, lo usa.
+# IMPORTANTE: no usa "Canal de Ventas" porque ese campo contiene canales comerciales tipo 10/20/30,
+# y el Reporte 3 debe conservar el nivel corporativo ACCO/ECO/EXP/BARRILITO/KEN/#N/A.
 # Si no existe, aplica la lógica:
 # NORTE / SUR / RETAIL -> Segmento
 # resto -> Region
 # --------------------------------------------------------------
-def build_report_3_channel_series(df: pd.DataFrame) -> pd.Series:
-    channel_col = find_first_existing_column(df, ["Canal", "Channel"])
-    region_col = find_first_existing_column(df, ["Región", "Region"])
-    segment_col = find_first_existing_column(df, ["Segmento", "Segm Neg", "Segment"])
+def build_report_3_channel_series_from_sales(df: pd.DataFrame) -> pd.Series:
+    """
+    Reporte 3 - ACTUAL/PY (BASE SAP).
 
-    if channel_col is not None:
-        return df[channel_col].apply(normalize_report_3_channel_label)
+    Regla estricta según Excel:
+    - Se lee la columna Channel directa de BASE SAP.
+    - No se usa Canal, Oficina de Ventas, Region, Segmento ni concatenado.
+    - Si Channel viene vacío/NaN/#N/A, se queda como #N/A.
+    """
+    channel_col = find_first_existing_column(df, ["Channel", "CHANNEL"])
+
+    if channel_col is None:
+        raise ValueError(
+            "No se encontró la columna exacta 'Channel' en BASE SAP para Reporte 3. "
+            "En ventas, Reporte 3 debe leer Channel directo; el concatenado solo aplica al Plan."
+        )
+
+    return df[channel_col].apply(normalize_report_3_channel_label)
+
+
+def build_report_3_channel_series_from_plan(df: pd.DataFrame) -> pd.Series:
+    """
+    Reporte 3 - PLAN.
+
+    Regla obligatoria del concatenado:
+    - Si REGION es NORTE / SUR / RETAIL => usar Segmento.
+    - Si REGION es ECO / EXP / KEN / VARIOS / #N/A / Other / etc. => usar REGION.
+    - Si REGION está vacío/NaN/#N/A => #N/A.
+    - GOBA se visualiza como BARRILITO.
+
+    No se revisan columnas alternas; cada fila conserva su etiqueta correspondiente.
+    """
+    region_col = find_first_existing_column(df, ["REGION", "Region", "Región", "REGIÓN"])
+    segment_col = find_first_existing_column(df, ["Segmento", "SEGMENTO", "Segment", "Segm Neg"])
 
     if region_col is None or segment_col is None:
         raise ValueError(
-            "Faltan columnas requeridas para construir Channel en Reporte 3. "
-            "Se requiere Canal o bien Region y Segmento."
+            "Faltan columnas requeridas para construir Channel en Plan. "
+            "Reporte 3 Plan requiere REGION + Segmento para aplicar el concatenado."
         )
 
-    region_series = df[region_col].apply(normalize_report_3_channel_label)
-    segment_series = df[segment_col].apply(normalize_report_3_channel_label)
+    def _resolve_row(row: pd.Series) -> str:
+        region_value = normalize_report_3_channel_label(row.get(region_col))
+        segment_value = normalize_report_2_segment_label(row.get(segment_col))
 
-    return pd.Series(
-        [
-            segment_value if region_value in config.REPORT_3_REGION_TO_SEGMENT else region_value
-            for region_value, segment_value in zip(region_series, segment_series)
-        ],
-        index=df.index,
-    )
+        if region_value in {"NORTE", "SUR", "RETAIL"}:
+            return segment_value
+
+        return region_value
+
+    return df.apply(_resolve_row, axis=1)
+
+
+def build_report_3_channel_series(df: pd.DataFrame) -> pd.Series:
+    return build_report_3_channel_series_from_plan(df)
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -2689,7 +3304,7 @@ def prepare_sales_for_report_3(df_processed_sales: pd.DataFrame) -> pd.DataFrame
         )
 
     df = df.copy()
-    df["__channel__"] = build_report_3_channel_series(df)
+    df["__channel__"] = build_report_3_channel_series_from_sales(df)
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
     # No se eliminan vacíos / N/A: ya fueron normalizados como #N/A.
@@ -2710,7 +3325,7 @@ def prepare_plan_sku_for_report_3(df_plan_sku: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("No se detectaron columnas mensuales válidas en Plan por SKU.")
 
     df = df.copy()
-    df["__channel__"] = build_report_3_channel_series(df)
+    df["__channel__"] = build_report_3_channel_series_from_plan(df)
 
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col])
@@ -2846,7 +3461,11 @@ def aggregated_channel_df_to_dict(df: pd.DataFrame) -> dict[str, float]:
 
     for _, row in df.iterrows():
         key = normalize_report_3_channel_label(row["Channel"])
-        result[key] = float(row["Valor"])
+        # IMPORTANTE: no sobrescribir duplicados.
+        # Si Actual, Plan o PY traen el mismo canal en más de una fuente/fila,
+        # todos los importes deben sumarse para que #N/A, VARIOS y cualquier
+        # canal dinámico cuadren contra Excel.
+        result[key] = result.get(key, 0.0) + float(row["Valor"])
 
     return result
 
@@ -2914,11 +3533,16 @@ def build_report_3_channel_table(
     grand_total_py = 0.0
 
     for channel_value in ordered_channels:
+        # ZZZZ nunca debe mostrarse como canal final.
+        if is_forbidden_placeholder_segment(channel_value):
+            continue
+
         actual_value = float(actual_dict.get(channel_value, 0.0))
         plan_value = float(plan_dict.get(channel_value, 0.0))
         py_value = float(py_dict.get(channel_value, 0.0))
 
-        if actual_value == 0 and plan_value == 0 and py_value == 0:
+        # Se muestra si tiene venta en Actual, Plan o PY.
+        if not has_report_value(actual_value, plan_value, py_value):
             continue
 
         rows.append(
@@ -3104,7 +3728,7 @@ def normalize_report_4_client_code(value) -> str:
         return ""
 
     text = str(value).strip().upper()
-    if text in {"", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK"}:
+    if text in {"", "NAN", "NONE", "NULL", "NAT", "(BLANK)", "BLANK", "(BLANKS)", "BLANKS"}:
         return ""
 
     return text
@@ -3275,6 +3899,83 @@ def prepare_sales_for_report_4(df_processed_sales: pd.DataFrame) -> pd.DataFrame
 # FUNCIÓN AUXILIAR:
 # Prepara plan cliente para Reporte 4
 # --------------------------------------------------------------
+def build_report_4_default_plan_name_to_code_overrides() -> dict[str, str]:
+    """
+    Equivalencias mínimas para Plan2026 by Client cuando la hoja trae
+    Customer name pero deja vacío el código Client.
+
+    Esto NO define el ranking ni cambia la estructura visual del reporte.
+    Solo evita que el Plan se pierda cuando el archivo no trae código.
+    """
+    default_overrides = {
+        "CT INTERNACIONAL DEL NOROESTE": "C02206",
+        "INGRAM MICRO MEXICO": "C00304",
+        "INGRAM MICRO MEXICO MXN": "C00304",
+        "INGRAM MICRO MEXICO USD": "C02125",
+        "TECNOLOGIA SMARTBITT": "C02454",
+        "TECNOLOGIA SMARTBITT MXN": "C02454",
+        "TECNOLOGIA SMARTBITT USD": "C02469",
+        "TECHSMART MAYOREO": "C02158",
+        "BANCO SANTANDER MEXICO S.A.": "C02355",
+        "BANCO SANTANDER MEXICO S.A.,": "C02355",
+        "CVA": "C02474",
+        "COMERCIALIZADORA DE VALOR AGREGADO": "C02474",
+        "COMERCIALIZADORA DE VALOR AGREGADO USD": "C02474",
+    }
+
+    configured_overrides = getattr(
+        config,
+        "REPORT_4_PLAN_CLIENT_NAME_TO_CODE_OVERRIDES",
+        {},
+    )
+
+    merged_overrides = dict(default_overrides)
+    if isinstance(configured_overrides, dict):
+        merged_overrides.update(configured_overrides)
+
+    return {
+        normalize_report_4_client_name(name): normalize_report_4_client_code(code)
+        for name, code in merged_overrides.items()
+        if normalize_report_4_client_name(name) and normalize_report_4_client_code(code)
+    }
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Construye llave sintética para filas de Plan sin código
+# --------------------------------------------------------------
+def build_report_4_plan_only_client_code(row) -> str:
+    """
+    Cuando Plan2026 by Client trae una fila sin código y no existe una
+    equivalencia por nombre, no se debe tirar esa fila porque descuadra
+    el total del Plan.
+
+    Se genera una llave interna estable para conservar el monto en el
+    ranking dinámico. Esto no afecta Actual/PY, que siguen cruzando por
+    código real cuando existe.
+    """
+    name_value = normalize_report_4_client_name(row.get("Nombre del Cliente", ""))
+
+    extra_parts = []
+    for column_name in ["Segment", "Sales Region", "Sales region short", "Channel"]:
+        if column_name in row.index:
+            normalized_part = normalize_report_4_client_name(row.get(column_name, ""))
+            if normalized_part:
+                extra_parts.append(normalized_part)
+
+    raw_key = "_".join([part for part in [name_value] + extra_parts if part])
+    raw_key = re.sub(r"[^A-Z0-9]+", "_", raw_key).strip("_")
+
+    if not raw_key:
+        raw_key = f"ROW_{row.name}"
+
+    return f"PLAN_ONLY_{raw_key}"
+
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Prepara plan cliente para Reporte 4
+# --------------------------------------------------------------
 def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFrame:
     df = standardize_columns(df_plan_client)
     df = remove_total_like_rows(df)
@@ -3282,28 +3983,54 @@ def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFra
     client_code_col = get_report_4_plan_client_code_column(df)
     client_name_col = get_report_4_plan_client_name_column(df)
 
-    if client_code_col is None:
-        raise ValueError(
-            "Faltan columnas requeridas en Plan por Cliente para Reporte 4. "
-            "Se requiere columna de código como 'Client'."
-        )
-
     month_columns = get_plan_client_month_columns(df)
     if not month_columns:
         raise ValueError("No se detectaron columnas mensuales válidas en Plan por Cliente.")
 
     df = df.copy()
-    df["Cliente"] = df[client_code_col].apply(normalize_report_4_client_code)
+
+    if client_code_col is not None:
+        df["Cliente"] = df[client_code_col].apply(normalize_report_4_client_code)
+    else:
+        df["Cliente"] = ""
 
     if client_name_col is not None:
         df["Nombre del Cliente"] = df[client_name_col].fillna("").astype(str).str.strip()
     else:
         df["Nombre del Cliente"] = ""
 
+    # 1) Primero intenta completar códigos vacíos por Customer name.
+    #    Esto cubre filas de Kensington y otros clientes del Plan que vienen sin Client.
+    name_to_code_overrides = build_report_4_default_plan_name_to_code_overrides()
+
+    blank_code_mask = df["Cliente"] == ""
+    if blank_code_mask.any() and name_to_code_overrides:
+        normalized_names = df["Nombre del Cliente"].apply(normalize_report_4_client_name)
+        df.loc[blank_code_mask, "Cliente"] = normalized_names.loc[blank_code_mask].map(
+            name_to_code_overrides
+        ).fillna("")
+
+    # 2) Si todavía quedan filas con Plan y sin código, NO se eliminan.
+    #    Se les asigna una llave interna para que el Plan total no se pierda.
+    #    Antes aquí se filtraban y por eso el Plan del Reporte 4 no cuadraba.
+    blank_code_mask = df["Cliente"] == ""
+    if blank_code_mask.any():
+        df.loc[blank_code_mask, "Cliente"] = df.loc[blank_code_mask].apply(
+            build_report_4_plan_only_client_code,
+            axis=1,
+        )
+
     df["Client Name"] = df.apply(
         lambda row: resolve_report_4_display_name(row["Nombre del Cliente"], row["Cliente"]),
         axis=1,
     )
+
+    # Para llaves internas PLAN_ONLY, el nombre visible debe ser el Customer name del Plan.
+    plan_only_mask = df["Cliente"].astype(str).str.startswith("PLAN_ONLY_")
+    df.loc[plan_only_mask, "Client Name"] = df.loc[
+        plan_only_mask,
+        "Nombre del Cliente",
+    ].fillna("").astype(str).str.strip()
 
     for col in month_columns.values():
         df[col] = clean_numeric_series(df[col]) * 1000
@@ -3334,14 +4061,23 @@ def get_sales_client_totals_for_report_4(
             filtered = source_df[source_df[config.COL_MONTH] <= selected_month].copy()
 
         if filtered.empty:
-            return pd.DataFrame(columns=["Cliente", "Valor"])
+            return pd.DataFrame(columns=["Cliente", "Client Name", "Valor"])
 
-        return (
+        value_df = (
             filtered.groupby(group_columns, dropna=False)["__gsnr__"]
             .sum()
             .reset_index()
             .rename(columns={"__gsnr__": "Valor"})
         )
+
+        name_df = (
+            filtered.sort_values(["Cliente", "Client Name"])
+            .groupby("Cliente", dropna=False)["Client Name"]
+            .first()
+            .reset_index()
+        )
+
+        return value_df.merge(name_df, on="Cliente", how="left")
 
     return (
         aggregate(current_year_df, "mtd"),
@@ -3369,11 +4105,19 @@ def get_plan_client_totals_for_report_4(
     month_col = month_columns[latest_month]
     months_to_sum = [month_columns[m] for m in sorted(month_columns.keys()) if m <= latest_month]
 
+    name_df = (
+        df.sort_values(["Cliente", "Client Name"])
+        .groupby("Cliente", dropna=False)["Client Name"]
+        .first()
+        .reset_index()
+    )
+
     mtd_plan = (
         df.groupby("Cliente", dropna=False)[month_col]
         .sum()
         .reset_index()
         .rename(columns={month_col: "Valor"})
+        .merge(name_df, on="Cliente", how="left")
     )
 
     ytd_plan = (
@@ -3382,6 +4126,7 @@ def get_plan_client_totals_for_report_4(
         .sum()
         .reset_index()
         .rename(columns={"__ytd__": "Valor"})
+        .merge(name_df, on="Cliente", how="left")
     )
 
     return mtd_plan, ytd_plan
@@ -3401,6 +4146,48 @@ def aggregated_client_df_to_dict(df: pd.DataFrame) -> dict[str, float]:
             result[key] = float(row.get("Valor", 0.0))
 
     return result
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Convierte agregados por cliente a diccionario de nombres
+# --------------------------------------------------------------
+def aggregated_client_df_to_name_dict(df: pd.DataFrame) -> dict[str, str]:
+    if df is None or df.empty or "Client Name" not in df.columns:
+        return {}
+
+    result: dict[str, str] = {}
+
+    for _, row in df.iterrows():
+        key = normalize_report_4_client_code(row.get("Cliente", ""))
+        label = str(row.get("Client Name", "") or "").strip()
+
+        if key and label and key not in result:
+            result[key] = label
+
+    return result
+
+# --------------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Resuelve nombre visible del cliente para el ranking dinámico
+# --------------------------------------------------------------
+def resolve_report_4_dynamic_client_label(
+    client_code: str,
+    actual_name_dict: dict[str, str],
+    plan_name_dict: dict[str, str],
+    py_name_dict: dict[str, str],
+) -> str:
+    normalized_code = normalize_report_4_client_code(client_code)
+
+    overrides = getattr(config, "REPORT_4_CLIENT_NAME_OVERRIDES", {})
+    if normalized_code in overrides:
+        return str(overrides[normalized_code]).strip()
+
+    for name_dict in [actual_name_dict, plan_name_dict, py_name_dict]:
+        label = str(name_dict.get(normalized_code, "") or "").strip()
+        if label:
+            return label
+
+    return normalized_code
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -3478,15 +4265,30 @@ def build_report_4_detail_table(
     py_df: pd.DataFrame,
     keep_internal: bool = True,
 ) -> pd.DataFrame:
-    catalog_df = get_report_4_client_catalog_df()
+    """
+    Construye el detalle del Reporte 4 de forma dinámica.
+
+    Nueva regla:
+    - Ya no depende de REPORT_4_CLIENT_CATALOG.
+    - Toma todos los códigos existentes en Actual, Plan o PY.
+    - Ordena el ranking por Actual de mayor a menor.
+    - Asigna Top dinámico: Top 1, Top 2, ... hasta el último cliente.
+    - Conserva los nombres especiales definidos en REPORT_4_CLIENT_NAME_OVERRIDES.
+    """
     actual_dict = aggregated_client_df_to_dict(actual_df)
     plan_dict = aggregated_client_df_to_dict(plan_df)
     py_dict = aggregated_client_df_to_dict(py_df)
 
+    actual_name_dict = aggregated_client_df_to_name_dict(actual_df)
+    plan_name_dict = aggregated_client_df_to_name_dict(plan_df)
+    py_name_dict = aggregated_client_df_to_name_dict(py_df)
+
+    client_codes = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
+
     rows: list[dict] = []
 
-    for _, catalog_row in catalog_df.iterrows():
-        client_code = normalize_report_4_client_code(catalog_row.get("Cliente", ""))
+    for client_code in client_codes:
+        client_code = normalize_report_4_client_code(client_code)
         if not client_code:
             continue
 
@@ -3494,19 +4296,42 @@ def build_report_4_detail_table(
         plan_value = float(plan_dict.get(client_code, 0.0))
         py_value = float(py_dict.get(client_code, 0.0))
 
+        if not has_report_value(actual_value, plan_value, py_value):
+            continue
+
+        client_label = resolve_report_4_dynamic_client_label(
+            client_code=client_code,
+            actual_name_dict=actual_name_dict,
+            plan_name_dict=plan_name_dict,
+            py_name_dict=py_name_dict,
+        )
+
         rows.append(
             build_report_4_row(
                 client_code=client_code,
-                client_label=str(catalog_row.get("Client Name", "")).strip(),
+                client_label=client_label,
                 actual=actual_value,
                 plan=plan_value,
                 py=py_value,
-                top_position=int(catalog_row.get("__top__", 0)),
-                group_label=str(catalog_row.get("__grupo__", "")).strip(),
+                top_position=0,
+                group_label="",
             )
         )
 
-    return finalize_report_4_table(pd.DataFrame(rows), keep_internal=keep_internal)
+    if not rows:
+        return finalize_report_4_table(pd.DataFrame(), keep_internal=keep_internal)
+
+    detail_df = pd.DataFrame(rows)
+    detail_df = detail_df.sort_values(
+        by=["Actual", "Plan", "PY", "Client Name", "Cliente"],
+        ascending=[False, False, False, True, True],
+        kind="mergesort",
+    ).reset_index(drop=True)
+
+    detail_df["__top__"] = range(1, len(detail_df) + 1)
+    detail_df["__grupo__"] = detail_df["__top__"].apply(get_report_4_group_from_top)
+
+    return finalize_report_4_table(detail_df, keep_internal=keep_internal)
 
 # --------------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -3749,4 +4574,4 @@ def build_report_4_top_clients_payload(
         "ytd_group_51_100_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_51_100),
         "mtd_group_other_table": get_report_4_group_detail_table(mtd_detail_internal, config.REPORT_4_GROUP_OTHER),
         "ytd_group_other_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_OTHER),
-    }
+    } 

@@ -227,7 +227,12 @@ def load_file_to_dataframe(
     file_bytes = uploaded_file.getvalue()
 
     if extension == "csv":
-        return pd.read_csv(BytesIO(file_bytes), header=header, usecols=usecols)
+        return pd.read_csv(
+            BytesIO(file_bytes),
+            header=header,
+            usecols=usecols,
+            keep_default_na=False,
+        )
 
     if extension in ("xlsx", "xls"):
         return pd.read_excel(
@@ -235,6 +240,7 @@ def load_file_to_dataframe(
             sheet_name=sheet_name,
             header=header,
             usecols=usecols,
+            keep_default_na=False,
         )
 
     raise ValueError(f"Tipo de archivo no soportado: {extension}")
@@ -282,6 +288,7 @@ def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
         workbook,
         sheet_name="BASE SAP",
         header=5,
+        keep_default_na=False,
     )
     df_sales = trim_sales_main_table(df_sales)
 
@@ -290,6 +297,7 @@ def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
         sheet_name="Plan2026 by Client",
         header=13,
         usecols="A:T",
+        keep_default_na=False,
     )
     df_plan_client = trim_plan_client_main_table(df_plan_client)
 
@@ -297,6 +305,7 @@ def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
         workbook,
         sheet_name="Plan2026 by SKU",
         header=7,
+        keep_default_na=False,
     )
     df_plan_sku = standardize_columns(df_plan_sku)
 
@@ -402,6 +411,7 @@ def load_local_excel_to_dataframe(
         sheet_name=sheet_name,
         header=header,
         usecols=usecols,
+        keep_default_na=False,
     )
 
 

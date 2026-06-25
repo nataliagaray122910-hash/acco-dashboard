@@ -122,6 +122,36 @@ if "login_error_message" not in st.session_state:
     st.session_state["login_error_message"] = None
 
 # =========================================================
+# 3.1 CONTROL DE VERSIÓN DE LÓGICA DE REPORTES
+# =========================================================
+# Cuando se reemplaza data_processor.py/app.py, Streamlit puede conservar en
+# st.session_state reportes construidos con la lógica anterior. Eso hace que
+# parezca que el código nuevo no cambió nada.
+# Esta llave fuerza a limpiar SOLO los reportes y filtros de R1/R2/R3 para que
+# se reconstruyan con la lógica actual. No toca archivos cargados ni Reporte 4.
+REPORT_LOGIC_VERSION_R123 = "r123_filtros_categorias_reales_na_v20260624_08"
+if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R123:
+    for _key in [
+        "mtd_payload",
+        "df_mtd_base",
+        "report1_payload",
+        "report2_payload",
+        "report2_category_payload",
+        "report3_payload",
+    ]:
+        st.session_state[_key] = None
+
+    for _key in list(st.session_state.keys()):
+        if _key.startswith((
+            "report1_",
+            "report2_",
+            "report3_",
+        )):
+            st.session_state.pop(_key, None)
+
+    st.session_state["report_logic_version_r123"] = REPORT_LOGIC_VERSION_R123
+
+# =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================
 def is_blank_number(value) -> bool:
@@ -195,7 +225,7 @@ def format_monetary_value(
 ) -> str:
     if is_blank_number(value):
         return "" if allow_blank and not is_percent else (
-            "0.00%" if is_percent else ("" if allow_blank else "0")
+            "0.00%" if is_percent else ("" if allow_blank else "-")
         )
 
     numeric_value = float(value)
@@ -206,8 +236,19 @@ def format_monetary_value(
         return f"{numeric_value * 100:,.2f}%"
 
     converted_value = convert_monetary_value(numeric_value)
+
+    # Regla visual: cero real se muestra como guion.
+    if abs(float(converted_value)) < 1e-9:
+        return "" if allow_blank else "-"
+
     value_k = float(converted_value) / 1000
     rounded_value = round(value_k)
+
+    # Regla de formato acordada: reportes en miles, SIN decimales.
+    # Si al expresarlo en miles redondea a 0, se muestra como guion.
+    # No se muestran valores tipo 0.3 / (0.3).
+    if rounded_value == 0:
+        return "" if allow_blank else "-"
 
     if rounded_value < 0:
         return f"({abs(rounded_value):,})"
@@ -922,7 +963,7 @@ def get_current_report_1_export_tables() -> dict | None:
     return {
         "summary": payload["summary"],
         "report_title": build_report_context_title(
-            "Reporte 1 - Channel Corp",
+            "Reporte 1 - Oficina de ventas",
             payload["summary"]["latest_year"],
             payload["summary"]["latest_month"],
         ),
@@ -996,7 +1037,7 @@ def get_current_report_4_export_tables() -> dict | None:
             payload["summary"]["latest_month"],
         ),
         # Para exportación global se usa el detalle completo MTD/YTD,
-        # respetando el orden fijo del Excel y mostrando el grupo de cada cliente.
+        # respetando el ranking dinámico y mostrando el grupo de cada cliente.
         # La descarga global debe respetar la misma vista ejecutiva que se ve en pantalla:
         # Top 15 cliente por cliente + Total Top 15 + bloques resumen + Total Mexico.
         "mtd": convert_report_table_for_export(payload["mtd_top_clients_table"]),
@@ -1486,10 +1527,33 @@ def build_report_2_segment_region_display_label(row) -> str:
 
 
 def build_report_3_display_label(row) -> str:
-    channel_value = str(row.get("Channel", "")).strip()
+    channel_value = data_processor.normalize_report_3_channel_label(row.get("Channel", ""))
     if channel_value == "GOBA":
         return "BARRILITO"
     return channel_value
+
+
+def is_filter_option_excluded_row(row) -> bool:
+    """
+    Excluye únicamente filas de total al construir las opciones de filtros.
+
+    #N/A, VARIOS, Blanks y Other son valores válidos, no se deben ocultar.
+    """
+    return bool(
+        row.get("__is_total__", False)
+        or row.get("__is_grand_total__", False)
+    )
+
+
+def is_forbidden_filter_label(label_value: str) -> bool:
+    """Oculta placeholders técnicos de la UI; NO oculta #N/A/Blanks/VARIOS/Other."""
+    clean_value = str(label_value or "").strip().upper()
+    return clean_value in {"ZZZZ", "ZZZ"} or clean_value.endswith("| ZZZZ") or "| ZZZZ" in clean_value
+
+
+def contains_valid_special_dimension(options: list[str]) -> bool:
+    clean_options = {str(value or "").strip().upper() for value in options}
+    return bool(clean_options.intersection({"#N/A", "N/A", "NA", "BLANKS", "BLANK", "(BLANK)", "VARIOS", "OTHER"}))
 
 
 def get_filter_options_from_table(
@@ -1502,11 +1566,15 @@ def get_filter_options_from_table(
     options: list[str] = []
 
     for _, row in df_table.iterrows():
-        if is_special_report_row(row):
+        if is_filter_option_excluded_row(row):
             continue
 
         label_value = str(label_builder(row)).strip()
-        if label_value:
+        if (
+            label_value
+            and label_value.lower() not in {"total", "total general", "grand total", "total mexico"}
+            and not is_forbidden_filter_label(label_value)
+        ):
             options.append(label_value)
 
     return sorted(set(options))
@@ -1523,11 +1591,15 @@ def get_filter_options_from_multiple_tables(
             continue
 
         for _, row in df_table.iterrows():
-            if is_special_report_row(row):
+            if is_filter_option_excluded_row(row):
                 continue
 
             label_value = str(label_builder(row)).strip()
-            if label_value:
+            if (
+                label_value
+                and label_value.lower() not in {"total", "total general", "grand total", "total mexico"}
+                and not is_forbidden_filter_label(label_value)
+            ):
                 options.append(label_value)
 
     return sorted(set(options))
@@ -1537,10 +1609,10 @@ def get_valid_applied_filter_values(
     applied_key: str,
     available_options: list[str],
 ) -> list[str]:
-    applied_values = st.session_state.get(applied_key)
-
     if not available_options:
         return []
+
+    applied_values = st.session_state.get(applied_key)
 
     if not applied_values:
         return available_options.copy()
@@ -1548,6 +1620,27 @@ def get_valid_applied_filter_values(
     valid_values = [value for value in applied_values if value in available_options]
 
     if not valid_values:
+        return available_options.copy()
+
+    # Si aparecen #N/A, Blanks, VARIOS u Other y el filtro viejo no los tenía,
+    # se selecciona TODO para que ninguna categoría real quede oculta.
+    available_specials = {
+        value for value in available_options
+        if str(value or "").strip().upper() in {"#N/A", "N/A", "NA", "BLANKS", "BLANK", "(BLANK)", "VARIOS", "OTHER"}
+        or "| #N/A" in str(value or "").upper()
+        or "| VARIOS" in str(value or "").upper()
+        or "| BLANK" in str(value or "").upper()
+    }
+    if available_specials and not available_specials.issubset(set(valid_values)):
+        return available_options.copy()
+
+    # REGLA FORZADA - NO OCULTAR CATEGORÍAS NUEVAS:
+    # Si el universo del reporte cambió y el filtro aplicado quedó como subconjunto
+    # viejo, se vuelve a seleccionar TODO. Así #N/A, Blanks, VARIOS, Other o
+    # dimensiones nuevas no quedan escondidas por session_state anterior.
+    options_state_key = applied_key.replace("_applied", "_widget__available_options")
+    previous_options = st.session_state.get(options_state_key, [])
+    if previous_options and set(previous_options) != set(available_options):
         return available_options.copy()
 
     return valid_values
@@ -1568,61 +1661,143 @@ def sync_dimension_filter_to_applied_state(
     st.session_state[applied_key] = valid_values
 
 
+def apply_dimension_filter_after_rebuild(
+    widget_key: str,
+    applied_key: str,
+    old_options: list[str],
+    new_options: list[str],
+    selected_before_rebuild: list[str] | None = None,
+) -> None:
+    """
+    Sincroniza filtros dinámicos después de reconstruir un reporte.
+
+    IMPORTANTE STREAMLIT:
+    Esta función puede ejecutarse después de que el multiselect ya fue
+    instanciado en el mismo rerun. Por eso NO modifica directamente
+    st.session_state[widget_key]. En su lugar deja un valor pendiente,
+    hace st.rerun() en el bloque del botón, y render_dimension_filter_block
+    aplica ese pendiente ANTES de crear el widget en el siguiente rerun.
+    """
+    old_options = list(old_options or [])
+    new_options = list(new_options or [])
+
+    if selected_before_rebuild is None:
+        selected_before_rebuild = st.session_state.get(widget_key, [])
+
+    selected_before_rebuild = list(selected_before_rebuild or [])
+
+    had_all_old_options = (
+        not old_options
+        or set(selected_before_rebuild) == set(old_options)
+    )
+
+    # Regla de estabilidad: si cambió el universo de opciones al reconstruir
+    # por año/mes, el filtro vuelve a incluir TODAS las opciones disponibles
+    # del nuevo periodo. Así no se quedan fuera #N/A, VARIOS, Blanks, Other
+    # ni categorías nuevas solo porque en el periodo anterior no existían.
+    options_changed = set(old_options) != set(new_options)
+
+    if options_changed or had_all_old_options:
+        final_values = new_options.copy()
+    else:
+        final_values = [value for value in selected_before_rebuild if value in new_options]
+
+    if not final_values and new_options:
+        final_values = new_options.copy()
+
+    st.session_state[f"{widget_key}__pending_values"] = final_values
+    st.session_state[applied_key] = final_values
+    st.session_state[f"{widget_key}__available_options"] = new_options.copy()
+
+
 def render_dimension_filter_block(
     filter_label: str,
     widget_key: str,
     applied_key: str,
     available_options: list[str],
 ) -> list[str]:
+    """
+    Filtro dinámico seguro para Streamlit.
+
+    Corrección aplicada:
+    - El multiselect ya no reutiliza siempre la misma llave visual cuando cambia
+      el universo de opciones. Se crea una llave interna por universo de opciones.
+    - Así, cuando aparecen categorías nuevas (#N/A, VARIOS, Blanks, Other, etc.),
+      el widget se reinicia con TODAS las opciones del periodo nuevo.
+    - La llave lógica original se conserva en session_state para que el resto
+      del código no cambie.
+    """
     if not available_options:
         st.info("No hay valores disponibles para filtrar en este bloque.")
+        st.session_state[applied_key] = []
+        st.session_state[widget_key] = []
         return []
 
-    # Cuando cambia el universo de categorías disponibles, Streamlit puede
-    # conservar selecciones anteriores en sesión. Si antes estaban seleccionadas
-    # todas las opciones disponibles, entonces se actualiza automáticamente
-    # a todas las opciones nuevas, incluyendo #N/A.
+    available_options = [
+        str(value).strip()
+        for value in available_options
+        if str(value).strip() and not is_forbidden_filter_label(str(value).strip())
+    ]
+    available_options = sorted(set(available_options))
+
     options_state_key = f"{widget_key}__available_options"
-    previous_options = st.session_state.get(options_state_key)
+    pending_values_key = f"{widget_key}__pending_values"
+
+    previous_options = st.session_state.get(options_state_key, [])
     previous_options_set = set(previous_options or [])
     current_options_set = set(available_options)
 
-    current_widget_values = st.session_state.get(widget_key)
-    current_widget_set = set(current_widget_values or [])
+    options_changed = previous_options_set != current_options_set
 
-    options_changed = previous_options is None or previous_options_set != current_options_set
-    user_had_all_previous_options = (
-        previous_options is None
-        or not previous_options_set
-        or current_widget_set == previous_options_set
-    )
-
-    if options_changed and user_had_all_previous_options:
-        st.session_state[widget_key] = available_options.copy()
-        st.session_state[applied_key] = available_options.copy()
+    # Si viene una selección pendiente de una reconstrucción, se respeta.
+    # Si el universo cambió y no hay pendiente, se selecciona TODO el universo nuevo.
+    if pending_values_key in st.session_state:
+        candidate_values = st.session_state.pop(pending_values_key)
+        default_values = [value for value in candidate_values if value in available_options]
+        if not default_values:
+            default_values = available_options.copy()
+    elif options_changed:
+        default_values = available_options.copy()
     else:
         default_values = get_valid_applied_filter_values(applied_key, available_options)
 
-        if current_widget_values is None:
-            st.session_state[widget_key] = default_values.copy()
-        else:
-            valid_widget_values = [
-                value for value in current_widget_values if value in available_options
-            ]
-            if not valid_widget_values:
-                valid_widget_values = default_values.copy()
-            st.session_state[widget_key] = valid_widget_values
+    if not default_values:
+        default_values = available_options.copy()
 
-    st.session_state[options_state_key] = available_options.copy()
+    available_specials = {
+        value for value in available_options
+        if str(value or "").strip().upper() in {"#N/A", "N/A", "NA", "BLANKS", "BLANK", "(BLANK)", "VARIOS", "OTHER"}
+        or "| #N/A" in str(value or "").upper()
+        or "| VARIOS" in str(value or "").upper()
+        or "| BLANK" in str(value or "").upper()
+    }
+    if available_specials and not available_specials.issubset(set(default_values)):
+        default_values = available_options.copy()
 
-    st.multiselect(
+    # Llave visual variable: evita que Streamlit conserve un multiselect viejo
+    # que no tenía #N/A / VARIOS / Blanks / Other.
+    options_signature = abs(hash(tuple(available_options)))
+    ui_widget_key = f"{widget_key}__ui_{options_signature}"
+
+    selected_values = st.multiselect(
         filter_label,
         options=available_options,
-        key=widget_key,
+        default=default_values,
+        key=ui_widget_key,
         placeholder="Selecciona uno o varios valores",
     )
 
-    return get_valid_applied_filter_values(applied_key, available_options)
+    selected_values = [value for value in selected_values if value in available_options]
+    if not selected_values:
+        selected_values = available_options.copy()
+
+    # Llaves lógicas usadas por el resto del código.
+    st.session_state[widget_key] = selected_values.copy()
+    st.session_state[applied_key] = selected_values.copy()
+    st.session_state[options_state_key] = available_options.copy()
+    st.session_state[f"{widget_key}__current_ui_key"] = ui_widget_key
+
+    return selected_values
 
 
 def filter_report_1_without_kens_table(
@@ -1632,7 +1807,7 @@ def filter_report_1_without_kens_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
 
     normal_rows = df_table[
         ~df_table["__is_total__"].fillna(False)
@@ -1677,7 +1852,7 @@ def filter_report_1_with_kens_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
 
     normal_rows = df_table[
         ~df_table["__is_total__"].fillna(False)
@@ -1724,7 +1899,7 @@ def filter_report_2_segment_region_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
     rows: list[dict] = []
 
     normal_mask = (
@@ -1797,7 +1972,7 @@ def filter_report_2_category_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
     rows: list[dict] = []
 
     normal_mask = (
@@ -1866,7 +2041,7 @@ def filter_report_3_channel_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
     rows: list[dict] = []
 
     normal_mask = (
@@ -1919,7 +2094,7 @@ def filter_report_4_top_clients_table(
     if df_table is None or df_table.empty:
         return df_table
 
-    selected_set = set(selected_labels)
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
     rows: list[dict] = []
 
     normal_mask = (
@@ -2366,6 +2541,12 @@ def run_report_1_build(
 
 
 def format_report_1_value(value, is_percent: bool = False, allow_blank: bool = False) -> str:
+    if not is_percent and not is_blank_number(value):
+        try:
+            if float(value) == 0:
+                return "-"
+        except (TypeError, ValueError):
+            pass
     return format_monetary_value(value, is_percent=is_percent, allow_blank=allow_blank)
 
 
@@ -2458,7 +2639,7 @@ def render_report_1_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD del Canal Corporativo, con el bloque completo ACCO + BARR + KENS y un bloque inferior exclusivo para KENS, usando BASE SAP y Plan2026 by Client.
+        Mostrar el comparativo ejecutivo MTD / YTD de Oficina de ventas, con el bloque completo ACCO + BARR + KENS y un bloque inferior exclusivo para KENS, usando BASE SAP y Plan2026 by Client.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -2521,10 +2702,10 @@ def render_report_1_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### Channel Corp MTD / YTD")
+    st.markdown("### Oficina de ventas MTD / YTD")
 
     selected_year_without_kens, selected_month_without_kens = render_period_filter_block(
-        "Filtro del bloque: Channel Corp",
+        "Filtro del bloque: Oficina de ventas",
         "report1_without_kens_year",
         "report1_without_kens_month",
     )
@@ -2552,15 +2733,31 @@ def render_report_1_view() -> None:
             key="btn_report1_without_kens",
             use_container_width=False,
         ):
-            sync_dimension_filter_to_applied_state(
+            old_without_kens_options = without_kens_options.copy()
+            selected_without_kens_before = st.session_state.get(
                 "report1_without_kens_dimension_widget",
-                "report1_without_kens_dimension_applied",
-                without_kens_options,
+                old_without_kens_options.copy(),
             )
             run_report_1_build(
                 selected_year=selected_year_without_kens,
                 selected_month=selected_month_without_kens,
             )
+            payload_after = st.session_state.get("report1_payload")
+            new_without_kens_options = get_filter_options_from_multiple_tables(
+                [
+                    payload_after["mtd_without_kens_table"],
+                    payload_after["ytd_without_kens_table"],
+                ],
+                lambda row: str(row.get("Oficina de Ventas", "")).strip(),
+            )
+            apply_dimension_filter_after_rebuild(
+                "report1_without_kens_dimension_widget",
+                "report1_without_kens_dimension_applied",
+                old_without_kens_options,
+                new_without_kens_options,
+                selected_without_kens_before,
+            )
+            st.rerun()
 
     payload = st.session_state.get("report1_payload")
 
@@ -2589,7 +2786,7 @@ def render_report_1_view() -> None:
             mtd_kens_df=convert_report_table_for_export(payload["mtd_kens_table"]),
             ytd_kens_df=convert_report_table_for_export(payload["ytd_kens_table"]),
             report_title=build_report_context_title(
-                "Reporte 1 - Channel Corp",
+                "Reporte 1 - Oficina de ventas",
                 active_year_report1,
                 active_month_report1,
             ),
@@ -2616,7 +2813,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "MTD Channel CORP",
+                    "MTD Oficina de ventas",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2629,7 +2826,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "YTD Channel CORP",
+                    "YTD Oficina de ventas",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2639,7 +2836,7 @@ def render_report_1_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### Channel Corp ONLY KENS")
+    st.markdown("### Oficina de ventas ONLY KENS")
 
     payload = st.session_state.get("report1_payload")
 
@@ -2696,7 +2893,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "MTD Channel CORP ONLY KENS",
+                    "MTD Oficina de ventas ONLY KENS",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2709,7 +2906,7 @@ def render_report_1_view() -> None:
         st.markdown(
             build_report_1_table_html(
                 build_report_context_title(
-                    "YTD Channel CORP ONLY KENS",
+                    "YTD Oficina de ventas ONLY KENS",
                     active_year_report1,
                     active_month_report1,
                 ),
@@ -2816,6 +3013,12 @@ def run_report_2_category_build(
 
 
 def format_report_2_value(value, is_percent: bool = False) -> str:
+    if not is_percent and not is_blank_number(value):
+        try:
+            if float(value) == 0:
+                return "-"
+        except (TypeError, ValueError):
+            pass
     return format_monetary_value(value, is_percent=is_percent)
 
 
@@ -3064,16 +3267,31 @@ def render_report_2_view() -> None:
                 key="btn_report2_segment",
                 use_container_width=False,
             ):
-                sync_dimension_filter_to_applied_state(
+                old_segment_region_options = segment_region_options.copy()
+                selected_segment_before = st.session_state.get(
                     "report2_segment_dimension_widget",
-                    "report2_segment_dimension_applied",
-                    segment_region_options,
+                    old_segment_region_options.copy(),
                 )
                 run_report_2_build(
                     selected_year=selected_year_segment,
                     selected_month=selected_month_segment,
                 )
-                segment_apply_clicked = True
+                payload_after = st.session_state.get("report2_payload")
+                new_segment_region_options = get_filter_options_from_multiple_tables(
+                    [
+                        payload_after["mtd_segment_region_table"],
+                        payload_after["ytd_segment_region_table"],
+                    ],
+                    build_report_2_segment_region_display_label,
+                )
+                apply_dimension_filter_after_rebuild(
+                    "report2_segment_dimension_widget",
+                    "report2_segment_dimension_applied",
+                    old_segment_region_options,
+                    new_segment_region_options,
+                    selected_segment_before,
+                )
+                st.rerun()
 
         payload = st.session_state.get("report2_payload")
 
@@ -3087,8 +3305,8 @@ def render_report_2_view() -> None:
             build_report_2_segment_region_display_label,
         )
 
-        if segment_apply_clicked:
-            st.session_state["report2_segment_dimension_applied"] = segment_region_options.copy()
+        # No se reinicia la selección aplicada después de reconstruir.
+        # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
         active_year_segment = payload["summary"]["latest_year"]
         active_month_segment = payload["summary"]["latest_month"]
@@ -3214,16 +3432,31 @@ def render_report_2_view() -> None:
                 key="btn_report2_category",
                 use_container_width=False,
             ):
-                sync_dimension_filter_to_applied_state(
+                old_category_options = category_options.copy()
+                selected_category_before = st.session_state.get(
                     "report2_category_dimension_widget",
-                    "report2_category_dimension_applied",
-                    category_options,
+                    old_category_options.copy(),
                 )
                 run_report_2_category_build(
                     selected_year=selected_year_category,
                     selected_month=selected_month_category,
                 )
-                category_apply_clicked = True
+                payload_category_after = st.session_state.get("report2_category_payload")
+                new_category_options = get_filter_options_from_multiple_tables(
+                    [
+                        payload_category_after["mtd_category_table"],
+                        payload_category_after["ytd_category_table"],
+                    ],
+                    lambda row: str(row.get("Category", "")).strip(),
+                )
+                apply_dimension_filter_after_rebuild(
+                    "report2_category_dimension_widget",
+                    "report2_category_dimension_applied",
+                    old_category_options,
+                    new_category_options,
+                    selected_category_before,
+                )
+                st.rerun()
 
         payload_category = st.session_state.get("report2_category_payload")
 
@@ -3235,8 +3468,8 @@ def render_report_2_view() -> None:
             lambda row: str(row.get("Category", "")).strip(),
         )
 
-        if category_apply_clicked:
-            st.session_state["report2_category_dimension_applied"] = category_options.copy()
+        # No se reinicia la selección aplicada después de reconstruir.
+        # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
         active_year_category = payload_category["summary"]["latest_year"]
         active_month_category = payload_category["summary"]["latest_month"]
@@ -3365,6 +3598,12 @@ def run_report_3_build(
 
 
 def format_report_3_value(value, is_percent: bool = False) -> str:
+    if not is_percent and not is_blank_number(value):
+        try:
+            if float(value) == 0:
+                return "-"
+        except (TypeError, ValueError):
+            pass
     return format_monetary_value(value, is_percent=is_percent)
 
 
@@ -3501,8 +3740,8 @@ def render_report_3_view() -> None:
         st.markdown(
             styles.build_info_card(
                 "Canales visibles",
-                "ACCO / ECO / EXP / BARRILITO / KEN",
-                "Canales consolidados visibles en esta vista",
+                "Dinámicos",
+                "Se muestran todos los canales con Actual, Plan o PY",
             ),
             unsafe_allow_html=True,
         )
@@ -3551,16 +3790,31 @@ def render_report_3_view() -> None:
             key="btn_report3_channel",
             use_container_width=False,
         ):
-            sync_dimension_filter_to_applied_state(
+            old_channel_options = channel_options.copy()
+            selected_channel_before = st.session_state.get(
                 "report3_channel_dimension_widget",
-                "report3_channel_dimension_applied",
-                channel_options,
+                old_channel_options.copy(),
             )
             run_report_3_build(
                 selected_year=selected_year_channel,
                 selected_month=selected_month_channel,
             )
-            channel_apply_clicked = True
+            payload_after = st.session_state.get("report3_payload")
+            new_channel_options = get_filter_options_from_multiple_tables(
+                [
+                    payload_after["mtd_channel_table"],
+                    payload_after["ytd_channel_table"],
+                ],
+                build_report_3_display_label,
+            )
+            apply_dimension_filter_after_rebuild(
+                "report3_channel_dimension_widget",
+                "report3_channel_dimension_applied",
+                old_channel_options,
+                new_channel_options,
+                selected_channel_before,
+            )
+            st.rerun()
 
     payload = st.session_state.get("report3_payload")
 
@@ -3574,8 +3828,8 @@ def render_report_3_view() -> None:
         build_report_3_display_label,
     )
 
-    if channel_apply_clicked:
-        st.session_state["report3_channel_dimension_applied"] = channel_options.copy()
+    # No se reinicia la selección aplicada después de reconstruir.
+    # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
     active_year_channel = payload["summary"]["latest_year"]
     active_month_channel = payload["summary"]["latest_month"]
@@ -3650,24 +3904,24 @@ def render_report_3_view() -> None:
         )
 
     st.markdown("---")
-    st.markdown("### Mix de participación por Channel")
+    st.markdown("### Comparativo por Channel")
     st.markdown(
-        '<div class="report-note">Dona interactiva multinivel con solo dos botones internos: MTD y YTD. Cada vista muestra Actual, Plan y PY como anillos apilados para comparar el mix sin cambiar entre seis gráficas.</div>',
+        '<div class="report-note">Gráfica de barras verticales con dos botones internos: MTD y YTD. Cada vista compara Actual, Plan y PY por Channel con colores diferenciados y valores visibles.</div>',
         unsafe_allow_html=True,
     )
 
-    donut_fig = charts.build_channel_mix_donut_interactive_chart(
+    channel_bar_fig = charts.build_channel_mix_grouped_bar_interactive_chart(
         df_mtd_channel=filtered_mtd_channel,
         df_ytd_channel=filtered_ytd_channel,
-        title=f"Mix de participación por Channel · {get_currency_kpi_suffix()}",
+        title=get_currency_kpi_suffix(),
         currency_mode=get_active_currency_mode(),
         exchange_rate=get_active_exchange_rate(),
     )
 
-    if donut_fig is not None:
-        st.plotly_chart(donut_fig, use_container_width=True)
+    if channel_bar_fig is not None:
+        st.plotly_chart(channel_bar_fig, use_container_width=True)
     else:
-        st.info("No hay información suficiente para construir la dona interactiva.")
+        st.info("No hay información suficiente para construir la gráfica de barras.")
 
 # =========================================================
 # 17. REPORTE 4
@@ -3719,7 +3973,14 @@ def run_report_4_build(
         set_error_message(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
 
 
-def format_report_4_value(value, is_percent: bool = False) -> str:
+def format_report_4_value(value, is_percent: bool = False, zero_as_dash: bool = False) -> str:
+    if zero_as_dash and not is_percent and not is_blank_number(value):
+        try:
+            if float(value) == 0:
+                return "-"
+        except (TypeError, ValueError):
+            pass
+
     return format_monetary_value(value, is_percent=is_percent)
 
 
@@ -3818,9 +4079,9 @@ def build_report_4_table_html(title: str, df_table) -> str:
             [
                 f'<div class="report-cell report4-sticky-cell{state_class}" title="{escape(client_name)}">{escape(client_name)}</div>',
                 f'<div class="report-cell report4-code-cell{state_class}">{escape(client_code)}</div>',
-                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if actual_negative else ""}">{format_report_4_value(actual_value)}</div>',
-                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if plan_negative else ""}">{format_report_4_value(plan_value)}</div>',
-                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if py_negative else ""}">{format_report_4_value(py_value)}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if actual_negative else ""}">{format_report_4_value(actual_value, zero_as_dash=not (is_total or is_group_summary or is_grand_total))}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if plan_negative else ""}">{format_report_4_value(plan_value, zero_as_dash=not (is_total or is_group_summary or is_grand_total))}</div>',
+                f'<div class="report-cell report-value-cell{state_class} {"report-negative" if py_negative else ""}">{format_report_4_value(py_value, zero_as_dash=not (is_total or is_group_summary or is_grand_total))}</div>',
                 f'<div class="report-cell report-value-cell{state_class} {"report-negative" if var_plan_negative else ""}">{format_report_4_value(var_plan_value)}</div>',
                 f'<div class="report-cell report-value-cell{state_class} {"report-negative" if pct_plan_negative else ""}">{format_report_4_value(pct_plan_value, is_percent=True)}</div>',
                 f'<div class="report-cell report-value-cell{state_class} {"report-negative" if var_py_negative else ""}">{format_report_4_value(var_py_value)}</div>',
@@ -3873,8 +4134,8 @@ def render_report_4_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD del ranking fijo de clientes,
-        cruzando BASE SAP y Plan2026 by Client mediante código de cliente.
+        Mostrar el comparativo ejecutivo MTD / YTD del ranking dinámico de clientes,
+        ordenado por Actual y cruzando BASE SAP y Plan2026 by Client mediante código de cliente.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -3915,8 +4176,8 @@ def render_report_4_view() -> None:
         st.markdown(
             styles.build_info_card(
                 "Orden del reporte",
-                "Ranking fijo",
-                "Orden definido por negocio; no se reordena por GSNR",
+                "Ranking dinámico",
+                "MTD y YTD se ordenan por Actual de mayor a menor",
             ),
             unsafe_allow_html=True,
         )
@@ -3950,6 +4211,7 @@ def render_report_4_view() -> None:
                 selected_year=selected_year_clients,
                 selected_month=selected_month_clients,
             )
+            st.rerun()
 
     payload = st.session_state.get("report4_payload")
 
@@ -4116,7 +4378,7 @@ def get_dashboard_missing_dependencies() -> list[str]:
         missing_dependencies.append("Primero construye la Base MTD.")
 
     if st.session_state.get("report1_payload") is None:
-        missing_dependencies.append("Primero construye Canal Corporativo.")
+        missing_dependencies.append("Primero construye Oficina de ventas.")
 
     if st.session_state.get("report2_payload") is None:
         missing_dependencies.append("Primero construye Segmento x Región.")
@@ -4125,7 +4387,7 @@ def get_dashboard_missing_dependencies() -> list[str]:
         missing_dependencies.append("Primero construye Category.")
 
     if st.session_state.get("report3_payload") is None:
-        missing_dependencies.append("Primero construye Desempeño Comercial.")
+        missing_dependencies.append("Primero construye Canal.")
 
     if st.session_state.get("report4_payload") is None:
         missing_dependencies.append("Primero construye Ranking Clientes.")
@@ -4693,6 +4955,8 @@ def build_dashboard_segment_compact_table_html(title: str, df_table) -> str:
             row_class = ' class="dashboard-compact-total"'
 
         label_value = build_report_2_segment_region_display_label(row)
+        if is_grand_total:
+            label_value = "Total Mexico"
 
         rows_html_parts.append(
             f'<tr{row_class}>'
@@ -5233,12 +5497,121 @@ def build_dashboard_report3_section_html() -> str:
     )
 
 
+
+def dashboard_get_report4_payload() -> dict | None:
+    return st.session_state.get("report4_payload")
+
+
+def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
+    """
+    Ranking Clientes para Dashboard.
+
+    Usa la vista ejecutiva ya construida en Reporte 4:
+    Top 15 cliente por cliente + bloques resumen + Total Mexico.
+    No recalcula ranking; solo imprime el payload existente con el formato compacto del Dashboard.
+    """
+    if df_table is None or df_table.empty:
+        return (
+            '<div class="dashboard-compact-block dashboard-clients-block">'
+            f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+            '<div class="dashboard-kpi-muted">Información no disponible.</div>'
+            '</div>'
+        )
+
+    rows_html_parts: list[str] = []
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+        is_group_summary = bool(row.get("__is_group_summary__", False))
+
+        row_class = ""
+        if is_total or is_group_summary:
+            row_class = ' class="dashboard-compact-total"'
+        if is_grand_total:
+            row_class = ' class="dashboard-compact-grand-total"'
+
+        client_name = str(row.get("Client Name", "")).strip()
+        client_code = str(row.get("Cliente", "")).strip()
+
+        rows_html_parts.append(
+            f'<tr{row_class}>'
+            f'<td class="dashboard-compact-label dashboard-client-name">{escape(client_name)}</td>'
+            f'<td class="dashboard-compact-code">{escape(client_code)}</td>'
+            f'{dashboard_compact_td(row.get("Actual"), allow_blank=False)}'
+            f'{dashboard_compact_td(row.get("Plan"), allow_blank=True)}'
+            f'{dashboard_compact_td(row.get("PY"), allow_blank=True)}'
+            f'{dashboard_compact_td(row.get("Var VS Plan"), allow_blank=True)}'
+            f'{dashboard_compact_td(row.get("%Var VS Plan"), is_percent=True, allow_blank=True)}'
+            f'{dashboard_compact_td(row.get("Var VS PY"), allow_blank=True)}'
+            f'{dashboard_compact_td(row.get("%Var VS PY"), is_percent=True, allow_blank=True)}'
+            '</tr>'
+        )
+
+    rows_html = "".join(rows_html_parts)
+
+    return (
+        '<div class="dashboard-compact-block dashboard-clients-block">'
+        f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+        '<div class="dashboard-compact-table-wrap dashboard-clients-table-wrap">'
+        '<table class="dashboard-compact-table dashboard-clients-table">'
+        '<colgroup>'
+        '<col class="dashboard-col-client-name">'
+        '<col class="dashboard-col-client-code">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-pct">'
+        '<col class="dashboard-col-num">'
+        '<col class="dashboard-col-pct">'
+        '</colgroup>'
+        '<thead>'
+        '<tr>'
+        '<th>Client Name</th>'
+        '<th>Cliente</th>'
+        '<th>Actual</th>'
+        '<th>Plan</th>'
+        '<th>PY</th>'
+        '<th>Var vs Plan</th>'
+        '<th>%Var vs Plan</th>'
+        '<th>Var vs PY</th>'
+        '<th>%Var vs PY</th>'
+        '</tr>'
+        '</thead>'
+        '<tbody>'
+        f'{rows_html}'
+        '</tbody>'
+        '</table>'
+        '</div>'
+        '</div>'
+    )
+
+
+def build_dashboard_report4_section_html() -> str:
+    report4_payload = dashboard_get_report4_payload()
+
+    if report4_payload is None:
+        return ""
+
+    mtd_table = report4_payload.get("mtd_top_clients_table")
+    ytd_table = report4_payload.get("ytd_top_clients_table")
+
+    return (
+        '<div class="dashboard-report-section dashboard-report-clients-section">'
+        '<div class="dashboard-report-pair-grid">'
+        f'{build_dashboard_report4_compact_table_html("Ranking Clientes MTD", mtd_table)}'
+        f'{build_dashboard_report4_compact_table_html("Ranking Clientes YTD", ytd_table)}'
+        '</div>'
+        '</div>'
+    )
+
+
 def build_dashboard_stage_one_html(payload: dict) -> str:
     latest_month = int(payload["latest_month"])
     latest_year = int(payload["latest_year"])
 
     month_label = get_dashboard_month_label_en(latest_month)
-    period_label = f"{month_label} 1-20"
     currency_label = "$Kmxn" if get_currency_status_label() == "MXN" else "$Kusd"
 
     client_table = payload.get("client_table")
@@ -5303,22 +5676,22 @@ def build_dashboard_stage_one_html(payload: dict) -> str:
 
     return (
         '<div class="dashboard-stage-card">'
+        '<div style="display:flex; align-items:flex-start; justify-content:flex-start; margin:0 0 8px 0;">'
+        '<table style="border-collapse:collapse; font-family:Segoe UI, Arial, sans-serif; font-size:15px; color:#1F2A44;">'
+        '<tr>'
+        '<td style="font-weight:800; color:#E60023; padding:0 20px 4px 0;">Month</td>'
+        f'<td style="font-weight:700; padding:0 0 4px 0;">{escape(month_label)}</td>'
+        '</tr>'
+        '<tr>'
+        '<td style="font-weight:800; color:#E60023; padding:0 20px 4px 0;">Year</td>'
+        f'<td style="font-weight:700; padding:0 0 4px 0;">{escape(str(latest_year))}</td>'
+        '</tr>'
+        '</table>'
+        '</div>'
         '<div class="dashboard-main-title-box">'
         '<div class="dashboard-main-title">Mexico Dashboard 2026</div>'
         '</div>'
-        '<div class="dashboard-header-row">'
-        '<div>'
-        '<div class="dashboard-period-left">'
-        '<div class="dashboard-period-label">Month<br>Year</div>'
-        f'<div class="dashboard-period-value">{escape(month_label)}<br>{latest_year}</div>'
-        '</div>'
         f'<div class="dashboard-currency-label">{escape(currency_label)}</div>'
-        '</div>'
-        '<div class="dashboard-period-right">'
-        '<div class="dashboard-period-label">Period:</div>'
-        f'<div class="dashboard-period-value">{escape(period_label)}</div>'
-        '</div>'
-        '</div>'
         '<div class="dashboard-kpi-grid">'
         f'{build_dashboard_kpi_table_html("Sales Month", month_rows)}'
         f'{build_dashboard_kpi_table_html("Sales YTD", ytd_rows)}'
@@ -5327,6 +5700,7 @@ def build_dashboard_stage_one_html(payload: dict) -> str:
         f'{build_dashboard_report2_segment_section_html()}'
         f'{build_dashboard_report2_category_section_html()}'
         f'{build_dashboard_report3_section_html()}'
+        f'{build_dashboard_report4_section_html()}'
         '</div>'
     )
 
@@ -5363,8 +5737,8 @@ def render_dashboard_view() -> None:
         styles.build_info_box(
             """
             <b>Objetivo de esta vista:</b><br>
-            Mostrar el Dashboard ejecutivo consolidado. En esta primera etapa solo se presenta
-            el encabezado y los KPIs principales de Sales Month y Sales YTD.
+            Mostrar el Dashboard ejecutivo consolidado con KPIs y reportes principales
+            construidos previamente en la app.
             """
         ),
         unsafe_allow_html=True,
@@ -6179,8 +6553,16 @@ def main() -> None:
     ensure_persistent_data_loaded_if_available(show_message=False)
 
     render_main_header()
-    render_global_alerts()
     selected = render_sidebar()
+
+    previous_section = st.session_state.get("__last_selected_section")
+    if previous_section is not None and previous_section != selected:
+        # Evita que avisos de una sección anterior aparezcan en otra pestaña.
+        st.session_state["mensaje_exito"] = None
+        st.session_state["mensaje_warning"] = None
+    st.session_state["__last_selected_section"] = selected
+
+    render_global_alerts()
 
     if selected == "Inicio":
         render_home_view()
@@ -6193,11 +6575,11 @@ def main() -> None:
         render_dashboard_view()
     elif selected == "Visión general":
         render_overview_view()
-    elif selected == "Canal Corporativo":
+    elif selected == "Oficina de ventas":
         render_report_1_view()
     elif selected == "Segmento y Categoría":
         render_report_2_view()
-    elif selected == "Desempeño Comercial":
+    elif selected == "Canal":
         render_report_3_view()
     elif selected == "Ranking Clientes":
         render_report_4_view()

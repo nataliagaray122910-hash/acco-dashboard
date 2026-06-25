@@ -2512,6 +2512,57 @@ def build_dashboard_css_html() -> str:
     background: transparent !important;
 }
 
+.dashboard-compact-grand-total td {
+    border-top: 4px double #111111 !important;
+    font-weight: 950 !important;
+    background: #DCEFD8 !important;
+}
+
+.dashboard-clients-block .dashboard-compact-title-box {
+    background: #C6EFCE !important;
+}
+
+.dashboard-clients-table {
+    font-size: 0.82rem;
+}
+
+.dashboard-clients-table .dashboard-col-client-name {
+    width: 31%;
+}
+
+.dashboard-clients-table .dashboard-col-client-code {
+    width: 9%;
+}
+
+.dashboard-clients-table .dashboard-col-num {
+    width: 8.55%;
+}
+
+.dashboard-clients-table .dashboard-col-pct {
+    width: 8.55%;
+}
+
+.dashboard-clients-table th {
+    font-size: 0.76rem !important;
+}
+
+.dashboard-clients-table td {
+    font-size: 0.78rem !important;
+    padding: 0.27rem 0.24rem !important;
+}
+
+.dashboard-client-name {
+    max-width: 1px;
+}
+
+.dashboard-compact-code {
+    color: #1F2A44 !important;
+    font-weight: 820 !important;
+    text-align: left !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .dashboard-lock-box {
     background: #FFFFFF;
     border: 1px solid #E7EAF0;

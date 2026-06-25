@@ -618,8 +618,8 @@ def build_report_1_excel_bytes(
         worksheet=worksheet,
         left_df=mtd_without_kens_df,
         right_df=ytd_without_kens_df,
-        left_title="MTD Channel CORP",
-        right_title="YTD Channel CORP",
+        left_title="MTD Oficina de ventas",
+        right_title="YTD Oficina de ventas",
         start_row=current_row,
     )
 
@@ -629,8 +629,8 @@ def build_report_1_excel_bytes(
         worksheet=worksheet,
         left_df=mtd_kens_df,
         right_df=ytd_kens_df,
-        left_title="MTD Channel CORP ONLY KENS",
-        right_title="YTD Channel CORP ONLY KENS",
+        left_title="MTD Oficina de ventas ONLY KENS",
+        right_title="YTD Oficina de ventas ONLY KENS",
         start_row=current_row,
     )
 
@@ -810,8 +810,8 @@ def build_full_reports_excel_bytes(
             worksheet=ws,
             left_df=report_1_tables["mtd_without_kens"],
             right_df=report_1_tables["ytd_without_kens"],
-            left_title="MTD Channel CORP",
-            right_title="YTD Channel CORP",
+            left_title="MTD Oficina de ventas",
+            right_title="YTD Oficina de ventas",
             start_row=current_row,
         )
 
@@ -821,8 +821,8 @@ def build_full_reports_excel_bytes(
             worksheet=ws,
             left_df=report_1_tables["mtd_kens"],
             right_df=report_1_tables["ytd_kens"],
-            left_title="MTD Channel CORP ONLY KENS",
-            right_title="YTD Channel CORP ONLY KENS",
+            left_title="MTD Oficina de ventas ONLY KENS",
+            right_title="YTD Oficina de ventas ONLY KENS",
             start_row=current_row,
         )
 
