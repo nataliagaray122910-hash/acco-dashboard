@@ -598,8 +598,6 @@ def write_base_mtd_tables_to_workbook(
 def build_report_1_excel_bytes(
     mtd_without_kens_df: pd.DataFrame,
     ytd_without_kens_df: pd.DataFrame,
-    mtd_kens_df: pd.DataFrame,
-    ytd_kens_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 1",
 ) -> bytes:
@@ -614,23 +612,12 @@ def build_report_1_excel_bytes(
         width=8,
     )
 
-    block_last_row, _ = write_two_tables_side_by_side(
+    write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_without_kens_df,
         right_df=ytd_without_kens_df,
         left_title="MTD Oficina de ventas",
         right_title="YTD Oficina de ventas",
-        start_row=current_row,
-    )
-
-    current_row = block_last_row + DEFAULT_BLOCK_SPACING_ROWS
-
-    write_two_tables_side_by_side(
-        worksheet=worksheet,
-        left_df=mtd_kens_df,
-        right_df=ytd_kens_df,
-        left_title="MTD Oficina de ventas ONLY KENS",
-        right_title="YTD Oficina de ventas ONLY KENS",
         start_row=current_row,
     )
 
@@ -806,23 +793,12 @@ def build_full_reports_excel_bytes(
             width=8,
         )
 
-        block_last_row, _ = write_two_tables_side_by_side(
+        write_two_tables_side_by_side(
             worksheet=ws,
             left_df=report_1_tables["mtd_without_kens"],
             right_df=report_1_tables["ytd_without_kens"],
             left_title="MTD Oficina de ventas",
             right_title="YTD Oficina de ventas",
-            start_row=current_row,
-        )
-
-        current_row = block_last_row + DEFAULT_BLOCK_SPACING_ROWS
-
-        write_two_tables_side_by_side(
-            worksheet=ws,
-            left_df=report_1_tables["mtd_kens"],
-            right_df=report_1_tables["ytd_kens"],
-            left_title="MTD Oficina de ventas ONLY KENS",
-            right_title="YTD Oficina de ventas ONLY KENS",
             start_row=current_row,
         )
 

@@ -403,14 +403,13 @@ REPORT_1_TITLE = "Reporte 1"
 REPORT_1_MAIN_HEADING = "Oficina de ventas MTD / YTD"
 REPORT_1_SUBHEADING = (
     "Comparativo ejecutivo entre Actual, Plan y PY para Oficina de ventas, "
-    "separando ACCO + BARR + KENS y solo KENS."
+    "separando ACCO + BARR + KENS."
 )
 
 # ---------------------------------------------------------
 # TEXTOS DE FILTROS - REPORTE 1
 # ---------------------------------------------------------
 REPORT_1_FILTER_WITHOUT_KENS_TITLE = "Filtro del bloque: Oficina de ventas"
-REPORT_1_FILTER_WITH_KENS_TITLE = "Filtro del bloque: Oficina de ventas ONLY KENS"
 
 # ---------------------------------------------------------
 # COLUMNAS REQUERIDAS PARA REPORTE 1
@@ -463,7 +462,6 @@ REPORT_1_CHANNEL_LABELS = {
 }
 
 REPORT_1_TOTAL_LABEL = "Total"
-REPORT_1_KENS_TOTAL_LABEL = "Total KENS"
 
 # ---------------------------------------------------------
 # MENSAJES DE REPORTE 1

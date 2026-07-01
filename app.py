@@ -867,11 +867,23 @@ def render_login_screen() -> None:
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(styles.build_hero_section(), unsafe_allow_html=True)
 
+        # Login con inputs normales para conservar el diseño original.
+        # La contraseña usa on_change para que Enter dispare la misma validación
+        # que el botón, sin depender de st.form.
         st.text_input("Usuario", key="input_user")
-        st.text_input("Contraseña", type="password", key="input_password")
+        st.text_input(
+            "Contraseña",
+            type="password",
+            key="input_password",
+            on_change=check_login,
+        )
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.button("Iniciar sesión", on_click=check_login, use_container_width=True)
+        st.button(
+            "Iniciar sesión",
+            on_click=check_login,
+            use_container_width=True,
+        )
 
         if st.session_state.get("login_error_message"):
             st.error(st.session_state["login_error_message"])
@@ -969,8 +981,6 @@ def get_current_report_1_export_tables() -> dict | None:
         ),
         "mtd_without_kens": convert_report_table_for_export(payload["mtd_without_kens_table"]),
         "ytd_without_kens": convert_report_table_for_export(payload["ytd_without_kens_table"]),
-        "mtd_kens": convert_report_table_for_export(payload["mtd_kens_table"]),
-        "ytd_kens": convert_report_table_for_export(payload["ytd_kens_table"]),
     }
 
 def get_current_report_2_segment_export_tables() -> dict | None:
@@ -1845,52 +1855,6 @@ def filter_report_1_without_kens_table(
     return data_processor.pd.DataFrame(rows)
 
 
-def filter_report_1_with_kens_table(
-    df_table,
-    selected_labels: list[str],
-):
-    if df_table is None or df_table.empty:
-        return df_table
-
-    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
-
-    normal_rows = df_table[
-        ~df_table["__is_total__"].fillna(False)
-        & ~df_table["__is_highlight__"].fillna(False)
-        & ~df_table.get("__is_grand_total__", False)
-    ].copy()
-
-    filtered_normals = normal_rows[
-        normal_rows["Oficina de Ventas"].astype(str).isin(selected_set)
-    ].copy()
-
-    highlight_template = df_table[df_table["__is_highlight__"].fillna(False)].copy()
-
-    rows = []
-
-    for _, row in filtered_normals.iterrows():
-        rows.append(dict(row))
-
-    if not highlight_template.empty:
-        highlight_row_template = highlight_template.iloc[0].to_dict()
-
-        total_actual = filtered_normals["Actual"].apply(safe_float).sum()
-        total_py = filtered_normals["PY"].apply(safe_float).sum()
-
-        original_plan = highlight_row_template.get("Plan")
-        total_plan = None if is_blank_number(original_plan) else safe_float(original_plan)
-
-        rows.append(
-            recalculate_row_metrics(
-                highlight_row_template,
-                actual=total_actual,
-                plan=total_plan,
-                py=total_py,
-            )
-        )
-
-    return data_processor.pd.DataFrame(rows)
-
 
 def filter_report_2_segment_region_table(
     df_table,
@@ -2639,14 +2603,14 @@ def render_report_1_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD de Oficina de ventas, con el bloque completo ACCO + BARR + KENS y un bloque inferior exclusivo para KENS, usando BASE SAP y Plan2026 by Client.
+        Mostrar el comparativo ejecutivo MTD / YTD de Oficina de ventas, con el bloque completo ACCO + BARR + KENS, usando BASE SAP y Plan2026 by Client.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
     st.markdown("### Construir Reporte")
     st.markdown(
-        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del bloque superior. En el bloque ONLY KENS solo se conserva el filtro de oficina de ventas.</div>',
+        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del reporte.</div>',
         unsafe_allow_html=True,
     )
 
@@ -2669,7 +2633,7 @@ def render_report_1_view() -> None:
     latest_month = payload["summary"]["latest_month"]
     latest_year = payload["summary"]["latest_year"]
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     with col1:
         st.markdown(
@@ -2684,19 +2648,9 @@ def render_report_1_view() -> None:
     with col2:
         st.markdown(
             styles.build_info_card(
-                "Bloque superior",
+                "Bloque completo",
                 "ACCO + BARR + KENS",
                 "Comparativo completo",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            styles.build_info_card(
-                "Bloque inferior",
-                "KENS",
-                "Solo KENS",
             ),
             unsafe_allow_html=True,
         )
@@ -2783,8 +2737,6 @@ def render_report_1_view() -> None:
         report_1_bytes = exports.build_report_1_excel_bytes(
             mtd_without_kens_df=convert_report_table_for_export(payload["mtd_without_kens_table"]),
             ytd_without_kens_df=convert_report_table_for_export(payload["ytd_without_kens_table"]),
-            mtd_kens_df=convert_report_table_for_export(payload["mtd_kens_table"]),
-            ytd_kens_df=convert_report_table_for_export(payload["ytd_kens_table"]),
             report_title=build_report_context_title(
                 "Reporte 1 - Oficina de ventas",
                 active_year_report1,
@@ -2835,85 +2787,6 @@ def render_report_1_view() -> None:
             unsafe_allow_html=True,
         )
 
-    st.markdown("---")
-    st.markdown("### Oficina de ventas ONLY KENS")
-
-    payload = st.session_state.get("report1_payload")
-
-    kens_options = get_filter_options_from_multiple_tables(
-        [
-            payload["mtd_kens_table"],
-            payload["ytd_kens_table"],
-        ],
-        lambda row: str(row.get("Oficina de Ventas", "")).strip(),
-    )
-
-    render_dimension_filter_block(
-        "OFICINA DE VENTAS",
-        "report1_kens_dimension_widget",
-        "report1_kens_dimension_applied",
-        kens_options,
-    )
-
-    if st.button(
-        "Aplicar filtro",
-        key="btn_report1_kens_dimension_only",
-        use_container_width=False,
-    ):
-        sync_dimension_filter_to_applied_state(
-            "report1_kens_dimension_widget",
-            "report1_kens_dimension_applied",
-            kens_options,
-        )
-
-    payload = st.session_state.get("report1_payload")
-
-    applied_kens_labels = get_valid_applied_filter_values(
-        "report1_kens_dimension_applied",
-        kens_options,
-    )
-
-    filtered_mtd_kens = filter_report_1_with_kens_table(
-        payload["mtd_kens_table"],
-        applied_kens_labels,
-    )
-    filtered_ytd_kens = filter_report_1_with_kens_table(
-        payload["ytd_kens_table"],
-        applied_kens_labels,
-    )
-
-    st.markdown(
-        '<div class="report-note">En este bloque se muestra únicamente el detalle correspondiente a <b>KENS</b>. Al final se conserva el renglón consolidado de <b>Total KENS</b>, que permanece visible y se recalcula conforme al filtro seleccionado.</div>',
-        unsafe_allow_html=True,
-    )
-
-    bottom_left, bottom_right = st.columns(2)
-
-    with bottom_left:
-        st.markdown(
-            build_report_1_table_html(
-                build_report_context_title(
-                    "MTD Oficina de ventas ONLY KENS",
-                    active_year_report1,
-                    active_month_report1,
-                ),
-                filtered_mtd_kens,
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with bottom_right:
-        st.markdown(
-            build_report_1_table_html(
-                build_report_context_title(
-                    "YTD Oficina de ventas ONLY KENS",
-                    active_year_report1,
-                    active_month_report1,
-                ),
-                filtered_ytd_kens,
-            ),
-            unsafe_allow_html=True,
-        )
 
 # =========================================================
 # 15. REPORTE 2

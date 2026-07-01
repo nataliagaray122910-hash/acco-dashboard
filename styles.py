@@ -484,6 +484,55 @@ def build_global_css() -> str:
         box-shadow: 0 0 0 0.2rem rgba(230, 0, 35, 0.18) !important;
     }}
 
+    /* =====================================================
+       LOGIN FORM - ENTER SIN CAMBIAR DISEÑO
+       Quita el borde automático de st.form y conserva el botón rojo.
+       ===================================================== */
+    div[data-testid="stForm"] {{
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }}
+
+    div[data-testid="stForm"] > div {{
+        border: none !important;
+        background: transparent !important;
+        padding: 0 !important;
+        margin: 0 !important;
+        box-shadow: none !important;
+        outline: none !important;
+    }}
+
+    div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button,
+    .stFormSubmitButton > button {{
+        background: #E60023 !important;
+        color: #FFFFFF !important;
+        border: none !important;
+        border-radius: 14px !important;
+        padding: 0.70rem 1.2rem !important;
+        font-weight: 700 !important;
+        transition: all 0.2s ease !important;
+        box-shadow: 0 8px 18px rgba(230, 0, 35, 0.20) !important;
+    }}
+
+    div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button:hover,
+    .stFormSubmitButton > button:hover {{
+        background: #C4001E !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 10px 22px rgba(230, 0, 35, 0.28) !important;
+    }}
+
+    div[data-testid="stForm"] [data-testid="stFormSubmitButton"] > button:focus,
+    .stFormSubmitButton > button:focus {{
+        outline: none !important;
+        color: #FFFFFF !important;
+        box-shadow: 0 0 0 0.2rem rgba(230, 0, 35, 0.18) !important;
+    }}
+
+
     /* Botones dentro del sidebar */
     section[data-testid="stSidebar"] .stButton > button {{
         width: 100% !important;
@@ -1983,7 +2032,7 @@ def build_global_css() -> str:
     }}
     .dashboard-row-gsnr td,
     .dashboard-row-bts td {{
-        background: #D8F3DC;
+        background: #E5E7EB;
     }}
     .dashboard-row-achievement td {{
         background: #FFFFFF;
@@ -2373,7 +2422,7 @@ def build_dashboard_css_html() -> str:
 }
 
 .dashboard-gsnr-row td {
-    background: #C6EFCE !important;
+    background: #D9DDE3 !important;
 }
 
 .dashboard-achievement-row td {
@@ -2382,7 +2431,7 @@ def build_dashboard_css_html() -> str:
 }
 
 .dashboard-bts-row td {
-    background: #EAF7E5 !important;
+    background: #F1F3F5 !important;
 }
 
 .dashboard-kpi-negative,
@@ -2420,7 +2469,7 @@ def build_dashboard_css_html() -> str:
     width: auto;
     max-width: max-content;
     color: #000000;
-    background: #C6EFCE;
+    background: #D9DDE3;
     border: 1.5px solid #111111;
     font-size: 1.04rem;
     font-weight: 900;
@@ -2495,7 +2544,7 @@ def build_dashboard_css_html() -> str:
 .dashboard-compact-total td {
     border-top: 4px double #111111 !important;
     font-weight: 900 !important;
-    background: #EAF7E5 !important;
+    background: #F1F3F5 !important;
 }
 
 .dashboard-compact-total .dashboard-compact-label {
@@ -2515,11 +2564,11 @@ def build_dashboard_css_html() -> str:
 .dashboard-compact-grand-total td {
     border-top: 4px double #111111 !important;
     font-weight: 950 !important;
-    background: #DCEFD8 !important;
+    background: #E5E7EB !important;
 }
 
 .dashboard-clients-block .dashboard-compact-title-box {
-    background: #C6EFCE !important;
+    background: #D9DDE3 !important;
 }
 
 .dashboard-clients-table {

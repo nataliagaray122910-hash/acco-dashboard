@@ -1464,56 +1464,6 @@ def build_report_1_without_kens_table(
 
     return pd.DataFrame(rows)
 
-# --------------------------------------------------------------
-# FUNCIÓN AUXILIAR:
-# Construye tabla WITH KENS
-# --------------------------------------------------------------
-def build_report_1_with_kens_table(
-    actual_dict: dict[str, float],
-    plan_dict: dict[str, float],
-    py_dict: dict[str, float],
-) -> pd.DataFrame:
-    detail_codes_present = set(actual_dict.keys()) | set(plan_dict.keys()) | set(py_dict.keys())
-
-    ordered_detail_codes = get_ordered_report_1_codes(
-        codes_present=detail_codes_present,
-        exclude_codes={"AF", "AFI"},
-    )
-
-    rows = []
-
-    for code in ordered_detail_codes:
-        actual = float(actual_dict.get(code, 0.0))
-        py = float(py_dict.get(code, 0.0))
-
-        # Se muestra si tiene venta en Actual, Plan o PY.
-        if not has_report_value(actual, plan_dict.get(code, 0.0), py):
-            continue
-
-        rows.append(
-            build_report_1_row(
-                office_label=get_channel_display_label(code),
-                actual=actual,
-                plan=None,
-                py=py,
-            )
-        )
-
-    total_actual = sum(float(v) for v in actual_dict.values())
-    total_py = sum(float(v) for v in py_dict.values())
-    total_plan = float(plan_dict.get("IT", 0.0))
-
-    rows.append(
-        build_report_1_row(
-            office_label=config.REPORT_1_KENS_TOTAL_LABEL,
-            actual=total_actual,
-            plan=total_plan,
-            py=total_py,
-            is_highlight=True,
-        )
-    )
-
-    return pd.DataFrame(rows)
 
 # --------------------------------------------------------------
 # FUNCIÓN PRINCIPAL:
@@ -1571,47 +1521,17 @@ def build_report_1_payload(
         py_dict=ytd_py_without_kens,
     )
 
-    sales_kens = filter_sales_for_report_1(
-        df_processed_sales,
-        single_segment=config.REPORT_1_SEGMENT_KENS,
-    )
-
-    (
-        mtd_actual_kens,
-        ytd_actual_kens,
-        mtd_py_kens,
-        ytd_py_kens,
-    ) = get_sales_channel_totals_for_report_1(
-        sales_kens,
-        report_year,
-        report_month,
-    )
-
-    mtd_kens_table = build_report_1_with_kens_table(
-        actual_dict=mtd_actual_kens,
-        plan_dict=plan_mtd_by_channel,
-        py_dict=mtd_py_kens,
-    )
-
-    ytd_kens_table = build_report_1_with_kens_table(
-        actual_dict=ytd_actual_kens,
-        plan_dict=plan_ytd_by_channel,
-        py_dict=ytd_py_kens,
-    )
 
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
         "segments_without_kens_label": "ACCO + BARR + KENS",
-        "segment_kens_label": "KENS",
     }
 
     return {
         "summary": summary,
         "mtd_without_kens_table": mtd_without_kens_table,
         "ytd_without_kens_table": ytd_without_kens_table,
-        "mtd_kens_table": mtd_kens_table,
-        "ytd_kens_table": ytd_kens_table,
     }
 
 # ==============================================================
