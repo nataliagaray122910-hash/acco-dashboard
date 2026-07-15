@@ -69,6 +69,34 @@ COLOR_ERROR = "#C0392B"
 LOGO_PATH = "assets/logo.png"
 BACKGROUND_PATH = "assets/fondo.jpg"
 
+# ---------------------------------------------------------
+# PANTALLA DE INICIO CORPORATIVA
+# ---------------------------------------------------------
+HOME_BANNER_PATHS = [
+    "assets/home_banner_1.jpg",
+    "assets/home_banner_2.jpg",
+]
+HOME_MODULES_TITLE = "Conoce nuestros módulos"
+HOME_MODULES_SUBTITLE = (
+    "Cada sección está diseñada para ayudarte a analizar y entender tu información "
+    "de forma simple y eficiente."
+)
+HOME_MODULE_CARDS = [
+    {"title": "Carga de datos", "description": "Carga y valida automáticamente el archivo corporativo de ventas y planes.", "icon": "📁"},
+    {"title": "Visión general", "description": "Procesa la base de ventas y genera indicadores generales de la información.", "icon": "📈"},
+    {"title": "Base MTD", "description": "Construye comparativos MTD, YTD y BTS para Plan Cliente y Plan SKU.", "icon": "📊"},
+    {"title": "Oficina de ventas", "description": "Analiza el desempeño por oficina de ventas.", "icon": "🏢"},
+    {"title": "Segmento y Categoría", "description": "Evalúa resultados por segmento de negocio, región y categoría de material.", "icon": "🌐"},
+    {"title": "Canal", "description": "Consulta el desempeño de ventas por canal corporativo.", "icon": "🛒"},
+    {"title": "Ranking Clientes", "description": "Visualiza el Top 15 de clientes y sus variaciones vs Plan y PY.", "icon": "👥"},
+    {"title": "Dashboard", "description": "Accede al resumen ejecutivo con gráficos y KPIs consolidados.", "icon": "🖥️"},
+]
+HOME_TRUST_ITEMS = [
+    {"title": "Información confiable", "description": "Todos los datos provienen de fuentes corporativas y cuentan con validaciones automáticas.", "icon": "🛡️"},
+    {"title": "Seguridad y control", "description": "La información se mantiene segura y disponible únicamente para usuarios autorizados.", "icon": "🔒"},
+    {"title": "¿Necesitas ayuda?", "description": "Si tienes alguna duda, contacta al equipo de análisis o soporte de información.", "icon": "🎧"},
+]
+
 
 # =========================================================
 # CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO

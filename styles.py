@@ -2655,3 +2655,140 @@ def build_dashboard_css_html() -> str:
 </style>
 """
 
+
+# =========================================================
+# PANTALLA DE INICIO CORPORATIVA
+# =========================================================
+def build_home_start_css() -> str:
+    """CSS exclusivo para reproducir la portada corporativa del boceto."""
+    return """
+    <style>
+    .home-carousel {position:relative;width:100%;overflow:hidden;border-radius:18px;border:1px solid #edf0f4;background:#fff;box-shadow:0 8px 24px rgba(15,23,42,.045);margin:.35rem 0 .85rem 0;isolation:isolate}
+    .home-carousel input {position:absolute;opacity:0;pointer-events:none}
+    .home-carousel-viewport {position:relative;width:100%;aspect-ratio:1130/297;overflow:hidden;background:#f8fafc}
+    .home-carousel-slide {position:absolute;inset:0;opacity:0;transform:translateX(1.5%);transition:opacity .55s ease,transform .55s ease;pointer-events:none}
+    .home-carousel-slide img {display:block;width:100%;height:100%;object-fit:cover;object-position:center center;image-rendering:auto}
+    #home-slide-1:checked ~ .home-carousel-viewport .home-slide-1,
+    #home-slide-2:checked ~ .home-carousel-viewport .home-slide-2 {opacity:1;transform:translateX(0);pointer-events:auto}
+    .home-carousel-arrow {position:absolute;top:50%;z-index:8;width:42px;height:42px;margin-top:-21px;border-radius:50%;display:none;align-items:center;justify-content:center;background:rgba(255,255,255,.94);color:#111827;font-size:1.55rem;font-weight:900;line-height:1;cursor:pointer;box-shadow:0 8px 20px rgba(15,23,42,.18);user-select:none;transition:transform .18s ease,background .18s ease}
+    .home-carousel-arrow:hover {transform:scale(1.06);background:#fff}
+    .home-carousel-arrow-left {left:14px}
+    .home-carousel-arrow-right {right:14px}
+    #home-slide-1:checked ~ .home-carousel-viewport .arrow-from-1,
+    #home-slide-2:checked ~ .home-carousel-viewport .arrow-from-2 {display:flex}
+    .home-carousel-dots {position:absolute;left:50%;bottom:13px;z-index:9;display:flex;gap:9px;transform:translateX(-50%)}
+    .home-carousel-dot {width:12px;height:12px;border-radius:50%;background:rgba(255,255,255,.72);border:2px solid rgba(255,255,255,.95);cursor:pointer;box-shadow:0 2px 8px rgba(15,23,42,.18)}
+    #home-slide-1:checked ~ .home-carousel-viewport .dot-1,
+    #home-slide-2:checked ~ .home-carousel-viewport .dot-2 {background:#f20032;border-color:#fff}
+    .home-section-heading {display:flex;align-items:stretch;gap:.85rem;margin:.15rem 0 .15rem 0}
+    .home-section-heading::before {content:"";display:block;width:4px;min-width:4px;border-radius:99px;background:#f20032}
+    .home-section-title {margin:0;color:#111d33;font-size:1.45rem;font-weight:850;line-height:1.2}
+    .home-section-subtitle {margin:.18rem 0 1.15rem 1.05rem;color:#536174;font-size:.96rem;line-height:1.45}
+    .home-module-grid {display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.95rem;margin-bottom:1.35rem}
+    .home-module-card {min-height:142px;display:flex;align-items:center;gap:1rem;padding:1.15rem 1.05rem;border-radius:18px;border:1px solid #e6eaf0;background:linear-gradient(180deg,#fff 0%,#fefefe 100%);box-shadow:0 10px 24px rgba(15,23,42,.055);transition:transform .18s ease,box-shadow .18s ease;box-sizing:border-box}
+    .home-module-card:hover {transform:translateY(-2px);box-shadow:0 14px 28px rgba(15,23,42,.085)}
+    .home-module-icon {width:68px;height:68px;min-width:68px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:linear-gradient(145deg,#fff,#f4f5f7);box-shadow:0 7px 16px rgba(15,23,42,.08);font-size:2.15rem;line-height:1}
+    .home-module-content {min-width:0}
+    .home-module-title {color:#111d33;font-size:1.02rem;font-weight:850;line-height:1.25;margin:0 0 .45rem 0}
+    .home-module-description {color:#405069;font-size:.88rem;line-height:1.48;margin:0}
+    .home-trust-strip {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;padding:1.25rem 1.35rem;border-radius:18px;background:linear-gradient(100deg,#fff7f7 0%,#fffafa 52%,#fff5f5 100%);border:1px solid #fde9ec;box-shadow:0 8px 22px rgba(230,0,35,.035)}
+    .home-trust-item {display:flex;align-items:center;gap:1rem;padding:.2rem 1.15rem;min-height:86px;box-sizing:border-box}
+    .home-trust-item + .home-trust-item {border-left:1px solid #f3d5da}
+    .home-trust-icon {width:58px;height:58px;min-width:58px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;color:#f20032;font-size:1.75rem;font-weight:900;box-shadow:0 7px 18px rgba(15,23,42,.07)}
+    .home-trust-title {color:#111d33;font-weight:850;font-size:1rem;margin-bottom:.35rem}
+    .home-trust-description {color:#405069;font-size:.88rem;line-height:1.48}
+    .project-status-label {color:#fff!important;font-size:.88rem;line-height:1.45;margin-bottom:.6rem}
+    .project-progress-row {display:flex;align-items:center;gap:.65rem}
+    .project-progress-track {height:12px;flex:1;overflow:hidden;border-radius:99px;background:#191919}
+    .project-progress-fill {width:85%;height:100%;border-radius:99px;background:#f20032}
+    .project-progress-value {color:#fff;font-weight:800;font-size:.9rem}
+    @media (max-width:1250px){.home-module-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media (max-width:800px){.home-module-grid{grid-template-columns:1fr}.home-trust-strip{grid-template-columns:1fr}.home-trust-item + .home-trust-item{border-left:0;border-top:1px solid #f3d5da}}
+    </style>
+    """
+
+
+def build_home_carousel(image_paths: list[str]) -> str:
+    """Construye un carrusel corporativo CSS, sin JavaScript ni dependencias."""
+    valid_images: list[str] = []
+
+    for image_path in list(image_paths or []):
+        image_base64 = image_to_base64(image_path)
+        if image_base64:
+            suffix = Path(image_path).suffix.lower()
+            mime = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+            valid_images.append(f"data:{mime};base64,{image_base64}")
+
+    if not valid_images:
+        return (
+            '<div class="home-carousel" style="padding:2rem">'
+            '<b>No se encontraron los banners corporativos.</b></div>'
+        )
+
+    if len(valid_images) == 1:
+        return (
+            '<div class="home-carousel">'
+            '<div class="home-carousel-viewport">'
+            f'<div class="home-carousel-slide" style="opacity:1;transform:none">'
+            f'<img src="{valid_images[0]}" alt="ACCO Brands Reportes Corporativos"></div>'
+            '</div></div>'
+        )
+
+    first_image, second_image = valid_images[:2]
+
+    return (
+        '<div class="home-carousel">'
+        '<input type="radio" name="home-carousel" id="home-slide-1" checked>'
+        '<input type="radio" name="home-carousel" id="home-slide-2">'
+        '<div class="home-carousel-viewport">'
+        f'<div class="home-carousel-slide home-slide-1"><img src="{first_image}" alt="Banner corporativo ACCO Brands 1"></div>'
+        f'<div class="home-carousel-slide home-slide-2"><img src="{second_image}" alt="Banner corporativo ACCO Brands 2"></div>'
+        '<label class="home-carousel-arrow home-carousel-arrow-left arrow-from-1" for="home-slide-2" aria-label="Banner anterior">‹</label>'
+        '<label class="home-carousel-arrow home-carousel-arrow-right arrow-from-1" for="home-slide-2" aria-label="Banner siguiente">›</label>'
+        '<label class="home-carousel-arrow home-carousel-arrow-left arrow-from-2" for="home-slide-1" aria-label="Banner anterior">‹</label>'
+        '<label class="home-carousel-arrow home-carousel-arrow-right arrow-from-2" for="home-slide-1" aria-label="Banner siguiente">›</label>'
+        '<div class="home-carousel-dots">'
+        '<label class="home-carousel-dot dot-1" for="home-slide-1" aria-label="Mostrar banner 1"></label>'
+        '<label class="home-carousel-dot dot-2" for="home-slide-2" aria-label="Mostrar banner 2"></label>'
+        '</div></div></div>'
+    )
+
+
+def build_home_modules_html(modules: list[dict], title: str, subtitle: str) -> str:
+    cards = []
+    for module in modules:
+        cards.append(
+            f'<div class="home-module-card">'
+            f'<div class="home-module-icon">{module.get("icon", "•")}</div>'
+            f'<div class="home-module-content">'
+            f'<div class="home-module-title">{module.get("title", "")}</div>'
+            f'<div class="home-module-description">{module.get("description", "")}</div>'
+            f'</div></div>'
+        )
+    return (
+        f'<div class="home-section-heading"><div><div class="home-section-title">{title}</div></div></div>'
+        f'<div class="home-section-subtitle">{subtitle}</div>'
+        f'<div class="home-module-grid">{"".join(cards)}</div>'
+    )
+
+
+def build_home_trust_strip_html(items: list[dict]) -> str:
+    blocks = []
+    for item in items:
+        blocks.append(
+            f'<div class="home-trust-item">'
+            f'<div class="home-trust-icon">{item.get("icon", "•")}</div>'
+            f'<div><div class="home-trust-title">{item.get("title", "")}</div>'
+            f'<div class="home-trust-description">{item.get("description", "")}</div></div>'
+            f'</div>'
+        )
+    return f'<div class="home-trust-strip">{"".join(blocks)}</div>'
+
+
+def build_project_progress_html() -> str:
+    return (
+        '<div class="project-status-label">Etapa actual: Refinamiento visual</div>'
+        '<div class="project-progress-row">'
+        '<div class="project-progress-track"><div class="project-progress-fill"></div></div>'
+        '<div class="project-progress-value">85%</div></div>'
+    )

@@ -1180,11 +1180,7 @@ def render_sidebar() -> str:
 
         st.markdown("---")
         st.markdown("### Estado del proyecto")
-        st.caption("Etapa actual: Etapa 8")
-        st.caption(
-            "Módulos activos: config.py, styles.py, data_loader.py, "
-            "validators.py, data_processor.py, exports.py, charts.py y app.py"
-        )
+        st.markdown(styles.build_project_progress_html(), unsafe_allow_html=True)
 
         return selected_option
 
@@ -5653,79 +5649,28 @@ def render_dashboard_view() -> None:
 # 18. VISTAS PRINCIPALES
 # =========================================================
 def render_home_view() -> None:
-    home_box_html = styles.build_info_box(
-        """
-        <b>Etapa actual:</b><br>
-        Reestructura de carga para ventas, plan por cliente y plan por SKU,
-        más incorporación de Reporte 1, Reporte 2, Reporte 3 y Reporte 4 ejecutivo.
-        """
-    )
-    st.markdown(home_box_html, unsafe_allow_html=True)
-
-    render_persistent_data_status()
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            styles.build_info_card(
-                "Módulos base",
-                "8",
-                "config.py, styles.py, data_loader.py, validators.py, "
-                "data_processor.py, exports.py, charts.py y app.py",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            styles.build_info_card(
-                "Estatus",
-                "Activo",
-                "La app ya carga ventas y planes, procesa la base y muestra Reportes 1, 2, 3 y 4",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            styles.build_info_card(
-                "Siguiente etapa",
-                "Refinamiento visual",
-                "Ajustes finales de diseño, alertas y validación ejecutiva",
-            ),
-            unsafe_allow_html=True,
-        )
-
+    """Portada corporativa y guía visual de módulos."""
+    st.markdown(styles.build_home_start_css(), unsafe_allow_html=True)
     st.markdown(
-        '<div class="section-title">Resumen de la etapa</div>',
+        styles.build_home_carousel(config.HOME_BANNER_PATHS),
         unsafe_allow_html=True,
     )
 
-    st.write(
-        """
-        En esta versión ya contamos con:
+    # Recupera el aviso verde que confirma si existe información disponible.
+    # Se muestra justo debajo del carrusel y antes de la guía de módulos.
+    render_persistent_data_status()
 
-        - configuración centralizada
-        - estilo visual corporativo
-        - login temporal de desarrollo
-        - navegación base
-        - carga de archivo de ventas
-        - carga de plan por cliente
-        - carga de plan por SKU
-        - persistencia de archivos en sesión
-        - procesamiento inicial de la base de ventas
-        - construcción inicial de la Base MTD
-        - primer reporte ejecutivo MTD / YTD por Canal Corporativo
-        - segundo reporte ejecutivo MTD / YTD por Segmento, Región y Categoría
-        - tercer reporte ejecutivo MTD / YTD por Channel
-        - cuarto reporte ejecutivo MTD / YTD por Top 15 clientes
-        - exportación individual por reporte en Excel
-        - exportación global de reportes en Excel
-
-        En la siguiente etapa se continuará con el refinamiento visual final
-        y la corrección de alertas en pantalla.
-        """
+    st.markdown(
+        styles.build_home_modules_html(
+            modules=config.HOME_MODULE_CARDS,
+            title=config.HOME_MODULES_TITLE,
+            subtitle=config.HOME_MODULES_SUBTITLE,
+        ),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        styles.build_home_trust_strip_html(config.HOME_TRUST_ITEMS),
+        unsafe_allow_html=True,
     )
 
 
