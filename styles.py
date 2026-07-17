@@ -1677,6 +1677,46 @@ def build_global_css() -> str:
     }}
 
     /* =====================================================
+       ESTADO DE PROCESAMIENTO
+       Mantiene visible el componente nativo sin convertirlo en una
+       tarjeta pesada ni añadir una falsa apariencia de modal.
+       ===================================================== */
+    div[data-testid="stStatusWidget"],
+    details[data-testid="stStatusWidget"] {{
+        width: 100% !important;
+        margin: 0.75rem 0 1rem 0 !important;
+        border: 1px solid #DCE3EC !important;
+        border-left: 4px solid #E60023 !important;
+        border-radius: 12px !important;
+        background: #FFFFFF !important;
+        box-shadow: none !important;
+        overflow: hidden !important;
+    }}
+
+    div[data-testid="stStatusWidget"] summary,
+    details[data-testid="stStatusWidget"] summary {{
+        min-height: 48px !important;
+        padding: 0.65rem 0.85rem !important;
+        background: #FFFFFF !important;
+        color: #1F2A44 !important;
+        font-weight: 800 !important;
+    }}
+
+    div[data-testid="stStatusWidget"] [data-testid="stMarkdownContainer"],
+    details[data-testid="stStatusWidget"] [data-testid="stMarkdownContainer"] {{
+        color: #434C5E !important;
+        font-size: 0.94rem !important;
+        line-height: 1.45 !important;
+    }}
+
+    div[data-testid="stStatusWidget"] svg,
+    details[data-testid="stStatusWidget"] svg {{
+        color: #E60023 !important;
+        fill: #E60023 !important;
+    }}
+
+
+    /* =====================================================
        OCULTAR FOOTER
        ===================================================== */
     footer {{

@@ -100,6 +100,31 @@ REPORT_4_VISIBLE_COLUMNS = [
 
 REPORT_4_HIDDEN_EXPORT_COLUMNS = {"TOP", "Grupo"}
 
+
+# ---------------------------------------------------------
+# HELPER DE PROGRESO
+# ---------------------------------------------------------
+def emit_progress(
+    progress_callback,
+    message: str,
+    step: int,
+    total_steps: int,
+) -> None:
+    """
+    Envía una etapa real del proceso de exportación a la interfaz.
+
+    El callback es opcional para conservar compatibilidad con las llamadas
+    actuales. app.py será quien muestre estos mensajes mediante st.status.
+    """
+    if progress_callback is None:
+        return
+
+    progress_callback(
+        message=message,
+        step=step,
+        total_steps=total_steps,
+    )
+
 # ---------------------------------------------------------
 # HELPERS GENERALES
 # ---------------------------------------------------------
@@ -508,6 +533,7 @@ def build_base_mtd_excel_bytes(
     plan_summary_df: pd.DataFrame | None = None,
     report_title: str | None = None,
     sheet_name: str | None = None,
+    progress_callback=None,
 ) -> bytes:
     """
     Construye el Excel individual de Base MTD.
@@ -521,7 +547,12 @@ def build_base_mtd_excel_bytes(
     plan_summary_df se conserva como parámetro para no romper las llamadas
     existentes desde app.py, pero ya no se escribe en el Excel.
     """
+    total_steps = 5
+    emit_progress(progress_callback, "Preparando el archivo de Base MTD", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja de Base MTD", 2, total_steps)
     worksheet = ensure_sheet_exists(
         writer,
         sheet_name or getattr(config, "EXPORT_SHEET_BASE_MTD", "Base MTD"),
@@ -535,6 +566,7 @@ def build_base_mtd_excel_bytes(
         width=8,
     )
 
+    emit_progress(progress_callback, "Escribiendo comparativos de Plan Cliente y Plan SKU", 3, total_steps)
     block_last_row, _ = write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=client_table_df,
@@ -546,6 +578,7 @@ def build_base_mtd_excel_bytes(
 
     current_row = block_last_row + DEFAULT_BLOCK_SPACING_ROWS
 
+    emit_progress(progress_callback, "Escribiendo la tabla BTS", 4, total_steps)
     write_table_to_worksheet(
         worksheet=worksheet,
         original_df=bts_table_df,
@@ -554,6 +587,7 @@ def build_base_mtd_excel_bytes(
         table_title=getattr(config, "BASE_MTD_BTS_TABLE_TITLE", "Back To School (BTS)"),
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel de Base MTD", 5, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -600,8 +634,14 @@ def build_report_1_excel_bytes(
     ytd_without_kens_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 1",
+    progress_callback=None,
 ) -> bytes:
+    total_steps = 4
+    emit_progress(progress_callback, "Preparando la exportación de Oficina de ventas", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja del Reporte 1", 2, total_steps)
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
     current_row = write_global_title(
@@ -612,6 +652,7 @@ def build_report_1_excel_bytes(
         width=8,
     )
 
+    emit_progress(progress_callback, "Escribiendo las tablas MTD y YTD de Oficina de ventas", 3, total_steps)
     write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_without_kens_df,
@@ -621,6 +662,7 @@ def build_report_1_excel_bytes(
         start_row=current_row,
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel del Reporte 1", 4, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -632,8 +674,14 @@ def build_report_2_segment_excel_bytes(
     ytd_segment_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 2 - Segment",
+    progress_callback=None,
 ) -> bytes:
+    total_steps = 4
+    emit_progress(progress_callback, "Preparando la exportación de Segment x Region", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja de Segment x Region", 2, total_steps)
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
     current_row = write_global_title(
@@ -644,6 +692,7 @@ def build_report_2_segment_excel_bytes(
         width=8,
     )
 
+    emit_progress(progress_callback, "Escribiendo las tablas MTD y YTD de Segment x Region", 3, total_steps)
     write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_segment_df,
@@ -653,6 +702,7 @@ def build_report_2_segment_excel_bytes(
         start_row=current_row,
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel de Segment x Region", 4, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -664,8 +714,14 @@ def build_report_2_category_excel_bytes(
     ytd_category_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 2 - Category",
+    progress_callback=None,
 ) -> bytes:
+    total_steps = 4
+    emit_progress(progress_callback, "Preparando la exportación de Category", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja de Category", 2, total_steps)
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
     current_row = write_global_title(
@@ -676,6 +732,7 @@ def build_report_2_category_excel_bytes(
         width=9,
     )
 
+    emit_progress(progress_callback, "Escribiendo las tablas MTD y YTD de Category", 3, total_steps)
     write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_category_df,
@@ -685,6 +742,7 @@ def build_report_2_category_excel_bytes(
         start_row=current_row,
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel de Category", 4, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -696,8 +754,14 @@ def build_report_3_excel_bytes(
     ytd_channel_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 3",
+    progress_callback=None,
 ) -> bytes:
+    total_steps = 4
+    emit_progress(progress_callback, "Preparando la exportación de Channel", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja del Reporte 3", 2, total_steps)
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
     current_row = write_global_title(
@@ -708,6 +772,7 @@ def build_report_3_excel_bytes(
         width=8,
     )
 
+    emit_progress(progress_callback, "Escribiendo las tablas MTD y YTD de Channel", 3, total_steps)
     write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_channel_df,
@@ -717,6 +782,7 @@ def build_report_3_excel_bytes(
         start_row=current_row,
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel del Reporte 3", 4, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -728,8 +794,14 @@ def build_report_4_excel_bytes(
     ytd_top_clients_df: pd.DataFrame,
     report_title: str | None = None,
     sheet_name: str = "Reporte 4",
+    progress_callback=None,
 ) -> bytes:
+    total_steps = 4
+    emit_progress(progress_callback, "Preparando la exportación del Ranking de Clientes", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
+
+    emit_progress(progress_callback, "Creando la hoja del Reporte 4", 2, total_steps)
     worksheet = ensure_sheet_exists(writer, sheet_name)
 
     mtd_export_df = prepare_report_4_export_dataframe(mtd_top_clients_df)
@@ -743,6 +815,7 @@ def build_report_4_excel_bytes(
         width=len(REPORT_4_VISIBLE_COLUMNS),
     )
 
+    emit_progress(progress_callback, "Escribiendo las tablas MTD y YTD del Ranking", 3, total_steps)
     write_two_tables_side_by_side(
         worksheet=worksheet,
         left_df=mtd_export_df,
@@ -752,6 +825,7 @@ def build_report_4_excel_bytes(
         start_row=current_row,
     )
 
+    emit_progress(progress_callback, "Finalizando el archivo Excel del Reporte 4", 4, total_steps)
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
 
@@ -765,11 +839,28 @@ def build_full_reports_excel_bytes(
     report_2_category_tables: dict | None = None,
     report_3_tables: dict | None = None,
     report_4_tables: dict | None = None,
+    progress_callback=None,
 ) -> bytes:
+    selected_sections = [
+        ("Base MTD", base_mtd_tables),
+        ("Reporte 1 - Oficina de ventas", report_1_tables),
+        ("Reporte 2 - Segment x Region", report_2_segment_tables),
+        ("Reporte 2 - Category", report_2_category_tables),
+        ("Reporte 3 - Channel", report_3_tables),
+        ("Reporte 4 - Ranking de Clientes", report_4_tables),
+    ]
+    active_sections = [name for name, tables in selected_sections if tables]
+    total_steps = len(active_sections) + 2
+
+    emit_progress(progress_callback, "Preparando la descarga global de reportes", 1, total_steps)
+
     output, writer = create_excel_writer_buffer()
     workbook_created = False
+    current_step = 2
 
     if base_mtd_tables:
+        emit_progress(progress_callback, "Agregando Base MTD al archivo global", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(
             writer,
             getattr(config, "EXPORT_SHEET_BASE_MTD", "Base MTD"),
@@ -783,6 +874,8 @@ def build_full_reports_excel_bytes(
         workbook_created = True
 
     if report_1_tables:
+        emit_progress(progress_callback, "Agregando Reporte 1 - Oficina de ventas", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(writer, "Reporte 1")
 
         current_row = write_global_title(
@@ -805,6 +898,8 @@ def build_full_reports_excel_bytes(
         workbook_created = True
 
     if report_2_segment_tables:
+        emit_progress(progress_callback, "Agregando Reporte 2 - Segment x Region", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(writer, "Reporte 2 - Segment")
 
         current_row = write_global_title(
@@ -827,6 +922,8 @@ def build_full_reports_excel_bytes(
         workbook_created = True
 
     if report_2_category_tables:
+        emit_progress(progress_callback, "Agregando Reporte 2 - Category", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(writer, "Reporte 2 - Category")
 
         current_row = write_global_title(
@@ -849,6 +946,8 @@ def build_full_reports_excel_bytes(
         workbook_created = True
 
     if report_3_tables:
+        emit_progress(progress_callback, "Agregando Reporte 3 - Channel", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(writer, "Reporte 3")
 
         current_row = write_global_title(
@@ -871,6 +970,8 @@ def build_full_reports_excel_bytes(
         workbook_created = True
 
     if report_4_tables:
+        emit_progress(progress_callback, "Agregando Reporte 4 - Ranking de Clientes", current_step, total_steps)
+        current_step += 1
         ws = ensure_sheet_exists(writer, "Reporte 4")
 
         current_row = write_global_title(

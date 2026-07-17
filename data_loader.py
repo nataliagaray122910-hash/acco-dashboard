@@ -4,9 +4,35 @@
 # ==========================================================
 
 from io import BytesIO
-from pathlib import Path
-
 import pandas as pd
+
+# ----------------------------------------------------------
+# FUNCIÓN AUXILIAR:
+# Envía avances reales al componente visual de app.py
+# ----------------------------------------------------------
+def emit_progress(
+    progress_callback,
+    message: str,
+    step: int,
+    total_steps: int,
+) -> None:
+    """
+    Envía el avance actual a app.py sin crear dependencias con Streamlit.
+
+    El callback es opcional. Si no se recibe, la carga funciona exactamente
+    igual que antes. Cuando app.py lo proporcione, recibirá:
+    - message: nombre real de la etapa
+    - step: número de etapa que comienza
+    - total_steps: total de etapas del proceso
+    """
+    if progress_callback is None:
+        return
+
+    progress_callback(
+        message=message,
+        step=step,
+        total_steps=total_steps,
+    )
 
 # ----------------------------------------------------------
 # FUNCIÓN AUXILIAR:
@@ -267,7 +293,10 @@ def load_uploaded_excel_workbook(uploaded_file):
     return pd.ExcelFile(BytesIO(file_bytes))
 
 
-def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
+def load_dashboard_excel_from_uploaded_file(
+    uploaded_file,
+    progress_callback=None,
+) -> dict:
     """
     Lee una sola carga manual del Excel corporativo y devuelve los tres
     DataFrames principales del dashboard.
@@ -277,21 +306,55 @@ def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
     - df_plan_client: hoja Plan2026 by Client
     - df_plan_sku: hoja Plan2026 by SKU
 
-    Nota importante:
-    La lógica de recorte y limpieza se conserva igual que en las funciones
-    individuales; únicamente se optimiza la lectura para no abrir el archivo
-    tres veces en Streamlit Cloud.
+    El callback de progreso es opcional y reporta etapas reales. No usa
+    porcentajes ni temporizadores inventados.
     """
+    total_steps = 7
+
+    emit_progress(
+        progress_callback,
+        "Validando el archivo Excel seleccionado",
+        1,
+        total_steps,
+    )
+    if uploaded_file is None:
+        raise ValueError("No se recibió ningún archivo.")
+
+    emit_progress(
+        progress_callback,
+        "Abriendo el libro de Excel",
+        2,
+        total_steps,
+    )
     workbook = load_uploaded_excel_workbook(uploaded_file)
 
+    emit_progress(
+        progress_callback,
+        "Leyendo la hoja BASE SAP",
+        3,
+        total_steps,
+    )
     df_sales = pd.read_excel(
         workbook,
         sheet_name="BASE SAP",
         header=5,
         keep_default_na=False,
     )
+
+    emit_progress(
+        progress_callback,
+        "Limpiando filas vacías de BASE SAP",
+        4,
+        total_steps,
+    )
     df_sales = trim_sales_main_table(df_sales)
 
+    emit_progress(
+        progress_callback,
+        "Leyendo y recortando Plan2026 by Client",
+        5,
+        total_steps,
+    )
     df_plan_client = pd.read_excel(
         workbook,
         sheet_name="Plan2026 by Client",
@@ -301,11 +364,24 @@ def load_dashboard_excel_from_uploaded_file(uploaded_file) -> dict:
     )
     df_plan_client = trim_plan_client_main_table(df_plan_client)
 
+    emit_progress(
+        progress_callback,
+        "Leyendo Plan2026 by SKU",
+        6,
+        total_steps,
+    )
     df_plan_sku = pd.read_excel(
         workbook,
         sheet_name="Plan2026 by SKU",
         header=7,
         keep_default_na=False,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Estandarizando columnas y preparando las tres bases",
+        7,
+        total_steps,
     )
     df_plan_sku = standardize_columns(df_plan_sku)
 
@@ -366,125 +442,3 @@ def load_plan_sku_file(uploaded_file):
         header=7,
     )
     return standardize_columns(df)
-
-# ==========================================================
-# CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
-# ==========================================================
-# Nota:
-# Esta sección NO usa API de SharePoint ni credenciales.
-# Lee el Excel desde la carpeta local sincronizada por OneDrive.
-# La carga manual existente se conserva intacta.
-
-
-# ----------------------------------------------------------
-# FUNCIÓN GENERAL:
-# Lee un Excel desde una ruta local sincronizada
-# ----------------------------------------------------------
-def load_local_excel_to_dataframe(
-    file_path: str,
-    sheet_name=None,
-    header=0,
-    usecols=None,
-):
-    """
-    Lee un archivo Excel desde una ruta local.
-
-    Se usa para cargar el archivo sincronizado desde OneDrive/SharePoint.
-    """
-    if not file_path:
-        raise ValueError("No se recibió la ruta del archivo local.")
-
-    path = Path(file_path)
-
-    if not path.exists():
-        raise FileNotFoundError(
-            f"No se encontró el archivo en la ruta configurada: {file_path}"
-        )
-
-    if path.suffix.lower() not in [".xlsx", ".xls"]:
-        raise ValueError(
-            f"El archivo sincronizado debe ser Excel (.xlsx o .xls). Archivo recibido: {path.name}"
-        )
-
-    return pd.read_excel(
-        path,
-        sheet_name=sheet_name,
-        header=header,
-        usecols=usecols,
-        keep_default_na=False,
-    )
-
-
-# ----------------------------------------------------------
-# FUNCIÓN ESPECIAL:
-# Carga ventas desde BASE SAP usando ruta local sincronizada
-# ----------------------------------------------------------
-def load_sales_from_local_excel_path(file_path: str):
-    """
-    Carga la hoja BASE SAP desde el Excel sincronizado.
-    """
-    df = load_local_excel_to_dataframe(
-        file_path=file_path,
-        sheet_name="BASE SAP",
-        header=5,
-    )
-
-    df = trim_sales_main_table(df)
-    return df
-
-
-# ----------------------------------------------------------
-# FUNCIÓN ESPECIAL:
-# Carga plan por cliente usando ruta local sincronizada
-# ----------------------------------------------------------
-def load_plan_client_from_local_excel_path(file_path: str):
-    """
-    Carga únicamente la tabla principal de Plan2026 by Client
-    desde el Excel sincronizado.
-    """
-    df = load_local_excel_to_dataframe(
-        file_path=file_path,
-        sheet_name="Plan2026 by Client",
-        header=13,
-        usecols="A:T",
-    )
-
-    df = trim_plan_client_main_table(df)
-    return df
-
-
-# ----------------------------------------------------------
-# FUNCIÓN ESPECIAL:
-# Carga plan por SKU usando ruta local sincronizada
-# ----------------------------------------------------------
-def load_plan_sku_from_local_excel_path(file_path: str):
-    """
-    Carga la hoja Plan2026 by SKU desde el Excel sincronizado.
-    """
-    df = load_local_excel_to_dataframe(
-        file_path=file_path,
-        sheet_name="Plan2026 by SKU",
-        header=7,
-    )
-    return standardize_columns(df)
-
-
-# ----------------------------------------------------------
-# FUNCIÓN PRINCIPAL:
-# Carga las tres bases del dashboard desde el Excel sincronizado
-# ----------------------------------------------------------
-def load_dashboard_excel_from_synced_path(file_path: str) -> dict:
-    """
-    Lee el Excel sincronizado desde OneDrive/SharePoint y devuelve
-    los tres DataFrames principales que usa el dashboard.
-
-    Retorna:
-    - df_sales
-    - df_plan_client
-    - df_plan_sku
-    """
-    return {
-        "df_sales": load_sales_from_local_excel_path(file_path),
-        "df_plan_client": load_plan_client_from_local_excel_path(file_path),
-        "df_plan_sku": load_plan_sku_from_local_excel_path(file_path),
-    }

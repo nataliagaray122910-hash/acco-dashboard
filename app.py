@@ -10,6 +10,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import math
 import pickle
+import time
 
 import streamlit as st
 
@@ -452,6 +453,57 @@ def render_global_alerts() -> None:
 # =========================================================
 
 # =========================================================
+# 4.3 INDICADOR GENERAL DE PROCESOS
+# =========================================================
+def execute_with_status(title: str, action) -> bool:
+    """
+    Ejecuta una acción pesada mostrando etapas reales.
+
+    El callback acepta el formato usado por data_loader.py,
+    data_processor.py, persistence.py y exports.py:
+        progress_callback(message=..., step=..., total_steps=...)
+    """
+    started_at = time.perf_counter()
+
+    with st.status(title, expanded=True) as status_box:
+        def progress(
+            message: str,
+            step: int | None = None,
+            total_steps: int | None = None,
+            **_,
+        ) -> None:
+            if step is not None and total_steps is not None:
+                status_box.write(
+                    f"**Etapa {int(step)} de {int(total_steps)}:** {message}"
+                )
+            else:
+                status_box.write(str(message))
+
+        try:
+            result = bool(action(progress))
+        except Exception as exc:
+            result = False
+            set_error_message(f"Ocurrió un error inesperado. Detalle: {exc}")
+
+        elapsed = time.perf_counter() - started_at
+
+        if result:
+            status_box.update(
+                label=f"Proceso completado en {elapsed:.1f} segundos",
+                state="complete",
+                expanded=False,
+            )
+        else:
+            status_box.update(
+                label=f"El proceso no pudo completarse · {elapsed:.1f} segundos",
+                state="error",
+                expanded=True,
+            )
+
+    return result
+
+
+# =========================================================
 # 4.3 HELPERS DE ROLES Y PERSISTENCIA TEMPORAL
 # =========================================================
 def is_admin_user() -> bool:
@@ -476,13 +528,13 @@ def get_persistent_data_file() -> Path:
     return persistence.get_local_persistence_file()
 
 
-def delete_persistent_data() -> bool:
+def delete_persistent_data(progress=None) -> bool:
     """
     Borra la carga administrativa guardada para viewers y limpia datos calculados
     de la sesión actual.
     """
     try:
-        persistence.delete_dashboard_payload()
+        persistence.delete_dashboard_payload(progress_callback=progress)
 
         st.session_state["persistent_data_loaded"] = False
         st.session_state["persistent_data_metadata"] = None
@@ -598,6 +650,9 @@ def clear_report_payloads() -> None:
     ]:
         st.session_state[key] = None
 
+    st.session_state.pop("__global_export_signature", None)
+    st.session_state.pop("__global_export_bytes", None)
+
 
 def clear_user_generated_work_state() -> None:
     """
@@ -636,7 +691,7 @@ def build_persistent_metadata() -> dict:
     }
 
 
-def save_current_data_for_viewers() -> bool:
+def save_current_data_for_viewers(progress=None) -> bool:
     """
     Guarda la carga actual para que usuarios viewer puedan consultarla
     sin subir archivos.
@@ -690,7 +745,7 @@ def save_current_data_for_viewers() -> bool:
     }
 
     try:
-        persistence.save_dashboard_payload(payload)
+        persistence.save_dashboard_payload(payload, progress_callback=progress)
 
         st.session_state["persistent_data_loaded"] = True
         st.session_state["persistent_data_metadata"] = metadata
@@ -1103,6 +1158,26 @@ def get_current_base_mtd_export_tables() -> dict | None:
 
 
 def get_full_reports_export_bytes() -> bytes:
+    """
+    Genera la descarga global una sola vez por combinación de reportes/moneda.
+    Evita reconstruir el Excel completo al cambiar de sección en el sidebar.
+    """
+    signature = (
+        id(st.session_state.get("mtd_payload")),
+        id(st.session_state.get("report1_payload")),
+        id(st.session_state.get("report2_payload")),
+        id(st.session_state.get("report2_category_payload")),
+        id(st.session_state.get("report3_payload")),
+        id(st.session_state.get("report4_payload")),
+        get_active_currency_mode(),
+        get_normalized_exchange_rate_4(),
+    )
+
+    if st.session_state.get("__global_export_signature") == signature:
+        cached_bytes = st.session_state.get("__global_export_bytes")
+        if cached_bytes is not None:
+            return cached_bytes
+
     base_mtd_tables = get_current_base_mtd_export_tables()
     report_1_tables = get_current_report_1_export_tables()
     report_2_segment_tables = get_current_report_2_segment_export_tables()
@@ -1110,7 +1185,7 @@ def get_full_reports_export_bytes() -> bytes:
     report_3_tables = get_current_report_3_export_tables()
     report_4_tables = get_current_report_4_export_tables()
 
-    return exports.build_full_reports_excel_bytes(
+    export_bytes = exports.build_full_reports_excel_bytes(
         base_mtd_tables=base_mtd_tables,
         report_1_tables=report_1_tables,
         report_2_segment_tables=report_2_segment_tables,
@@ -1118,6 +1193,10 @@ def get_full_reports_export_bytes() -> bytes:
         report_3_tables=report_3_tables,
         report_4_tables=report_4_tables,
     )
+
+    st.session_state["__global_export_signature"] = signature
+    st.session_state["__global_export_bytes"] = export_bytes
+    return export_bytes
 
 # =========================================================
 # 9. SIDEBAR
@@ -1198,111 +1277,6 @@ def render_file_validation_result(
         st.error(config.MSG_VALIDATION_FAIL)
         if missing_columns:
             st.warning(f"Columnas faltantes: {', '.join(missing_columns)}")
-
-
-# =========================================================
-# 10.1 CARGA DESDE SHAREPOINT SINCRONIZADO
-# =========================================================
-def apply_synced_sharepoint_payload_to_session(payload: dict, source_file_name: str) -> bool:
-    """
-    Recibe los DataFrames leídos desde la carpeta sincronizada de SharePoint
-    y los deja en las mismas variables de sesión que usa la carga manual.
-
-    No procesa automáticamente la base ni construye reportes; solo carga y valida.
-    """
-    df_sales = payload.get("df_sales")
-    df_plan_client = payload.get("df_plan_client")
-    df_plan_sku = payload.get("df_plan_sku")
-
-    is_valid_sales, missing_sales = validators.validate_required_columns(
-        df_sales,
-        config.EXPECTED_COLUMNS_SALES,
-    )
-    is_valid_plan_client, missing_plan_client = validators.validate_required_columns(
-        df_plan_client,
-        config.EXPECTED_COLUMNS_PLAN_CLIENT,
-    )
-    is_valid_plan_sku, missing_plan_sku = validators.validate_required_columns(
-        df_plan_sku,
-        config.EXPECTED_COLUMNS_PLAN_SKU,
-    )
-
-    st.session_state["df_sales"] = df_sales
-    st.session_state["df_plan_client"] = df_plan_client
-    st.session_state["df_plan_sku"] = df_plan_sku
-
-    st.session_state["sales_valid"] = is_valid_sales
-    st.session_state["plan_client_valid"] = is_valid_plan_client
-    st.session_state["plan_sku_valid"] = is_valid_plan_sku
-
-    st.session_state["sales_missing_columns"] = missing_sales
-    st.session_state["plan_client_missing_columns"] = missing_plan_client
-    st.session_state["plan_sku_missing_columns"] = missing_plan_sku
-
-    st.session_state["sales_file_name"] = f"{source_file_name} | BASE SAP"
-    st.session_state["plan_client_file_name"] = f"{source_file_name} | Plan2026 by Client"
-    st.session_state["plan_sku_file_name"] = f"{source_file_name} | Plan2026 by SKU"
-
-    st.session_state["df_processed_sales"] = None
-    st.session_state["suppress_persistent_autoload"] = True
-    st.session_state["persistent_data_loaded"] = False
-    st.session_state["persistent_data_metadata"] = None
-
-    clear_report_payloads()
-
-    return all([is_valid_sales, is_valid_plan_client, is_valid_plan_sku])
-
-
-def load_synced_sharepoint_file_to_session() -> bool:
-    """
-    Carga automáticamente el Excel sincronizado desde OneDrive/SharePoint.
-
-    Esta opción no usa API, usuario, contraseña ni link de navegador.
-    Solo lee la ruta local configurada en config.py.
-    """
-    if not getattr(config, "SYNCED_SHAREPOINT_ENABLED", False):
-        set_warning_message("La carga desde SharePoint sincronizado está deshabilitada en config.py.")
-        return False
-
-    file_path = str(getattr(config, "SYNCED_SHAREPOINT_FILE_PATH", "") or "").strip()
-    source_file_name = str(
-        getattr(config, "SYNCED_SHAREPOINT_FILE_NAME", "Archivo sincronizado de SharePoint")
-        or "Archivo sincronizado de SharePoint"
-    ).strip()
-
-    if not file_path:
-        set_error_message("No se encontró la ruta del archivo sincronizado en config.py.")
-        return False
-
-    try:
-        payload = data_loader.load_dashboard_excel_from_synced_path(file_path)
-        all_valid = apply_synced_sharepoint_payload_to_session(
-            payload=payload,
-            source_file_name=source_file_name,
-        )
-
-        if all_valid:
-            set_success_message(
-                getattr(
-                    config,
-                    "SYNCED_SHAREPOINT_LOAD_SUCCESS",
-                    "Archivo cargado correctamente desde la carpeta sincronizada de SharePoint.",
-                )
-            )
-        else:
-            set_warning_message(
-                "El archivo sincronizado se cargó, pero alguna hoja no contiene las columnas mínimas esperadas. "
-                "Revisa las validaciones mostradas en pantalla."
-            )
-
-        return all_valid
-
-    except Exception as exc:
-        set_error_message(
-            f"{getattr(config, 'SYNCED_SHAREPOINT_LOAD_ERROR', 'No fue posible cargar el archivo desde SharePoint sincronizado.')} "
-            f"Detalle: {exc}"
-        )
-        return False
 
 
 # =========================================================
@@ -2096,12 +2070,12 @@ def filter_report_4_top_clients_table(
 # =========================================================
 # 12. PROCESAMIENTO DE VENTAS
 # =========================================================
-def run_sales_processing() -> None:
+def run_sales_processing(progress=None) -> bool:
     df_sales = st.session_state.get("df_sales")
 
     if df_sales is None:
         set_error_message(config.MSG_PROCESSING_MISSING_FILES)
-        return
+        return False
 
     is_ready, missing_columns = validators.validate_dataframe_for_processing(
         df_sales,
@@ -2113,14 +2087,20 @@ def run_sales_processing() -> None:
         set_warning_message(
             f"Columnas faltantes para procesar ventas: {', '.join(missing_columns)}"
         )
-        return
+        return False
 
     try:
-        df_processed = data_processor.process_sales_data(df_sales)
+        df_processed = data_processor.process_sales_data(
+            df_sales,
+            progress_callback=progress,
+        )
         st.session_state["df_processed_sales"] = df_processed
+        clear_report_payloads()
         set_success_message(config.MSG_PROCESSING_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_PROCESSING_ERROR} Detalle: {exc}")
+        return False
 
 
 def render_processed_data_summary() -> None:
@@ -2188,7 +2168,8 @@ def render_processed_data_summary() -> None:
 def run_mtd_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_client = st.session_state.get("df_plan_client")
     df_plan_sku = st.session_state.get("df_plan_sku")
@@ -2199,8 +2180,7 @@ def run_mtd_build(
         or df_plan_sku is None
     ):
         set_error_message(config.MSG_MTD_BUILD_MISSING_FILES)
-        return
-
+        return False
     try:
         payload = data_processor.build_mtd_payload(
             df_processed_sales,
@@ -2208,12 +2188,15 @@ def run_mtd_build(
             df_plan_sku,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["mtd_payload"] = payload
         st.session_state["df_mtd_base"] = None
         set_success_message(config.MSG_MTD_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_MTD_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def render_mtd_base_summary() -> None:
@@ -2456,14 +2439,14 @@ def build_bts_table_html(title: str, df_table) -> str:
 def run_report_1_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_client = st.session_state.get("df_plan_client")
 
     if df_processed_sales is None or df_plan_client is None:
         set_error_message(config.MSG_REPORT_1_BUILD_MISSING_FILES)
-        return
-
+        return False
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
         df_processed_sales,
         config.REQUIRED_COLUMNS_REPORT_1_SALES,
@@ -2478,26 +2461,27 @@ def run_report_1_build(
         set_warning_message(
             f"Columnas faltantes para Reporte 1 en ventas: {', '.join(missing_sales)}"
         )
-        return
-
+        return False
     if not is_plan_ready:
         set_error_message(config.MSG_VALIDATION_FAIL)
         set_warning_message(
             f"Columnas faltantes para Reporte 1 en plan por cliente: {', '.join(missing_plan)}"
         )
-        return
-
+        return False
     try:
         payload = data_processor.build_report_1_payload(
             df_processed_sales,
             df_plan_client,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["report1_payload"] = payload
         set_success_message(config.MSG_REPORT_1_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def format_report_1_value(value, is_percent: bool = False, allow_blank: bool = False) -> str:
@@ -2610,11 +2594,13 @@ def render_report_1_view() -> None:
         unsafe_allow_html=True,
     )
 
-    st.button(
-        "Construir Reporte 1",
-        on_click=run_report_1_build,
-        use_container_width=True,
-    )
+    if st.button("Construir Reporte 1", use_container_width=True):
+        build_ok = execute_with_status(
+            "Construyendo Reporte 1...",
+            lambda progress: run_report_1_build(progress=progress),
+        )
+        if build_ok:
+            st.rerun()
 
     payload = st.session_state.get("report1_payload")
 
@@ -2688,10 +2674,12 @@ def render_report_1_view() -> None:
                 "report1_without_kens_dimension_widget",
                 old_without_kens_options.copy(),
             )
-            run_report_1_build(
+            rebuild_ok = run_report_1_build(
                 selected_year=selected_year_without_kens,
                 selected_month=selected_month_without_kens,
             )
+            if not rebuild_ok:
+                st.rerun()
             payload_after = st.session_state.get("report1_payload")
             new_without_kens_options = get_filter_options_from_multiple_tables(
                 [
@@ -2790,14 +2778,14 @@ def render_report_1_view() -> None:
 def run_report_2_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
         set_error_message(config.MSG_REPORT_2_BUILD_MISSING_FILES)
-        return
-
+        return False
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
         df_processed_sales,
         config.REQUIRED_COLUMNS_REPORT_2_SALES,
@@ -2812,39 +2800,40 @@ def run_report_2_build(
         set_warning_message(
             f"Columnas faltantes para Reporte 2 en ventas: {', '.join(missing_sales)}"
         )
-        return
-
+        return False
     if not is_plan_ready:
         set_error_message(config.MSG_VALIDATION_FAIL)
         set_warning_message(
             f"Columnas faltantes para Reporte 2 en plan por SKU: {', '.join(missing_plan)}"
         )
-        return
-
+        return False
     try:
         payload = data_processor.build_report_2_segment_region_payload(
             df_processed_sales,
             df_plan_sku,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["report2_payload"] = payload
         set_success_message(config.MSG_REPORT_2_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_REPORT_2_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def run_report_2_category_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
         set_error_message(config.MSG_REPORT_2_CATEGORY_BUILD_MISSING_FILES)
-        return
-
+        return False
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
         df_processed_sales,
         config.REQUIRED_COLUMNS_REPORT_2_CATEGORY_SALES,
@@ -2859,26 +2848,27 @@ def run_report_2_category_build(
         set_warning_message(
             f"Columnas faltantes para Reporte Category en ventas: {', '.join(missing_sales)}"
         )
-        return
-
+        return False
     if not is_plan_ready:
         set_error_message(config.MSG_VALIDATION_FAIL)
         set_warning_message(
             f"Columnas faltantes para Reporte Category en plan por SKU: {', '.join(missing_plan)}"
         )
-        return
-
+        return False
     try:
         payload = data_processor.build_report_2_category_payload(
             df_processed_sales,
             df_plan_sku,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["report2_category_payload"] = payload
         set_success_message(config.MSG_REPORT_2_CATEGORY_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def format_report_2_value(value, is_percent: bool = False) -> str:
@@ -3050,11 +3040,13 @@ def render_report_2_view() -> None:
     st.markdown(report_box_html, unsafe_allow_html=True)
 
     st.markdown("### Construir Segment x Region")
-    st.button(
-        "Construir Reporte Segment x Region",
-        on_click=run_report_2_build,
-        use_container_width=True,
-    )
+    if st.button("Construir Reporte Segment x Region", use_container_width=True):
+        build_ok = execute_with_status(
+            "Construyendo Segment x Region...",
+            lambda progress: run_report_2_build(progress=progress),
+        )
+        if build_ok:
+            st.rerun()
 
     payload = st.session_state.get("report2_payload")
 
@@ -3141,10 +3133,12 @@ def render_report_2_view() -> None:
                     "report2_segment_dimension_widget",
                     old_segment_region_options.copy(),
                 )
-                run_report_2_build(
+                rebuild_ok = run_report_2_build(
                     selected_year=selected_year_segment,
                     selected_month=selected_month_segment,
                 )
+                if not rebuild_ok:
+                    st.rerun()
                 payload_after = st.session_state.get("report2_payload")
                 new_segment_region_options = get_filter_options_from_multiple_tables(
                     [
@@ -3258,11 +3252,13 @@ def render_report_2_view() -> None:
 
     st.markdown("---")
     st.markdown("### Construir Category")
-    st.button(
-        "Construir Reporte Category",
-        on_click=run_report_2_category_build,
-        use_container_width=True,
-    )
+    if st.button("Construir Reporte Category", use_container_width=True):
+        build_ok = execute_with_status(
+            "Construyendo Reporte Category...",
+            lambda progress: run_report_2_category_build(progress=progress),
+        )
+        if build_ok:
+            st.rerun()
 
     payload_category = st.session_state.get("report2_category_payload")
 
@@ -3306,10 +3302,12 @@ def render_report_2_view() -> None:
                     "report2_category_dimension_widget",
                     old_category_options.copy(),
                 )
-                run_report_2_category_build(
+                rebuild_ok = run_report_2_category_build(
                     selected_year=selected_year_category,
                     selected_month=selected_month_category,
                 )
+                if not rebuild_ok:
+                    st.rerun()
                 payload_category_after = st.session_state.get("report2_category_payload")
                 new_category_options = get_filter_options_from_multiple_tables(
                     [
@@ -3422,14 +3420,14 @@ def render_report_2_view() -> None:
 def run_report_3_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_sku = st.session_state.get("df_plan_sku")
 
     if df_processed_sales is None or df_plan_sku is None:
         set_error_message(config.MSG_REPORT_3_BUILD_MISSING_FILES)
-        return
-
+        return False
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
         df_processed_sales,
         config.REQUIRED_COLUMNS_REPORT_3_SALES,
@@ -3444,26 +3442,27 @@ def run_report_3_build(
         set_warning_message(
             f"Columnas faltantes para Reporte 3 en ventas: {', '.join(missing_sales)}"
         )
-        return
-
+        return False
     if not is_plan_ready:
         set_error_message(config.MSG_VALIDATION_FAIL)
         set_warning_message(
             f"Columnas faltantes para Reporte 3 en plan por SKU: {', '.join(missing_plan)}"
         )
-        return
-
+        return False
     try:
         payload = data_processor.build_report_3_channel_payload(
             df_processed_sales,
             df_plan_sku,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["report3_payload"] = payload
         set_success_message(config.MSG_REPORT_3_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def format_report_3_value(value, is_percent: bool = False) -> str:
@@ -3574,11 +3573,13 @@ def render_report_3_view() -> None:
     st.markdown(report_box_html, unsafe_allow_html=True)
 
     st.markdown("### Construir Reporte")
-    st.button(
-        "Construir Reporte 3",
-        on_click=run_report_3_build,
-        use_container_width=True,
-    )
+    if st.button("Construir Reporte 3", use_container_width=True):
+        build_ok = execute_with_status(
+            "Construyendo Reporte 3...",
+            lambda progress: run_report_3_build(progress=progress),
+        )
+        if build_ok:
+            st.rerun()
 
     payload = st.session_state.get("report3_payload")
 
@@ -3664,10 +3665,12 @@ def render_report_3_view() -> None:
                 "report3_channel_dimension_widget",
                 old_channel_options.copy(),
             )
-            run_report_3_build(
+            rebuild_ok = run_report_3_build(
                 selected_year=selected_year_channel,
                 selected_month=selected_month_channel,
             )
+            if not rebuild_ok:
+                st.rerun()
             payload_after = st.session_state.get("report3_payload")
             new_channel_options = get_filter_options_from_multiple_tables(
                 [
@@ -3798,14 +3801,14 @@ def render_report_3_view() -> None:
 def run_report_4_build(
     selected_year: int | None = None,
     selected_month: int | None = None,
-) -> None:
+    progress=None,
+) -> bool:
     df_processed_sales = st.session_state.get("df_processed_sales")
     df_plan_client = st.session_state.get("df_plan_client")
 
     if df_processed_sales is None or df_plan_client is None:
         set_error_message(config.MSG_REPORT_4_BUILD_MISSING_FILES)
-        return
-
+        return False
     is_sales_ready, missing_sales = validators.validate_dataframe_for_processing(
         df_processed_sales,
         config.REQUIRED_COLUMNS_REPORT_4_SALES,
@@ -3820,26 +3823,27 @@ def run_report_4_build(
         set_warning_message(
             f"Columnas faltantes para Reporte 4 en ventas: {', '.join(missing_sales)}"
         )
-        return
-
+        return False
     if not is_plan_ready:
         set_error_message(config.MSG_VALIDATION_FAIL)
         set_warning_message(
             f"Columnas faltantes para Reporte 4 en plan por cliente: {', '.join(missing_plan)}"
         )
-        return
-
+        return False
     try:
         payload = data_processor.build_report_4_top_clients_payload(
             df_processed_sales,
             df_plan_client,
             selected_year=selected_year,
             selected_month=selected_month,
+            progress_callback=progress,
         )
         st.session_state["report4_payload"] = payload
         set_success_message(config.MSG_REPORT_4_BUILD_SUCCESS)
+        return True
     except Exception as exc:
         set_error_message(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}")
+        return False
 
 
 def format_report_4_value(value, is_percent: bool = False, zero_as_dash: bool = False) -> str:
@@ -4010,11 +4014,13 @@ def render_report_4_view() -> None:
     st.markdown(report_box_html, unsafe_allow_html=True)
 
     st.markdown("### Construir Reporte")
-    st.button(
-        "Construir Reporte 4",
-        on_click=run_report_4_build,
-        use_container_width=True,
-    )
+    if st.button("Construir Reporte 4", use_container_width=True):
+        build_ok = execute_with_status(
+            "Construyendo Ranking de Clientes...",
+            lambda progress: run_report_4_build(progress=progress),
+        )
+        if build_ok:
+            st.rerun()
 
     payload = st.session_state.get("report4_payload")
 
@@ -5613,11 +5619,16 @@ def render_dashboard_view() -> None:
         unsafe_allow_html=True,
     )
 
-    st.button(
-        "Cargar Dashboard",
-        on_click=load_dashboard_view_state,
-        use_container_width=True,
-    )
+    if st.button("Cargar Dashboard", use_container_width=True):
+        execute_with_status(
+            "Validando y cargando Dashboard...",
+            lambda progress: (
+                progress("Verificando que todos los reportes estén construidos") or
+                load_dashboard_view_state() or
+                progress("Preparando la vista ejecutiva") or
+                bool(st.session_state.get("dashboard_loaded", False))
+            ),
+        )
 
     if not st.session_state.get("dashboard_loaded", False):
         st.info("Da clic en Cargar Dashboard para validar los insumos y mostrar la vista ejecutiva.")
@@ -5750,51 +5761,6 @@ def render_upload_view() -> None:
     st.markdown("---")
 
     # =====================================================
-    # CARGA AUTOMÁTICA DESDE SHAREPOINT / ONEDRIVE
-    # BLOQUEADA TEMPORALMENTE
-    # =====================================================
-    # NOTA IMPORTANTE:
-    # Esta funcionalidad se deja visible, pero SIN USO.
-    # No se elimina la lógica interna para poder reactivarla en el futuro
-    # si el equipo decide volver a usar la ruta sincronizada.
-    #
-    # Mientras esté bloqueada:
-    # - el botón aparece deshabilitado
-    # - no se puede hacer clic
-    # - no se ejecuta load_synced_sharepoint_file_to_session()
-    # - la app trabaja únicamente con carga manual del archivo corporativo
-    # =====================================================
-    st.markdown(
-        '<div class="base-mtd-section-heading">Carga automática desde OneDrive / SharePoint</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Función temporalmente deshabilitada. Actualmente la app trabaja únicamente "
-        "con la carga manual del archivo corporativo."
-    )
-
-    st.button(
-        getattr(
-            config,
-            "SYNCED_SHAREPOINT_BUTTON_LABEL",
-            "Actualizar desde OneDrive / SharePoint",
-        ),
-        disabled=True,
-        use_container_width=True,
-        help=(
-            "Función temporalmente deshabilitada. "
-            "Actualmente la app trabaja solo con carga manual."
-        ),
-    )
-
-    st.warning(
-        "La carga automática desde OneDrive/SharePoint está temporalmente deshabilitada. "
-        "Usa la carga manual del archivo corporativo."
-    )
-
-    st.markdown("---")
-
-    # =====================================================
     # CARGA MANUAL ÚNICA DEL ARCHIVO CORPORATIVO
     # =====================================================
     st.markdown(
@@ -5819,11 +5785,28 @@ def render_upload_view() -> None:
             if master_signature != st.session_state.get("master_upload_signature", ""):
                 st.session_state["suppress_persistent_autoload"] = True
 
-                with st.spinner("Leyendo archivo corporativo y separando hojas..."):
-                    payload = data_loader.load_dashboard_excel_from_uploaded_file(uploaded_master_file)
-                    df_sales = payload.get("df_sales")
-                    df_plan_client = payload.get("df_plan_client")
-                    df_plan_sku = payload.get("df_plan_sku")
+                loaded_payload: dict = {}
+
+                load_ok = execute_with_status(
+                    "Cargando archivo corporativo...",
+                    lambda progress: (
+                        loaded_payload.update(
+                            data_loader.load_dashboard_excel_from_uploaded_file(
+                                uploaded_master_file,
+                                progress_callback=progress,
+                            )
+                        )
+                        or True
+                    ),
+                )
+
+                if not load_ok:
+                    raise RuntimeError("No fue posible completar la lectura del archivo corporativo.")
+
+                payload = loaded_payload
+                df_sales = payload.get("df_sales")
+                df_plan_client = payload.get("df_plan_client")
+                df_plan_sku = payload.get("df_plan_sku")
 
                 is_valid_sales, missing_sales = validators.validate_required_columns(
                     df_sales,
@@ -5981,11 +5964,13 @@ def render_upload_view() -> None:
         st.info(
             "Cuando las tres hojas estén validadas, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
         )
-        st.button(
-            "Guardar carga administrativa para viewers",
-            on_click=save_current_data_for_viewers,
-            use_container_width=True,
-        )
+        if st.button("Guardar carga administrativa para viewers", use_container_width=True):
+            save_ok = execute_with_status(
+                "Guardando carga administrativa...",
+                lambda progress: save_current_data_for_viewers(progress=progress),
+            )
+            if save_ok:
+                st.rerun()
     else:
         st.caption("Carga el archivo corporativo completo para habilitar el guardado administrativo.")
 
@@ -6012,11 +5997,16 @@ def render_upload_view() -> None:
         )
 
     with col_clear_persistent:
-        st.button(
+        if st.button(
             "Borrar carga guardada para viewers",
-            on_click=delete_persistent_data,
             use_container_width=True,
-        )
+        ):
+            delete_ok = execute_with_status(
+                "Eliminando carga guardada...",
+                lambda progress: delete_persistent_data(progress=progress),
+            )
+            if delete_ok:
+                st.rerun()
 
     render_persistent_data_status()
 
@@ -6036,11 +6026,13 @@ def render_overview_view() -> None:
     st.markdown(overview_box_html, unsafe_allow_html=True)
 
     # Botón único de procesamiento, sin crear un apartado adicional.
-    st.button(
-        "Procesar base de ventas",
-        on_click=run_sales_processing,
-        use_container_width=True,
-    )
+    if st.button("Procesar base de ventas", use_container_width=True):
+        process_ok = execute_with_status(
+            "Procesando base de ventas...",
+            lambda progress: run_sales_processing(progress=progress),
+        )
+        if process_ok:
+            st.rerun()
 
     st.markdown(
         '<div class="base-mtd-section-heading">Resumen de la base procesada</div>',
@@ -6144,11 +6136,13 @@ def render_mtd_base_view() -> None:
             unsafe_allow_html=True,
         )
 
-        st.button(
-            "Construir Base MTD",
-            on_click=run_mtd_build,
-            use_container_width=True,
-        )
+        if st.button("Construir Base MTD", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Base MTD...",
+                lambda progress: run_mtd_build(progress=progress),
+            )
+            if build_ok:
+                st.rerun()
 
         st.info("Aún no se ha construido la Base MTD.")
         return
@@ -6231,6 +6225,7 @@ def render_mtd_base_view() -> None:
                     selected_year=selected_year_mtd,
                     selected_month=selected_month_mtd,
                 )
+                st.rerun()
 
     else:
         st.info("Primero necesitas procesar la base de ventas para habilitar los filtros de Año y Mes.")
@@ -6373,11 +6368,6 @@ def main() -> None:
     render_main_header()
     selected = render_sidebar()
 
-    previous_section = st.session_state.get("__last_selected_section")
-    if previous_section is not None and previous_section != selected:
-        # Evita que avisos de una sección anterior aparezcan en otra pestaña.
-        st.session_state["mensaje_exito"] = None
-        st.session_state["mensaje_warning"] = None
     st.session_state["__last_selected_section"] = selected
 
     render_global_alerts()

@@ -47,6 +47,29 @@ except Exception:  # pragma: no cover
 # =========================================================
 # 1. HELPERS GENERALES
 # =========================================================
+def emit_progress(
+    progress_callback,
+    message: str,
+    step: int,
+    total_steps: int,
+) -> None:
+    """
+    Envía una etapa real del proceso de persistencia al componente visual
+    que será administrado desde app.py.
+
+    El callback es opcional para conservar compatibilidad con las llamadas
+    actuales. No calcula porcentajes ni agrega pausas artificiales.
+    """
+    if progress_callback is None:
+        return
+
+    progress_callback(
+        message=message,
+        step=int(step),
+        total_steps=int(total_steps),
+    )
+
+
 def _get_config_value(name: str, default: Any = None) -> Any:
     return getattr(config, name, default)
 
@@ -118,24 +141,143 @@ def _local_exists() -> bool:
     return get_local_persistent_data_file().exists()
 
 
-def _local_save(payload: dict) -> bool:
+def _local_save(payload: dict, progress_callback=None) -> bool:
+    total_steps = 5
+
+    emit_progress(
+        progress_callback,
+        "Resolviendo la ubicación del respaldo local",
+        1,
+        total_steps,
+    )
     file_path = get_local_persistent_data_file()
+
+    emit_progress(
+        progress_callback,
+        "Preparando la carpeta de persistencia",
+        2,
+        total_steps,
+    )
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_bytes(_serialize_payload(payload))
+
+    emit_progress(
+        progress_callback,
+        "Serializando y comprimiendo la carga administrativa",
+        3,
+        total_steps,
+    )
+    payload_bytes = _serialize_payload(payload)
+
+    emit_progress(
+        progress_callback,
+        "Guardando el respaldo local",
+        4,
+        total_steps,
+    )
+    file_path.write_bytes(payload_bytes)
+
+    emit_progress(
+        progress_callback,
+        "Confirmando el guardado del respaldo local",
+        5,
+        total_steps,
+    )
+    if not file_path.exists() or file_path.stat().st_size == 0:
+        raise RuntimeError("El respaldo local no pudo confirmarse después del guardado.")
+
     return True
 
 
-def _local_load() -> dict | None:
+def _local_load(progress_callback=None) -> dict | None:
+    total_steps = 5
+
+    emit_progress(
+        progress_callback,
+        "Resolviendo la ubicación del respaldo local",
+        1,
+        total_steps,
+    )
     file_path = get_local_persistent_data_file()
+
+    emit_progress(
+        progress_callback,
+        "Verificando si existe información guardada",
+        2,
+        total_steps,
+    )
     if not file_path.exists():
         return None
-    return _deserialize_payload(file_path.read_bytes())
+
+    emit_progress(
+        progress_callback,
+        "Leyendo el respaldo local",
+        3,
+        total_steps,
+    )
+    payload_bytes = file_path.read_bytes()
+
+    emit_progress(
+        progress_callback,
+        "Descomprimiendo y recuperando la información",
+        4,
+        total_steps,
+    )
+    payload = _deserialize_payload(payload_bytes)
+
+    emit_progress(
+        progress_callback,
+        "Validando la carga recuperada",
+        5,
+        total_steps,
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("El respaldo local recuperado no contiene un payload válido.")
+
+    return payload
 
 
-def _local_delete() -> bool:
+def _local_delete(progress_callback=None) -> bool:
+    total_steps = 4
+
+    emit_progress(
+        progress_callback,
+        "Resolviendo la ubicación del respaldo local",
+        1,
+        total_steps,
+    )
     file_path = get_local_persistent_data_file()
+
+    emit_progress(
+        progress_callback,
+        "Verificando si existe un respaldo guardado",
+        2,
+        total_steps,
+    )
     if file_path.exists():
+        emit_progress(
+            progress_callback,
+            "Eliminando el respaldo local",
+            3,
+            total_steps,
+        )
         file_path.unlink()
+    else:
+        emit_progress(
+            progress_callback,
+            "No se encontró un respaldo local para eliminar",
+            3,
+            total_steps,
+        )
+
+    emit_progress(
+        progress_callback,
+        "Confirmando la eliminación del respaldo",
+        4,
+        total_steps,
+    )
+    if file_path.exists():
+        raise RuntimeError("El respaldo local sigue existiendo después de intentar eliminarlo.")
+
     return True
 
 
@@ -291,12 +433,40 @@ def _github_exists() -> bool:
     return _github_get_file_info() is not None
 
 
-def _github_save(payload: dict) -> bool:
+def _github_save(payload: dict, progress_callback=None) -> bool:
+    total_steps = 6
+
+    emit_progress(
+        progress_callback,
+        "Validando la configuración de GitHub Storage",
+        1,
+        total_steps,
+    )
     cfg = _github_required_config()
+
+    emit_progress(
+        progress_callback,
+        "Consultando la versión actual del respaldo",
+        2,
+        total_steps,
+    )
     file_info = _github_get_file_info()
     sha = file_info.get("sha") if file_info else None
 
+    emit_progress(
+        progress_callback,
+        "Serializando y comprimiendo la carga administrativa",
+        3,
+        total_steps,
+    )
     content_bytes = _serialize_payload(payload)
+
+    emit_progress(
+        progress_callback,
+        "Preparando el archivo para enviarlo a GitHub",
+        4,
+        total_steps,
+    )
     content_b64 = base64.b64encode(content_bytes).decode("utf-8")
 
     body = {
@@ -308,91 +478,211 @@ def _github_save(payload: dict) -> bool:
     if sha:
         body["sha"] = sha
 
+    emit_progress(
+        progress_callback,
+        "Guardando la carga administrativa en GitHub",
+        5,
+        total_steps,
+    )
     url = _github_api_url(cfg["repo"], cfg["path"])
     _github_request("PUT", url, cfg["token"], body=body)
+
+    emit_progress(
+        progress_callback,
+        "Confirmando el guardado en GitHub Storage",
+        6,
+        total_steps,
+    )
+    if _github_get_file_info() is None:
+        raise RuntimeError("GitHub no confirmó la existencia del respaldo después del guardado.")
+
     return True
 
 
-def _github_load() -> dict | None:
+def _github_load(progress_callback=None) -> dict | None:
+    total_steps = 6
+
+    emit_progress(
+        progress_callback,
+        "Validando la configuración de GitHub Storage",
+        1,
+        total_steps,
+    )
     cfg = _github_required_config()
 
+    emit_progress(
+        progress_callback,
+        "Buscando la última carga administrativa",
+        2,
+        total_steps,
+    )
     file_info = _github_get_file_info()
     if not file_info:
         return None
 
+    emit_progress(
+        progress_callback,
+        "Preparando la descarga del respaldo",
+        3,
+        total_steps,
+    )
     content_text = file_info.get("content", "")
 
-    # Archivos pequeños: GitHub devuelve el contenido en base64 dentro del JSON.
     if content_text:
+        emit_progress(
+            progress_callback,
+            "Descargando el contenido guardado",
+            4,
+            total_steps,
+        )
         content_bytes = base64.b64decode(content_text.replace("\n", ""))
-        return _deserialize_payload(content_bytes)
+    else:
+        emit_progress(
+            progress_callback,
+            "Descargando el archivo completo desde GitHub",
+            4,
+            total_steps,
+        )
+        raw_url = _github_api_url(cfg["repo"], cfg["path"])
+        raw_url = f"{raw_url}?ref={urllib.parse.quote(str(cfg['branch']))}"
+        content_bytes = _github_request_raw_bytes(raw_url, cfg["token"])
+        if not content_bytes:
+            return None
 
-    # Archivos grandes: GitHub puede devolver metadata con content vacío.
-    # En ese caso se fuerza lectura RAW desde la API de contents.
-    raw_url = _github_api_url(cfg["repo"], cfg["path"])
-    raw_url = f"{raw_url}?ref={urllib.parse.quote(str(cfg['branch']))}"
+    emit_progress(
+        progress_callback,
+        "Descomprimiendo y recuperando la información",
+        5,
+        total_steps,
+    )
+    payload = _deserialize_payload(content_bytes)
 
-    raw_bytes = _github_request_raw_bytes(raw_url, cfg["token"])
-    if not raw_bytes:
-        return None
+    emit_progress(
+        progress_callback,
+        "Validando la carga recuperada",
+        6,
+        total_steps,
+    )
+    if not isinstance(payload, dict):
+        raise ValueError("El respaldo recuperado de GitHub no contiene un payload válido.")
 
-    return _deserialize_payload(raw_bytes)
+    return payload
 
 
-def _github_delete() -> bool:
+def _github_delete(progress_callback=None) -> bool:
+    total_steps = 5
+
+    emit_progress(
+        progress_callback,
+        "Validando la configuración de GitHub Storage",
+        1,
+        total_steps,
+    )
     cfg = _github_required_config()
+
+    emit_progress(
+        progress_callback,
+        "Buscando el respaldo guardado",
+        2,
+        total_steps,
+    )
     file_info = _github_get_file_info()
     if not file_info:
+        emit_progress(
+            progress_callback,
+            "No se encontró una carga guardada para eliminar",
+            5,
+            total_steps,
+        )
         return True
 
+    emit_progress(
+        progress_callback,
+        "Preparando la eliminación del respaldo",
+        3,
+        total_steps,
+    )
     body = {
         "message": "Delete dashboard persistent payload",
         "sha": file_info.get("sha"),
         "branch": cfg["branch"],
     }
 
+    emit_progress(
+        progress_callback,
+        "Eliminando la carga administrativa de GitHub",
+        4,
+        total_steps,
+    )
     url = _github_api_url(cfg["repo"], cfg["path"])
     _github_request("DELETE", url, cfg["token"], body=body)
+
+    emit_progress(
+        progress_callback,
+        "Confirmando la eliminación del respaldo",
+        5,
+        total_steps,
+    )
+    if _github_get_file_info() is not None:
+        raise RuntimeError("GitHub sigue mostrando el respaldo después de intentar eliminarlo.")
+
     return True
 
 
 # =========================================================
 # 4. API PÚBLICA DEL MÓDULO
 # =========================================================
-def persistent_data_exists() -> bool:
+def persistent_data_exists(progress_callback=None) -> bool:
+    total_steps = 2
+
+    emit_progress(
+        progress_callback,
+        "Resolviendo el almacenamiento de persistencia",
+        1,
+        total_steps,
+    )
     backend = get_persistence_backend()
 
+    emit_progress(
+        progress_callback,
+        "Verificando si existe información guardada",
+        2,
+        total_steps,
+    )
     if backend == "github":
         return _github_exists()
 
     return _local_exists()
 
 
-def save_dashboard_payload(payload: dict) -> bool:
+def save_dashboard_payload(payload: dict, progress_callback=None) -> bool:
+    if not isinstance(payload, dict):
+        raise ValueError("La carga administrativa debe enviarse como un diccionario.")
+
     backend = get_persistence_backend()
 
     if backend == "github":
-        return _github_save(payload)
+        return _github_save(payload, progress_callback=progress_callback)
 
-    return _local_save(payload)
+    return _local_save(payload, progress_callback=progress_callback)
 
 
-def load_dashboard_payload() -> dict | None:
+def load_dashboard_payload(progress_callback=None) -> dict | None:
     backend = get_persistence_backend()
 
     if backend == "github":
-        return _github_load()
+        return _github_load(progress_callback=progress_callback)
 
-    return _local_load()
+    return _local_load(progress_callback=progress_callback)
 
 
-def delete_dashboard_payload() -> bool:
+def delete_dashboard_payload(progress_callback=None) -> bool:
     backend = get_persistence_backend()
 
     if backend == "github":
-        return _github_delete()
+        return _github_delete(progress_callback=progress_callback)
 
-    return _local_delete()
+    return _local_delete(progress_callback=progress_callback)
 
 
 def get_persistence_status_label() -> str:

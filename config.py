@@ -98,32 +98,6 @@ HOME_TRUST_ITEMS = [
 ]
 
 
-# =========================================================
-# CARGA AUTOMÁTICA DESDE SHAREPOINT SINCRONIZADO
-# =========================================================
-# Esta opción NO usa API, credenciales ni links directos de SharePoint.
-# Lee el archivo desde la carpeta sincronizada de OneDrive/SharePoint
-# en la computadora donde se ejecuta la app localmente.
-
-SYNCED_SHAREPOINT_ENABLED = False
-
-SYNCED_SHAREPOINT_FILE_NAME = "BASE FINAL ACUMULADA VENTAS CORPO 2024-2026.xlsx"
-
-SYNCED_SHAREPOINT_FILE_PATH = (
-    r"C:\Users\pncarden\OneDrive - ACCO Brands Corporation"
-    r"\Supply Chain Finance - REPORTES"
-    r"\BASE FINAL ACUMULADA VENTAS CORPO 2024-2026.xlsx"
-)
-
-SYNCED_SHAREPOINT_BUTTON_LABEL = "Actualizar desde SharePoint sincronizado"
-
-SYNCED_SHAREPOINT_LOAD_SUCCESS = (
-    "Archivo cargado correctamente desde la carpeta sincronizada de SharePoint."
-)
-
-SYNCED_SHAREPOINT_LOAD_ERROR = (
-    "No fue posible cargar el archivo desde la carpeta sincronizada de SharePoint."
-)
 
 # ---------------------------------------------------------
 # CONFIGURACIÓN GLOBAL DE MONEDA

@@ -10,6 +10,30 @@ import pandas as pd
 import config
 
 # --------------------------------------------------------------
+# PROGRESO DE PROCESAMIENTO
+# --------------------------------------------------------------
+def emit_progress(progress_callback, message: str, step: int, total_steps: int) -> None:
+    """
+    Informa a la interfaz qué etapa real está comenzando.
+
+    El callback es opcional, por lo que todas las llamadas existentes siguen
+    funcionando. El módulo no dibuja componentes de Streamlit; solo reporta
+    message, step y total_steps para que app.py los muestre.
+    """
+    if not callable(progress_callback):
+        return
+
+    try:
+        progress_callback(
+            message=message,
+            step=int(step),
+            total_steps=int(total_steps),
+        )
+    except TypeError:
+        progress_callback(message)
+
+
+# --------------------------------------------------------------
 # CONSTANTES AUXILIARES
 # --------------------------------------------------------------
 MONTH_NAME_TO_NUMBER = {
@@ -284,16 +308,27 @@ def calculate_gross_margin(df_sales: pd.DataFrame) -> pd.DataFrame:
 # FUNCIÓN PRINCIPAL:
 # Procesa ventas sin depender de mapeos
 # --------------------------------------------------------------
-def process_sales_data(df_sales: pd.DataFrame) -> pd.DataFrame:
+def process_sales_data(
+    df_sales: pd.DataFrame,
+    progress_callback=None,
+) -> pd.DataFrame:
+    total_steps = 5
+
+    emit_progress(progress_callback, "Estandarizando nombres de columnas", 1, total_steps)
     df_raw_audit = standardize_columns(df_sales)
 
-
+    emit_progress(progress_callback, "Limpiando columnas numéricas de ventas", 2, total_steps)
     df = df_raw_audit.copy()
     df = clean_sales_numeric_columns(df)
-    df = add_year_month_columns(df)
-    df = calculate_gsnr(df)
-    df = calculate_gross_margin(df)
 
+    emit_progress(progress_callback, "Identificando Año y Mes desde Periodo", 3, total_steps)
+    df = add_year_month_columns(df)
+
+    emit_progress(progress_callback, "Calculando GSNR", 4, total_steps)
+    df = calculate_gsnr(df)
+
+    emit_progress(progress_callback, "Calculando Gross Margin", 5, total_steps)
+    df = calculate_gross_margin(df)
 
     return df
 
@@ -949,7 +984,10 @@ def build_mtd_payload(
     df_plan_sku: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 7
+    emit_progress(progress_callback, "Validando bases requeridas para Base MTD", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
@@ -959,30 +997,35 @@ def build_mtd_payload(
     if df_plan_sku is None or df_plan_sku.empty:
         raise ValueError("No existe archivo de plan por SKU cargado.")
 
+    emit_progress(progress_callback, "Resolviendo año y mes de reporte", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Calculando Actual y PY", 3, total_steps)
     totals = calculate_actual_and_py_totals(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Integrando y conciliando Plan Cliente y Plan SKU", 4, total_steps)
     plan_summary = calculate_plan_totals_summary(
         df_plan_client,
         df_plan_sku,
         report_month,
     )
 
+    emit_progress(progress_callback, "Calculando indicadores BTS", 5, total_steps)
     bts_totals = calculate_bts_totals(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Construyendo tablas comparativas MTD y YTD", 6, total_steps)
     client_table = build_horizontal_plan_table(
         totals["mtd_actual"],
         totals["ytd_actual"],
@@ -1008,6 +1051,7 @@ def build_mtd_payload(
         bts_totals["bts_ytd_py_comparable"],
     )
 
+    emit_progress(progress_callback, "Preparando resumen final de Base MTD", 7, total_steps)
     summary = {
         "mtd_act_total_k": totals["mtd_actual"] / 1000,
         "ytd_act_total_k": totals["ytd_actual"] / 1000,
@@ -1474,24 +1518,30 @@ def build_report_1_payload(
     df_plan_client: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 6
+    emit_progress(progress_callback, "Validando bases para Reporte 1", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
     if df_plan_client is None or df_plan_client.empty:
         raise ValueError("No existe archivo de plan por cliente cargado.")
 
+    emit_progress(progress_callback, "Resolviendo periodo del Reporte 1", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Preparando Plan por Oficina de Ventas", 3, total_steps)
     plan_mtd_by_channel, plan_ytd_by_channel = get_plan_channel_totals_for_report_1(
         df_plan_client,
         report_month,
     )
 
+    emit_progress(progress_callback, "Preparando ventas Actual y PY por Oficina", 4, total_steps)
     sales_without_kens = filter_sales_for_report_1(
         df_processed_sales,
         # Bloque superior actualizado: ACCO + BARRILITO + KENS.
@@ -1509,6 +1559,7 @@ def build_report_1_payload(
         report_month,
     )
 
+    emit_progress(progress_callback, "Construyendo tablas MTD y YTD", 5, total_steps)
     mtd_without_kens_table = build_report_1_without_kens_table(
         actual_dict=mtd_actual_without_kens,
         plan_dict=plan_mtd_by_channel,
@@ -1522,6 +1573,7 @@ def build_report_1_payload(
     )
 
 
+    emit_progress(progress_callback, "Preparando resumen final del Reporte 1", 6, total_steps)
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
@@ -2532,30 +2584,37 @@ def build_report_2_segment_region_payload(
     df_plan_sku: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 6
+    emit_progress(progress_callback, "Validando bases para Segment x Region", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
     if df_plan_sku is None or df_plan_sku.empty:
         raise ValueError("No existe archivo de plan por SKU cargado.")
 
+    emit_progress(progress_callback, "Resolviendo periodo de Segment x Region", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Calculando Actual y PY por Segmento y Región", 3, total_steps)
     mtd_actual_df, ytd_actual_df, mtd_py_df, ytd_py_df = get_sales_segment_region_totals_for_report_2(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Integrando Plan por Segmento y Región", 4, total_steps)
     mtd_plan_df, ytd_plan_df = get_plan_segment_region_totals_for_report_2(
         df_plan_sku,
         report_month,
     )
 
+    emit_progress(progress_callback, "Construyendo tablas MTD y YTD", 5, total_steps)
     mtd_table = build_report_2_segment_region_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -2571,6 +2630,7 @@ def build_report_2_segment_region_payload(
     mtd_total_row = mtd_table[mtd_table["Segmento"] == config.REPORT_2_GRAND_TOTAL_LABEL]
     ytd_total_row = ytd_table[ytd_table["Segmento"] == config.REPORT_2_GRAND_TOTAL_LABEL]
 
+    emit_progress(progress_callback, "Preparando resumen final de Segment x Region", 6, total_steps)
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
@@ -3080,30 +3140,37 @@ def build_report_2_category_payload(
     df_plan_sku: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 6
+    emit_progress(progress_callback, "Validando bases para Category", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
     if df_plan_sku is None or df_plan_sku.empty:
         raise ValueError("No existe archivo de plan por SKU cargado.")
 
+    emit_progress(progress_callback, "Resolviendo periodo de Category", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Calculando Actual y PY por categoría y material", 3, total_steps)
     mtd_actual_df, ytd_actual_df, mtd_py_df, ytd_py_df = get_sales_category_totals_for_report_2(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Integrando Plan por categoría y material", 4, total_steps)
     mtd_plan_df, ytd_plan_df = get_plan_category_totals_for_report_2(
         df_plan_sku,
         report_month,
     )
 
+    emit_progress(progress_callback, "Construyendo tablas MTD y YTD de Category", 5, total_steps)
     mtd_table = build_report_2_category_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -3119,6 +3186,7 @@ def build_report_2_category_payload(
     mtd_total_row = mtd_table[mtd_table["Category"] == config.REPORT_2_GRAND_TOTAL_LABEL]
     ytd_total_row = ytd_table[ytd_table["Category"] == config.REPORT_2_GRAND_TOTAL_LABEL]
 
+    emit_progress(progress_callback, "Preparando resumen final de Category", 6, total_steps)
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
@@ -3500,30 +3568,37 @@ def build_report_3_channel_payload(
     df_plan_sku: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 6
+    emit_progress(progress_callback, "Validando bases para Channel", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
     if df_plan_sku is None or df_plan_sku.empty:
         raise ValueError("No existe archivo de plan por SKU cargado.")
 
+    emit_progress(progress_callback, "Resolviendo periodo de Channel", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Calculando Actual y PY por Channel", 3, total_steps)
     mtd_actual_df, ytd_actual_df, mtd_py_df, ytd_py_df = get_sales_channel_totals_for_report_3(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Integrando Plan por Channel", 4, total_steps)
     mtd_plan_df, ytd_plan_df = get_plan_channel_totals_for_report_3(
         df_plan_sku,
         report_month,
     )
 
+    emit_progress(progress_callback, "Construyendo tablas MTD y YTD de Channel", 5, total_steps)
     mtd_table = build_report_3_channel_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -3539,6 +3614,7 @@ def build_report_3_channel_payload(
     mtd_total_row = mtd_table[mtd_table["Channel"] == config.REPORT_3_TOTAL_LABEL]
     ytd_total_row = ytd_table[ytd_table["Channel"] == config.REPORT_3_TOTAL_LABEL]
 
+    emit_progress(progress_callback, "Preparando resumen final de Channel", 6, total_steps)
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
@@ -4409,30 +4485,37 @@ def build_report_4_top_clients_payload(
     df_plan_client: pd.DataFrame,
     selected_year: int | None = None,
     selected_month: int | None = None,
+    progress_callback=None,
 ) -> dict:
+    total_steps = 8
+    emit_progress(progress_callback, "Validando bases para Ranking de Clientes", 1, total_steps)
     if df_processed_sales is None or df_processed_sales.empty:
         raise ValueError("No existe base de ventas procesada.")
 
     if df_plan_client is None or df_plan_client.empty:
         raise ValueError("No existe archivo de plan por cliente cargado.")
 
+    emit_progress(progress_callback, "Resolviendo periodo del Ranking", 2, total_steps)
     report_year, report_month = resolve_reporting_period(
         df_processed_sales,
         selected_year=selected_year,
         selected_month=selected_month,
     )
 
+    emit_progress(progress_callback, "Calculando Actual y PY por cliente", 3, total_steps)
     mtd_actual_df, ytd_actual_df, mtd_py_df, ytd_py_df = get_sales_client_totals_for_report_4(
         df_processed_sales,
         report_year,
         report_month,
     )
 
+    emit_progress(progress_callback, "Integrando Plan por cliente", 4, total_steps)
     mtd_plan_df, ytd_plan_df = get_plan_client_totals_for_report_4(
         df_plan_client,
         report_month,
     )
 
+    emit_progress(progress_callback, "Ordenando clientes y asignando ranking", 5, total_steps)
     mtd_detail_internal = build_report_4_detail_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -4447,9 +4530,11 @@ def build_report_4_top_clients_payload(
         keep_internal=True,
     )
 
+    emit_progress(progress_callback, "Calculando bloques Top 15, 16-50, 51-100 y resto", 6, total_steps)
     mtd_summary_internal = build_report_4_group_summary_table(mtd_detail_internal, keep_internal=True)
     ytd_summary_internal = build_report_4_group_summary_table(ytd_detail_internal, keep_internal=True)
 
+    emit_progress(progress_callback, "Construyendo tablas ejecutivas MTD y YTD", 7, total_steps)
     mtd_table = build_report_4_clients_table(
         actual_df=mtd_actual_df,
         plan_df=mtd_plan_df,
@@ -4465,6 +4550,7 @@ def build_report_4_top_clients_payload(
     mtd_total_row = mtd_summary_internal[mtd_summary_internal["Client Name"] == config.REPORT_4_TOTAL_LABEL]
     ytd_total_row = ytd_summary_internal[ytd_summary_internal["Client Name"] == config.REPORT_4_TOTAL_LABEL]
 
+    emit_progress(progress_callback, "Preparando resumen final del Ranking", 8, total_steps)
     summary = {
         "latest_year": report_year,
         "latest_month": report_month,
