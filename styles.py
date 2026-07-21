@@ -1548,6 +1548,25 @@ def build_global_css() -> str:
         box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09) !important;
     }}
 
+    /* Botón individual del Dashboard: compacto, alineado a la derecha. */
+    .dashboard-download-wrap .stDownloadButton > button {{
+        width: 46px !important;
+        min-width: 46px !important;
+        height: 46px !important;
+        padding: 0 !important;
+        border-radius: 14px !important;
+        background: #FFFFFF !important;
+        color: #1F2A44 !important;
+        border: 1px solid #DCE3EC !important;
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06) !important;
+    }}
+
+    .dashboard-download-wrap .stDownloadButton > button:hover {{
+        background: #F8FAFC !important;
+        border-color: #C9D3DF !important;
+        box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09) !important;
+    }}
+
     .base-mtd-compact-note {{
         font-size: 0.92rem;
         color: #667085;
@@ -2612,36 +2631,58 @@ def build_dashboard_css_html() -> str:
 }
 
 .dashboard-clients-table {
+    width: 100% !important;
+    table-layout: fixed !important;
+    border-collapse: separate !important;
+    border-spacing: 0 !important;
     font-size: 0.82rem;
 }
 
+/* 26% para el nombre y 10.571% para cada una de las siete métricas.
+   El mismo colgroup gobierna encabezados y cuerpo, evitando desplazamientos. */
 .dashboard-clients-table .dashboard-col-client-name {
-    width: 31%;
+    width: 26% !important;
 }
 
-.dashboard-clients-table .dashboard-col-client-code {
-    width: 9%;
-}
-
-.dashboard-clients-table .dashboard-col-num {
-    width: 8.55%;
-}
-
+.dashboard-clients-table .dashboard-col-num,
 .dashboard-clients-table .dashboard-col-pct {
-    width: 8.55%;
+    width: 10.5714% !important;
+}
+
+.dashboard-clients-table th,
+.dashboard-clients-table td {
+    box-sizing: border-box !important;
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
 }
 
 .dashboard-clients-table th {
-    font-size: 0.76rem !important;
+    font-size: 0.74rem !important;
+    padding: 0.25rem 0.18rem !important;
+    text-align: right !important;
+}
+
+.dashboard-clients-table th:first-child {
+    text-align: center !important;
 }
 
 .dashboard-clients-table td {
     font-size: 0.78rem !important;
-    padding: 0.27rem 0.24rem !important;
+    padding: 0.27rem 0.18rem !important;
+    text-align: right !important;
+}
+
+.dashboard-clients-table td:first-child {
+    text-align: left !important;
 }
 
 .dashboard-client-name {
-    max-width: 1px;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
 }
 
 .dashboard-compact-code {
@@ -2832,3 +2873,8 @@ def build_project_progress_html() -> str:
         '<div class="project-progress-track"><div class="project-progress-fill"></div></div>'
         '<div class="project-progress-value">85%</div></div>'
     )
+
+
+def build_dashboard_download_anchor() -> str:
+    """Marcador visual reutilizable para la zona de descarga del Dashboard."""
+    return '<div class="dashboard-download-wrap"></div>'

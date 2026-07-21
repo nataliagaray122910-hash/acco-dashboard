@@ -173,6 +173,7 @@ EXPORT_REPORT_2_CATEGORY_FILE_BASE = "reporte_2_category"
 EXPORT_REPORT_3_FILE_BASE = "reporte_3"
 EXPORT_REPORT_4_FILE_BASE = "reporte_4"
 EXPORT_BASE_MTD_FILE_BASE = "base_mtd"
+EXPORT_DASHBOARD_FILE_BASE = "dashboard_ejecutivo"
 
 # ---------------------------------------------------------
 # TOOLTIPS DE BOTONES INDIVIDUALES
@@ -183,6 +184,7 @@ EXPORT_REPORT_2_CATEGORY_HELP = "Descargar Category"
 EXPORT_REPORT_3_HELP = "Descargar Reporte 3"
 EXPORT_REPORT_4_HELP = "Descargar Reporte 4"
 EXPORT_BASE_MTD_HELP = "Descargar Base MTD"
+EXPORT_DASHBOARD_HELP = "Descargar Dashboard ejecutivo"
 
 # ---------------------------------------------------------
 # NOMBRES DE HOJAS EXCEL
@@ -196,6 +198,7 @@ EXPORT_SHEET_BASE_MTD = "Base MTD"
 EXPORT_SHEET_BASE_MTD_CLIENT = "Base MTD Cliente"
 EXPORT_SHEET_BASE_MTD_SKU = "Base MTD SKU"
 EXPORT_SHEET_BASE_MTD_BTS = "BTS"
+EXPORT_SHEET_DASHBOARD = "Dashboard"
 
 # =========================================================
 # ETAPA 2: CONFIGURACIÓN DE CARGA Y VALIDACIÓN DE ARCHIVOS

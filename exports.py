@@ -830,6 +830,1002 @@ def build_report_4_excel_bytes(
     return build_excel_bytes_from_writer(output, writer)
 
 # ---------------------------------------------------------
+# EXPORTACIÓN DASHBOARD EJECUTIVO
+# ---------------------------------------------------------
+# La hoja Dashboard NO reutiliza el diseño azul/dorado de los reportes
+# individuales. Se construye celda por celda para conservar la apariencia
+# limpia del Dashboard mostrado en Streamlit.
+
+DASHBOARD_RED = "E60023"
+DASHBOARD_BLACK = "111111"
+DASHBOARD_TEXT = "000000"
+DASHBOARD_NEGATIVE = "C0392B"
+DASHBOARD_TITLE_GRAY = "D9DDE3"
+DASHBOARD_GSNR_GRAY = "D9DDE3"
+DASHBOARD_BTS_GRAY = "F1F3F5"
+DASHBOARD_TOTAL_GRAY = "F1F3F5"
+DASHBOARD_GRAND_TOTAL_GREEN = "E8F3E6"
+DASHBOARD_WHITE = "FFFFFF"
+
+DASHBOARD_NO_BORDER = Border()
+DASHBOARD_HEADER_BORDER = Border(
+    bottom=Side(style="double", color=DASHBOARD_BLACK),
+)
+DASHBOARD_KPI_HEADER_BORDER = Border(
+    bottom=Side(style="medium", color=DASHBOARD_BLACK),
+)
+DASHBOARD_TOTAL_BORDER = Border(
+    top=Side(style="double", color=DASHBOARD_BLACK),
+)
+
+DASHBOARD_TITLE_FONT = Font(
+    name="Calibri",
+    size=18,
+    bold=True,
+    color=DASHBOARD_RED,
+)
+DASHBOARD_SECTION_FONT = Font(
+    name="Calibri",
+    size=11,
+    bold=True,
+    color=DASHBOARD_TEXT,
+)
+DASHBOARD_HEADER_FONT = Font(
+    name="Calibri",
+    size=9,
+    bold=True,
+    color=DASHBOARD_TEXT,
+)
+DASHBOARD_BODY_FONT = Font(
+    name="Calibri",
+    size=9,
+    bold=False,
+    color=DASHBOARD_TEXT,
+)
+DASHBOARD_BODY_BOLD_FONT = Font(
+    name="Calibri",
+    size=9,
+    bold=True,
+    color=DASHBOARD_TEXT,
+)
+DASHBOARD_NEGATIVE_FONT = Font(
+    name="Calibri",
+    size=9,
+    bold=True,
+    color=DASHBOARD_NEGATIVE,
+)
+DASHBOARD_PERIOD_LABEL_FONT = Font(
+    name="Calibri",
+    size=10,
+    bold=True,
+    color=DASHBOARD_RED,
+)
+DASHBOARD_PERIOD_VALUE_FONT = Font(
+    name="Calibri",
+    size=10,
+    bold=True,
+    color=DASHBOARD_TEXT,
+)
+
+DASHBOARD_NUMBER_FORMAT = '#,##0;[Red](#,##0);-'
+DASHBOARD_PERCENT_FORMAT = '0.00%;[Red](0.00%);-'
+
+
+def _dashboard_find_period_row(df: pd.DataFrame | None, period: str):
+    if df is None or df.empty or "Periodo" not in df.columns:
+        return None
+
+    matches = df[
+        df["Periodo"].astype(str).str.strip().str.upper()
+        == str(period).strip().upper()
+    ]
+    if matches.empty:
+        return None
+
+    return matches.iloc[0]
+
+
+def _dashboard_kpi_dataframe(
+    client_table: pd.DataFrame | None,
+    bts_table: pd.DataFrame | None,
+    period: str,
+    bts_label: str,
+) -> pd.DataFrame:
+    """
+    Construye las tres filas del bloque KPI con la misma posición visual
+    que la tabla del Dashboard:
+    - GSNR
+    - % achievement
+    - BTS
+    """
+    gsnr_row = _dashboard_find_period_row(client_table, period)
+    bts_row = _dashboard_find_period_row(bts_table, period)
+
+    def get_value(row, column, default=None):
+        if row is None or column not in row.index:
+            return default
+        return row.get(column, default)
+
+    actual = get_value(gsnr_row, "Actual")
+    plan = get_value(gsnr_row, "Plan")
+    py = get_value(gsnr_row, "PY")
+
+    actual_numeric = safe_float(actual)
+    plan_numeric = safe_float(plan)
+    py_numeric = safe_float(py)
+
+    achievement_plan = None
+    if actual_numeric is not None and plan_numeric not in (None, 0):
+        achievement_plan = actual_numeric / plan_numeric
+
+    achievement_py = None
+    if actual_numeric is not None and py_numeric not in (None, 0):
+        achievement_py = actual_numeric / py_numeric
+
+    rows = [
+        {
+            "KPI": "GSNR",
+            "Actual": actual,
+            "Plan": plan,
+            "PY": py,
+            "Var VS Plan": get_value(gsnr_row, "Var VS Plan"),
+            "%Var VS Plan": get_value(gsnr_row, "%Var VS Plan"),
+            "Var VS PY": get_value(gsnr_row, "Var VS PY"),
+            "%Var VS PY": get_value(gsnr_row, "%Var VS PY"),
+        },
+        {
+            "KPI": "% achievement",
+            "Actual": None,
+            "Plan": None,
+            "PY": None,
+            "Var VS Plan": achievement_plan,
+            "%Var VS Plan": None,
+            "Var VS PY": achievement_py,
+            "%Var VS PY": None,
+        },
+        {
+            "KPI": bts_label,
+            "Actual": get_value(bts_row, "Actual"),
+            "Plan": None,
+            "PY": get_value(bts_row, "PY"),
+            "Var VS Plan": None,
+            "%Var VS Plan": 0.0,
+            "Var VS PY": get_value(bts_row, "Var VS PY"),
+            "%Var VS PY": get_value(bts_row, "%Var VS PY"),
+        },
+    ]
+
+    return pd.DataFrame(rows)
+
+
+def _dashboard_is_percent_column(column_name: str) -> bool:
+    clean_name = str(column_name).strip()
+    return clean_name.startswith("%") or clean_name in {
+        "%Var VS Plan",
+        "%Var VS PY",
+        "% GM",
+        "Weight",
+    }
+
+
+def _dashboard_is_numeric_column(column_name: str) -> bool:
+    clean_name = str(column_name).strip()
+    return clean_name in NUMERIC_COLUMNS or _dashboard_is_percent_column(clean_name)
+
+
+def _dashboard_scale_value(column_name: str, value):
+    numeric_value = safe_float(value)
+    if numeric_value is None:
+        return None
+
+    if _dashboard_is_percent_column(column_name):
+        return numeric_value
+
+    if _dashboard_is_numeric_column(column_name):
+        return numeric_value / 1000
+
+    return value
+
+
+def _dashboard_set_numeric_style(cell, column_name: str, raw_value) -> None:
+    if _dashboard_is_percent_column(column_name):
+        cell.number_format = DASHBOARD_PERCENT_FORMAT
+    elif _dashboard_is_numeric_column(column_name):
+        cell.number_format = DASHBOARD_NUMBER_FORMAT
+
+    if is_negative_number(raw_value):
+        cell.font = DASHBOARD_NEGATIVE_FONT
+
+
+
+def _dashboard_recalculate_metrics(row: dict, actual, plan, py) -> dict:
+    """Recalcula las métricas de una fila consolidada del Dashboard."""
+    result = dict(row or {})
+    actual_num = safe_float(actual) or 0.0
+    plan_num = safe_float(plan) or 0.0
+    py_num = safe_float(py) or 0.0
+
+    result["Actual"] = actual_num
+    result["Plan"] = plan_num
+    result["PY"] = py_num
+    result["Var VS Plan"] = actual_num - plan_num
+    result["%Var VS Plan"] = (
+        (actual_num - plan_num) / plan_num if plan_num != 0 else None
+    )
+    result["Var VS PY"] = actual_num - py_num
+    result["%Var VS PY"] = (
+        (actual_num - py_num) / py_num if py_num != 0 else None
+    )
+    return result
+
+
+def _dashboard_category_order(
+    mtd_df: pd.DataFrame | None,
+    ytd_df: pd.DataFrame | None,
+) -> list[str]:
+    """Obtiene la unión ordenada de categorías usada por Monthly y YTD."""
+    ordered: list[str] = []
+    for df in (mtd_df, ytd_df):
+        if df is None or df.empty or "Category" not in df.columns:
+            continue
+        for _, row in df.iterrows():
+            if bool(row.get("__is_grand_total__", False)):
+                continue
+            label = str(row.get("Category", "")).strip()
+            if not label or label.lower() in {"total mexico", "total general", "grand total"}:
+                continue
+            if label not in ordered:
+                ordered.append(label)
+    return ordered
+
+
+def _dashboard_aggregate_category_table(
+    df: pd.DataFrame | None,
+    ordered_categories: list[str],
+) -> pd.DataFrame:
+    """
+    Convierte el Reporte de Category detallado por material en la vista
+    ejecutiva del Dashboard: una sola fila por Category.
+    """
+    visible_columns = [
+        "Category", "Actual", "Plan", "PY", "Var VS Plan",
+        "%Var VS Plan", "Var VS PY", "%Var VS PY",
+        "__is_total__", "__is_grand_total__", "__is_highlight__",
+    ]
+
+    if df is None or df.empty:
+        rows = []
+        for category in ordered_categories:
+            rows.append({
+                "Category": category,
+                "Actual": 0.0,
+                "Plan": 0.0,
+                "PY": 0.0,
+                "Var VS Plan": 0.0,
+                "%Var VS Plan": None,
+                "Var VS PY": 0.0,
+                "%Var VS PY": None,
+                "__is_total__": False,
+                "__is_grand_total__": False,
+                "__is_highlight__": False,
+            })
+        return pd.DataFrame(rows, columns=visible_columns)
+
+    totals_by_category: dict[str, dict] = {}
+    detail_by_category: dict[str, list[dict]] = {}
+    grand_total: dict | None = None
+
+    for _, source_row in df.iterrows():
+        row = dict(source_row)
+        category = str(row.get("Category", "")).strip()
+        normalized = category.lower()
+
+        if bool(row.get("__is_grand_total__", False)) or normalized in {
+            "total mexico", "total general", "grand total"
+        }:
+            grand_total = row
+            continue
+        if not category:
+            continue
+        if bool(row.get("__is_total__", False)):
+            totals_by_category[category] = row
+        else:
+            detail_by_category.setdefault(category, []).append(row)
+
+    # Si el reporte no trae una fila total por categoría, suma el detalle.
+    for category, detail_rows in detail_by_category.items():
+        if category in totals_by_category:
+            continue
+        actual = sum((safe_float(r.get("Actual")) or 0.0) for r in detail_rows)
+        plan = sum((safe_float(r.get("Plan")) or 0.0) for r in detail_rows)
+        py = sum((safe_float(r.get("PY")) or 0.0) for r in detail_rows)
+        totals_by_category[category] = _dashboard_recalculate_metrics(
+            detail_rows[0] if detail_rows else {}, actual, plan, py
+        )
+
+    rows: list[dict] = []
+    for category in ordered_categories:
+        row = dict(totals_by_category.get(category, {}))
+        if not row:
+            row = _dashboard_recalculate_metrics({}, 0.0, 0.0, 0.0)
+        row["Category"] = category
+        row["__is_total__"] = False
+        row["__is_grand_total__"] = False
+        row["__is_highlight__"] = False
+        rows.append(row)
+
+    if grand_total is None:
+        actual = sum((safe_float(r.get("Actual")) or 0.0) for r in rows)
+        plan = sum((safe_float(r.get("Plan")) or 0.0) for r in rows)
+        py = sum((safe_float(r.get("PY")) or 0.0) for r in rows)
+        grand_total = _dashboard_recalculate_metrics({}, actual, plan, py)
+
+    grand_total = dict(grand_total)
+    grand_total["Category"] = "Total Mexico"
+    grand_total["__is_total__"] = True
+    grand_total["__is_grand_total__"] = False
+    grand_total["__is_highlight__"] = False
+    rows.append(grand_total)
+
+    result = pd.DataFrame(rows)
+    for col in visible_columns:
+        if col not in result.columns:
+            result[col] = False if col.startswith("__") else None
+    return result[visible_columns].copy()
+
+
+def _dashboard_prepare_category_pair(
+    mtd_df: pd.DataFrame | None,
+    ytd_df: pd.DataFrame | None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    order = _dashboard_category_order(mtd_df, ytd_df)
+    return (
+        _dashboard_aggregate_category_table(mtd_df, order),
+        _dashboard_aggregate_category_table(ytd_df, order),
+    )
+
+
+DASHBOARD_RANKING_VISIBLE_COLUMNS = [
+    "Client Name",
+    "Actual",
+    "Plan",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+
+def _dashboard_prepare_ranking_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
+    """Prepara el Ranking exclusivo del Dashboard, sin la columna Cliente."""
+    if df is None:
+        return pd.DataFrame(columns=DASHBOARD_RANKING_VISIBLE_COLUMNS)
+
+    clean = df.copy()
+    clean = clean.drop(
+        columns=list(REPORT_4_HIDDEN_EXPORT_COLUMNS | {"Cliente"}),
+        errors="ignore",
+    )
+    for column_name in DASHBOARD_RANKING_VISIBLE_COLUMNS:
+        if column_name not in clean.columns:
+            clean[column_name] = "" if column_name == "Client Name" else 0.0
+
+    flag_columns = [
+        col for col in ("__is_total__", "__is_grand_total__", "__is_highlight__")
+        if col in clean.columns
+    ]
+    return clean[DASHBOARD_RANKING_VISIBLE_COLUMNS + flag_columns].copy()
+
+
+def _dashboard_prepare_segment_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
+    """Une Segmento y Región en una sola columna para la hoja Dashboard."""
+    visible_columns = [
+        "Segment / Region",
+        "Actual",
+        "Plan",
+        "PY",
+        "Var VS Plan",
+        "%Var VS Plan",
+        "Var VS PY",
+        "%Var VS PY",
+    ]
+    if df is None or df.empty:
+        return pd.DataFrame(columns=visible_columns)
+
+    clean = df.copy()
+    labels = []
+    for _, row in clean.iterrows():
+        segment = str(row.get("Segmento", "")).strip()
+        region = str(row.get("Región", "")).strip()
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+        is_total = bool(row.get("__is_total__", False))
+
+        if is_grand_total:
+            label = "Total Mexico"
+        elif is_total:
+            label = f"{segment} | Total" if segment else "Total"
+        elif segment and region:
+            label = f"{segment} | {region}"
+        else:
+            label = segment or region
+        labels.append(label)
+
+    clean["Segment / Region"] = labels
+    for column_name in visible_columns:
+        if column_name not in clean.columns:
+            clean[column_name] = None
+
+    flag_columns = [
+        col for col in ("__is_total__", "__is_grand_total__", "__is_highlight__")
+        if col in clean.columns
+    ]
+    return clean[visible_columns + flag_columns].copy()
+
+
+def _dashboard_write_title(
+    worksheet,
+    title: str,
+    row: int,
+    start_col: int,
+    end_col: int,
+) -> None:
+    worksheet.merge_cells(
+        start_row=row,
+        start_column=start_col,
+        end_row=row,
+        end_column=end_col,
+    )
+    cell = worksheet.cell(row=row, column=start_col, value=title)
+    cell.font = DASHBOARD_TITLE_FONT
+    cell.alignment = CENTER_ALIGNMENT
+    cell.fill = PatternFill(fill_type="solid", fgColor=DASHBOARD_WHITE)
+    cell.border = DASHBOARD_NO_BORDER
+    worksheet.row_dimensions[row].height = 28
+
+
+def _dashboard_write_period_header(
+    worksheet,
+    dashboard_tables: dict,
+    start_row: int,
+) -> int:
+    month_label = dashboard_tables.get("month_label", "")
+    latest_year = dashboard_tables.get("latest_year", "")
+    currency_label = dashboard_tables.get("currency_label", "")
+
+    period_rows = [
+        ("Month", month_label),
+        ("Year", latest_year),
+    ]
+
+    for offset, (label, value) in enumerate(period_rows):
+        row = start_row + offset
+        label_cell = worksheet.cell(row=row, column=1, value=label)
+        value_cell = worksheet.cell(row=row, column=2, value=value)
+
+        label_cell.font = DASHBOARD_PERIOD_LABEL_FONT
+        value_cell.font = DASHBOARD_PERIOD_VALUE_FONT
+        label_cell.alignment = LEFT_ALIGNMENT
+        value_cell.alignment = LEFT_ALIGNMENT
+        label_cell.border = DASHBOARD_NO_BORDER
+        value_cell.border = DASHBOARD_NO_BORDER
+
+    return start_row + 4
+
+
+def _dashboard_write_section_title(
+    worksheet,
+    title: str,
+    row: int,
+    start_col: int,
+    table_width: int,
+    compact: bool,
+) -> None:
+    if compact:
+        merge_width = min(max(3, table_width // 3), table_width)
+        end_col = start_col + merge_width - 1
+        fill = PatternFill(fill_type="solid", fgColor=DASHBOARD_TITLE_GRAY)
+        border = Border(
+            left=Side(style="thin", color=DASHBOARD_BLACK),
+            right=Side(style="thin", color=DASHBOARD_BLACK),
+            top=Side(style="thin", color=DASHBOARD_BLACK),
+            bottom=Side(style="thin", color=DASHBOARD_BLACK),
+        )
+        alignment = CENTER_ALIGNMENT
+    else:
+        end_col = start_col + table_width - 1
+        fill = PatternFill(fill_type="solid", fgColor=DASHBOARD_WHITE)
+        border = DASHBOARD_NO_BORDER
+        alignment = CENTER_ALIGNMENT
+
+    worksheet.merge_cells(
+        start_row=row,
+        start_column=start_col,
+        end_row=row,
+        end_column=end_col,
+    )
+    cell = worksheet.cell(row=row, column=start_col, value=title)
+    cell.font = DASHBOARD_SECTION_FONT
+    cell.alignment = alignment
+    cell.fill = fill
+    cell.border = border
+    worksheet.row_dimensions[row].height = 18
+
+
+DASHBOARD_FINAL_TOTAL_LABELS = {
+    "total",
+    "total general",
+    "grand total",
+    "total mexico",
+    "total méxico",
+}
+
+
+def _dashboard_is_final_total_label(value) -> bool:
+    return str(value or "").strip().lower() in DASHBOARD_FINAL_TOTAL_LABELS
+
+
+def _dashboard_normalize_final_total_value(value):
+    return "Total Mexico" if _dashboard_is_final_total_label(value) else value
+
+
+def _dashboard_write_table(
+    worksheet,
+    original_df: pd.DataFrame | None,
+    title: str,
+    start_row: int,
+    start_col: int,
+    compact_title: bool = True,
+    is_kpi: bool = False,
+) -> tuple[int, int]:
+    """
+    Escribe una tabla con el diseño propio del Dashboard:
+    fondo blanco, encabezados negros, líneas dobles y sin bordes verticales.
+    """
+    export_df = sanitize_export_dataframe(original_df)
+
+    if export_df is None or export_df.empty:
+        _dashboard_write_section_title(
+            worksheet,
+            title=title,
+            row=start_row,
+            start_col=start_col,
+            table_width=3,
+            compact=compact_title,
+        )
+        info_cell = worksheet.cell(
+            row=start_row + 2,
+            column=start_col,
+            value="Sin información disponible",
+        )
+        info_cell.font = DASHBOARD_BODY_FONT
+        info_cell.alignment = LEFT_ALIGNMENT
+        info_cell.border = DASHBOARD_NO_BORDER
+        return start_row + 2, start_col + 2
+
+    num_cols = len(export_df.columns)
+    title_row = start_row
+    header_row = start_row + 1
+    body_start_row = start_row + 2
+
+    _dashboard_write_section_title(
+        worksheet,
+        title=title,
+        row=title_row,
+        start_col=start_col,
+        table_width=num_cols,
+        compact=compact_title,
+    )
+
+    for offset, column_name in enumerate(export_df.columns):
+        current_col = start_col + offset
+        cell = worksheet.cell(
+            row=header_row,
+            column=current_col,
+            value=str(column_name),
+        )
+        cell.font = DASHBOARD_HEADER_FONT
+        cell.fill = PatternFill(fill_type="solid", fgColor=DASHBOARD_WHITE)
+        cell.alignment = CENTER_ALIGNMENT if offset == 0 else RIGHT_ALIGNMENT
+        cell.border = (
+            DASHBOARD_KPI_HEADER_BORDER if is_kpi else DASHBOARD_HEADER_BORDER
+        )
+
+    for row_index in range(len(export_df)):
+        excel_row = body_start_row + row_index
+        original_row = (
+            original_df.iloc[row_index]
+            if original_df is not None and row_index < len(original_df)
+            else None
+        )
+
+        is_total = bool(
+            original_row is not None
+            and original_row.get("__is_total__", False)
+        )
+        is_grand_total = bool(
+            original_row is not None
+            and original_row.get("__is_grand_total__", False)
+        )
+        is_highlight = bool(
+            original_row is not None
+            and original_row.get("__is_highlight__", False)
+        )
+
+        first_label = str(export_df.iloc[row_index, 0]).strip()
+        normalized_first_label = first_label.lower()
+
+        # Regla única para todos los bloques del Dashboard:
+        # el total final siempre se llama Total Mexico y siempre usa franja verde.
+        # Los subtotales como "ACCO | Total" no entran en esta regla.
+        if is_grand_total or _dashboard_is_final_total_label(normalized_first_label):
+            is_grand_total = True
+            is_total = False
+            is_highlight = True
+
+        kpi_label = normalized_first_label
+        is_gsnr_row = is_kpi and kpi_label == "gsnr"
+        is_achievement_row = is_kpi and "achievement" in kpi_label
+        is_bts_row = is_kpi and kpi_label.startswith("bts")
+
+        for col_index, column_name in enumerate(export_df.columns):
+            excel_col = start_col + col_index
+            raw_value = export_df.iloc[row_index, col_index]
+
+            # La primera celda del total final se estandariza visualmente.
+            if col_index == 0 and is_grand_total:
+                raw_value = "Total Mexico"
+
+            output_value = raw_value
+            achievement_percent_cell = (
+                is_achievement_row
+                and str(column_name).strip() in {"Var VS Plan", "Var VS PY"}
+            )
+            if achievement_percent_cell:
+                # El valor se conserva como razón (ej. 0.66) y Excel lo
+                # presenta como porcentaje (66.00%), sin dividir entre 1,000.
+                output_value = safe_float(raw_value)
+            elif _dashboard_is_numeric_column(column_name):
+                output_value = _dashboard_scale_value(column_name, raw_value)
+
+            cell = worksheet.cell(
+                row=excel_row,
+                column=excel_col,
+                value=output_value,
+            )
+            cell.font = (
+                DASHBOARD_BODY_BOLD_FONT
+                if col_index == 0 or is_total or is_grand_total or is_highlight or is_kpi
+                else DASHBOARD_BODY_FONT
+            )
+            cell.alignment = (
+                CENTER_ALIGNMENT
+                if col_index == 0 and is_kpi
+                else LEFT_ALIGNMENT
+                if col_index == 0
+                else RIGHT_ALIGNMENT
+            )
+            cell.border = DASHBOARD_NO_BORDER
+            cell.fill = PatternFill(fill_type="solid", fgColor=DASHBOARD_WHITE)
+
+            if is_gsnr_row:
+                cell.fill = PatternFill(
+                    fill_type="solid",
+                    fgColor=DASHBOARD_GSNR_GRAY,
+                )
+            elif is_bts_row:
+                cell.fill = PatternFill(
+                    fill_type="solid",
+                    fgColor=DASHBOARD_BTS_GRAY,
+                )
+            elif is_achievement_row:
+                cell.fill = PatternFill(
+                    fill_type="solid",
+                    fgColor=DASHBOARD_WHITE,
+                )
+            elif is_grand_total or is_highlight:
+                cell.fill = PatternFill(
+                    fill_type="solid",
+                    fgColor=DASHBOARD_GRAND_TOTAL_GREEN,
+                )
+                cell.border = DASHBOARD_TOTAL_BORDER
+            elif is_total:
+                cell.fill = PatternFill(
+                    fill_type="solid",
+                    fgColor=DASHBOARD_TOTAL_GRAY,
+                )
+                cell.border = DASHBOARD_TOTAL_BORDER
+
+            if achievement_percent_cell:
+                cell.number_format = DASHBOARD_PERCENT_FORMAT
+                if is_negative_number(raw_value):
+                    cell.font = DASHBOARD_NEGATIVE_FONT
+            elif _dashboard_is_numeric_column(column_name):
+                _dashboard_set_numeric_style(cell, column_name, raw_value)
+
+        worksheet.row_dimensions[excel_row].height = 17
+
+    # Anchos propios del Dashboard.
+    for offset, column_name in enumerate(export_df.columns):
+        excel_col = start_col + offset
+        letter = get_column_letter(excel_col)
+
+        if offset == 0:
+            width = 28 if num_cols <= 9 else 20
+        elif str(column_name).strip() in {"Cliente", "Client"}:
+            width = 12
+        elif _dashboard_is_percent_column(column_name):
+            width = 13
+        elif _dashboard_is_numeric_column(column_name):
+            width = 12
+        else:
+            width = min(
+                max(12, estimate_column_width(export_df[column_name], str(column_name))),
+                26,
+            )
+
+        current_width = worksheet.column_dimensions[letter].width or 0
+        worksheet.column_dimensions[letter].width = max(current_width, width)
+
+    last_row = body_start_row + len(export_df) - 1
+    last_col = start_col + num_cols - 1
+    return last_row, last_col
+
+
+def _dashboard_write_pair(
+    worksheet,
+    left_df: pd.DataFrame | None,
+    right_df: pd.DataFrame | None,
+    left_title: str,
+    right_title: str,
+    start_row: int,
+    compact_title: bool = True,
+    is_kpi: bool = False,
+) -> tuple[int, int]:
+    left_visible = sanitize_export_dataframe(left_df)
+    left_width = max(len(left_visible.columns), 1)
+    right_visible = sanitize_export_dataframe(right_df)
+    right_width = max(len(right_visible.columns), 1)
+
+    # Dos columnas de separación visual entre Monthly y YTD.
+    right_start_col = 1 + left_width + 2
+
+    left_last_row, left_last_col = _dashboard_write_table(
+        worksheet=worksheet,
+        original_df=left_df,
+        title=left_title,
+        start_row=start_row,
+        start_col=1,
+        compact_title=compact_title,
+        is_kpi=is_kpi,
+    )
+    right_last_row, right_last_col = _dashboard_write_table(
+        worksheet=worksheet,
+        original_df=right_df,
+        title=right_title,
+        start_row=start_row,
+        start_col=right_start_col,
+        compact_title=compact_title,
+        is_kpi=is_kpi,
+    )
+
+    return max(left_last_row, right_last_row), max(left_last_col, right_last_col)
+
+
+def write_dashboard_tables_to_workbook(
+    worksheet,
+    dashboard_tables: dict,
+) -> None:
+    """
+    Escribe el Dashboard tanto para la descarga individual como para la global.
+
+    La estructura reproduce la vista de Streamlit:
+    - Periodo en la parte superior izquierda.
+    - Título rojo centrado.
+    - KPIs Month/YTD lado a lado.
+    - Cada reporte Monthly/YTD lado a lado.
+    """
+    worksheet.sheet_view.showGridLines = False
+    worksheet.freeze_panes = "A16"
+    worksheet.sheet_properties.pageSetUpPr.fitToPage = True
+    worksheet.page_setup.fitToWidth = 1
+    worksheet.page_setup.fitToHeight = 0
+    worksheet.sheet_properties.outlinePr.summaryBelow = True
+
+    month_label = str(dashboard_tables.get("month_label", ""))
+    report_title = str(
+        dashboard_tables.get("dashboard_title")
+        or getattr(config, "DASHBOARD_TITLE", "Mexico Dashboard 2026")
+    )
+
+    month_kpis = _dashboard_kpi_dataframe(
+        dashboard_tables.get("client_table"),
+        dashboard_tables.get("bts_table"),
+        "MTD",
+        f"BTS ({month_label})",
+    )
+    ytd_kpis = _dashboard_kpi_dataframe(
+        dashboard_tables.get("client_table"),
+        dashboard_tables.get("bts_table"),
+        "YTD",
+        f"BTS (Oct-{month_label})",
+    )
+
+    category_mtd, category_ytd = _dashboard_prepare_category_pair(
+        dashboard_tables.get("category_mtd"),
+        dashboard_tables.get("category_ytd"),
+    )
+    ranking_mtd = _dashboard_prepare_ranking_dataframe(
+        dashboard_tables.get("ranking_mtd")
+    )
+    ranking_ytd = _dashboard_prepare_ranking_dataframe(
+        dashboard_tables.get("ranking_ytd")
+    )
+    segment_mtd = _dashboard_prepare_segment_dataframe(
+        dashboard_tables.get("segment_mtd")
+    )
+    segment_ytd = _dashboard_prepare_segment_dataframe(
+        dashboard_tables.get("segment_ytd")
+    )
+
+    # Calcula el ancho máximo necesario antes de centrar el título.
+    all_pairs = [
+        (month_kpis, ytd_kpis),
+        (dashboard_tables.get("report1_mtd"), dashboard_tables.get("report1_ytd")),
+        (segment_mtd, segment_ytd),
+        (category_mtd, category_ytd),
+        (dashboard_tables.get("channel_mtd"), dashboard_tables.get("channel_ytd")),
+        (ranking_mtd, ranking_ytd),
+    ]
+    max_end_col = 18
+    for left_df, right_df in all_pairs:
+        left_width = max(len(sanitize_export_dataframe(left_df).columns), 1)
+        right_width = max(len(sanitize_export_dataframe(right_df).columns), 1)
+        max_end_col = max(max_end_col, left_width + 2 + right_width)
+
+    current_row = _dashboard_write_period_header(
+        worksheet,
+        dashboard_tables,
+        start_row=2,
+    )
+
+    _dashboard_write_title(
+        worksheet=worksheet,
+        title=report_title,
+        row=current_row,
+        start_col=1,
+        end_col=max_end_col,
+    )
+    current_row += 3
+
+    currency_cell = worksheet.cell(
+        row=current_row,
+        column=2,
+        value=dashboard_tables.get("currency_label", ""),
+    )
+    currency_cell.font = DASHBOARD_BODY_BOLD_FONT
+    currency_cell.alignment = LEFT_ALIGNMENT
+    current_row += 2
+
+    last_row, _ = _dashboard_write_pair(
+        worksheet=worksheet,
+        left_df=month_kpis,
+        right_df=ytd_kpis,
+        left_title="Sales Month",
+        right_title="Sales YTD",
+        start_row=current_row,
+        compact_title=False,
+        is_kpi=True,
+    )
+    current_row = last_row + 3
+
+    dashboard_sections = [
+        (
+            "Sales by Channel Monthly",
+            "Sales by Channel YTD",
+            dashboard_tables.get("report1_mtd"),
+            dashboard_tables.get("report1_ytd"),
+        ),
+        (
+            "Segment x Region Monthly",
+            "Segment x Region YTD",
+            segment_mtd,
+            segment_ytd,
+        ),
+        (
+            "Sales by Category Monthly",
+            "Sales by Category YTD",
+            category_mtd,
+            category_ytd,
+        ),
+        (
+            "Channel Monthly",
+            "Channel YTD",
+            dashboard_tables.get("channel_mtd"),
+            dashboard_tables.get("channel_ytd"),
+        ),
+        (
+            "Ranking Clientes Monthly",
+            "Ranking Clientes YTD",
+            ranking_mtd,
+            ranking_ytd,
+        ),
+    ]
+
+    for left_title, right_title, left_df, right_df in dashboard_sections:
+        last_row, _ = _dashboard_write_pair(
+            worksheet=worksheet,
+            left_df=left_df,
+            right_df=right_df,
+            left_title=left_title,
+            right_title=right_title,
+            start_row=current_row,
+            compact_title=True,
+            is_kpi=False,
+        )
+        current_row = last_row + 3
+
+    # Vista inicial cómoda al abrir el archivo.
+    worksheet.sheet_view.zoomScale = 80
+    worksheet.sheet_view.zoomScaleNormal = 80
+    worksheet.print_options.horizontalCentered = True
+    worksheet.sheet_view.showRowColHeaders = True
+
+
+def build_dashboard_excel_bytes(
+    dashboard_tables: dict,
+    report_title: str | None = None,
+    sheet_name: str | None = None,
+    progress_callback=None,
+) -> bytes:
+    total_steps = 4
+    emit_progress(
+        progress_callback,
+        "Preparando la exportación del Dashboard",
+        1,
+        total_steps,
+    )
+    output, writer = create_excel_writer_buffer()
+
+    emit_progress(
+        progress_callback,
+        "Creando la hoja del Dashboard",
+        2,
+        total_steps,
+    )
+    worksheet = ensure_sheet_exists(
+        writer,
+        sheet_name or getattr(config, "EXPORT_SHEET_DASHBOARD", "Dashboard"),
+    )
+
+    tables = dict(dashboard_tables or {})
+    # El título del archivo debe conservar exactamente el título visual
+    # del Dashboard, no el título contextual usado por otros reportes.
+    tables["dashboard_title"] = getattr(
+        config,
+        "DASHBOARD_TITLE",
+        "Mexico Dashboard 2026",
+    )
+
+    emit_progress(
+        progress_callback,
+        "Reproduciendo el diseño ejecutivo del Dashboard",
+        3,
+        total_steps,
+    )
+    write_dashboard_tables_to_workbook(worksheet, tables)
+
+    emit_progress(
+        progress_callback,
+        "Finalizando el archivo Excel del Dashboard",
+        4,
+        total_steps,
+    )
+    remove_default_sheet_if_needed(writer)
+    return build_excel_bytes_from_writer(output, writer)
+
+
+# ---------------------------------------------------------
 # EXPORTACIÓN GLOBAL
 # ---------------------------------------------------------
 def build_full_reports_excel_bytes(
@@ -839,6 +1835,7 @@ def build_full_reports_excel_bytes(
     report_2_category_tables: dict | None = None,
     report_3_tables: dict | None = None,
     report_4_tables: dict | None = None,
+    dashboard_tables: dict | None = None,
     progress_callback=None,
 ) -> bytes:
     selected_sections = [
@@ -848,6 +1845,7 @@ def build_full_reports_excel_bytes(
         ("Reporte 2 - Category", report_2_category_tables),
         ("Reporte 3 - Channel", report_3_tables),
         ("Reporte 4 - Ranking de Clientes", report_4_tables),
+        ("Dashboard", dashboard_tables),
     ]
     active_sections = [name for name, tables in selected_sections if tables]
     total_steps = len(active_sections) + 2
@@ -991,6 +1989,16 @@ def build_full_reports_excel_bytes(
             start_row=current_row,
         )
 
+        workbook_created = True
+
+    if dashboard_tables:
+        emit_progress(progress_callback, "Agregando Dashboard ejecutivo", current_step, total_steps)
+        current_step += 1
+        ws = ensure_sheet_exists(
+            writer,
+            getattr(config, "EXPORT_SHEET_DASHBOARD", "Dashboard"),
+        )
+        write_dashboard_tables_to_workbook(ws, dashboard_tables)
         workbook_created = True
 
     if not workbook_created:

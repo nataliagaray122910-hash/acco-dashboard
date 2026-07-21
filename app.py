@@ -1157,6 +1157,59 @@ def get_current_base_mtd_export_tables() -> dict | None:
     }
 
 
+def get_current_dashboard_export_tables() -> dict | None:
+    """
+    Reúne exactamente los insumos que alimentan la vista ejecutiva del Dashboard.
+
+    La descarga individual y la hoja incluida en la descarga global utilizan
+    las tablas completas del periodo activo, sin depender de filtros visuales.
+    """
+    mtd_payload = st.session_state.get("mtd_payload")
+    report1_payload = st.session_state.get("report1_payload")
+    report2_payload = st.session_state.get("report2_payload")
+    report2_category_payload = st.session_state.get("report2_category_payload")
+    report3_payload = st.session_state.get("report3_payload")
+    report4_payload = st.session_state.get("report4_payload")
+
+    required_payloads = [
+        mtd_payload,
+        report1_payload,
+        report2_payload,
+        report2_category_payload,
+        report3_payload,
+        report4_payload,
+    ]
+    if any(payload is None for payload in required_payloads):
+        return None
+
+    year = int(mtd_payload["latest_year"])
+    month = int(mtd_payload["latest_month"])
+
+    return {
+        "report_title": build_report_context_title(
+            "Mexico Dashboard 2026",
+            year,
+            month,
+        ),
+        "latest_year": year,
+        "latest_month": month,
+        "month_label": get_dashboard_month_label_en(month),
+        "currency_label": "$Kmxn" if get_currency_status_label() == "MXN" else "$Kusd",
+        "client_table": convert_report_table_for_export(mtd_payload["client_table"]),
+        "bts_table": convert_report_table_for_export(mtd_payload["bts_table"]),
+        "report1_mtd": convert_report_table_for_export(report1_payload["mtd_without_kens_table"]),
+        "report1_ytd": convert_report_table_for_export(report1_payload["ytd_without_kens_table"]),
+        "segment_mtd": convert_report_table_for_export(report2_payload["mtd_segment_region_table"]),
+        "segment_ytd": convert_report_table_for_export(report2_payload["ytd_segment_region_table"]),
+        "category_mtd": convert_report_table_for_export(report2_category_payload["mtd_category_table"]),
+        "category_ytd": convert_report_table_for_export(report2_category_payload["ytd_category_table"]),
+        "channel_mtd": convert_report_table_for_export(report3_payload["mtd_channel_table"]),
+        "channel_ytd": convert_report_table_for_export(report3_payload["ytd_channel_table"]),
+        "ranking_mtd": convert_report_table_for_export(report4_payload["mtd_top_clients_table"]),
+        "ranking_ytd": convert_report_table_for_export(report4_payload["ytd_top_clients_table"]),
+    }
+
+
 def get_full_reports_export_bytes() -> bytes:
     """
     Genera la descarga global una sola vez por combinación de reportes/moneda.
@@ -1169,6 +1222,7 @@ def get_full_reports_export_bytes() -> bytes:
         id(st.session_state.get("report2_category_payload")),
         id(st.session_state.get("report3_payload")),
         id(st.session_state.get("report4_payload")),
+        bool(st.session_state.get("dashboard_loaded", False)),
         get_active_currency_mode(),
         get_normalized_exchange_rate_4(),
     )
@@ -1184,6 +1238,7 @@ def get_full_reports_export_bytes() -> bytes:
     report_2_category_tables = get_current_report_2_category_export_tables()
     report_3_tables = get_current_report_3_export_tables()
     report_4_tables = get_current_report_4_export_tables()
+    dashboard_tables = get_current_dashboard_export_tables()
 
     export_bytes = exports.build_full_reports_excel_bytes(
         base_mtd_tables=base_mtd_tables,
@@ -1192,6 +1247,7 @@ def get_full_reports_export_bytes() -> bytes:
         report_2_category_tables=report_2_category_tables,
         report_3_tables=report_3_tables,
         report_4_tables=report_4_tables,
+        dashboard_tables=dashboard_tables,
     )
 
     st.session_state["__global_export_signature"] = signature
@@ -1241,6 +1297,7 @@ def render_sidebar() -> str:
                 st.session_state.get("report2_category_payload") is not None,
                 st.session_state.get("report3_payload") is not None,
                 st.session_state.get("report4_payload") is not None,
+                get_current_dashboard_export_tables() is not None,
             ]
         )
 
@@ -5407,12 +5464,14 @@ def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
             row_class = ' class="dashboard-compact-grand-total"'
 
         client_name = str(row.get("Client Name", "")).strip()
-        client_code = str(row.get("Cliente", "")).strip()
+        if is_grand_total or client_name.lower() in {
+            "total", "total general", "grand total", "total mexico", "total méxico"
+        }:
+            client_name = "Total Mexico"
 
         rows_html_parts.append(
             f'<tr{row_class}>'
             f'<td class="dashboard-compact-label dashboard-client-name">{escape(client_name)}</td>'
-            f'<td class="dashboard-compact-code">{escape(client_code)}</td>'
             f'{dashboard_compact_td(row.get("Actual"), allow_blank=False)}'
             f'{dashboard_compact_td(row.get("Plan"), allow_blank=True)}'
             f'{dashboard_compact_td(row.get("PY"), allow_blank=True)}'
@@ -5432,7 +5491,6 @@ def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
         '<table class="dashboard-compact-table dashboard-clients-table">'
         '<colgroup>'
         '<col class="dashboard-col-client-name">'
-        '<col class="dashboard-col-client-code">'
         '<col class="dashboard-col-num">'
         '<col class="dashboard-col-num">'
         '<col class="dashboard-col-num">'
@@ -5444,7 +5502,6 @@ def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
         '<thead>'
         '<tr>'
         '<th>Client Name</th>'
-        '<th>Cliente</th>'
         '<th>Actual</th>'
         '<th>Plan</th>'
         '<th>PY</th>'
@@ -5650,6 +5707,30 @@ def render_dashboard_view() -> None:
         '<div class="base-mtd-compact-note">Los valores se muestran en miles. Los negativos se muestran en rojo; los valores positivos se mantienen neutros.</div>',
         unsafe_allow_html=True,
     )
+
+    dashboard_tables = get_current_dashboard_export_tables()
+    if dashboard_tables is not None:
+        spacer_col, download_col = st.columns([12, 1])
+        with download_col:
+            dashboard_bytes = exports.build_dashboard_excel_bytes(
+                dashboard_tables=dashboard_tables,
+                report_title=dashboard_tables.get("report_title"),
+                sheet_name=getattr(config, "EXPORT_SHEET_DASHBOARD", "Dashboard"),
+            )
+            render_icon_download_button(
+                data=dashboard_bytes,
+                file_name=build_excel_filename(
+                    getattr(config, "EXPORT_DASHBOARD_FILE_BASE", "dashboard_ejecutivo"),
+                    dashboard_tables.get("latest_year"),
+                    dashboard_tables.get("latest_month"),
+                ),
+                key="download_dashboard_icon_top",
+                help_text=getattr(
+                    config,
+                    "EXPORT_DASHBOARD_HELP",
+                    "Descargar Dashboard ejecutivo",
+                ),
+            )
 
     st.markdown(
         build_dashboard_stage_one_html(payload),
