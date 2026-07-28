@@ -39,7 +39,8 @@ GLOBAL_TITLE_FONT = Font(color="FFFFFF", bold=True, size=14)
 HEADER_FONT = Font(color="FFFFFF", bold=True, size=10)
 BODY_FONT = Font(color="1E1E1E", bold=False, size=10)
 BODY_BOLD_FONT = Font(color="1E1E1E", bold=True, size=10)
-NEGATIVE_FONT = Font(color="C0392B", bold=True, size=10)
+NEGATIVE_FONT = Font(color="C0392B", bold=False, size=10)
+NEGATIVE_BOLD_FONT = Font(color="C0392B", bold=True, size=10)
 
 CENTER_ALIGNMENT = Alignment(horizontal="center", vertical="center")
 LEFT_ALIGNMENT = Alignment(horizontal="left", vertical="center")
@@ -55,13 +56,15 @@ DEFAULT_GLOBAL_TITLE_ROW_HEIGHT = 28
 DEFAULT_HEADER_ROW_HEIGHT = 20
 DEFAULT_BODY_ROW_HEIGHT = 19
 
-PERCENT_COLUMNS = {"%Var VS Plan", "%Var VS PY", "% GM", "Weight"}
+PERCENT_COLUMNS = {"%Var VS Plan", "%Var VS Fcst", "%Var VS PY", "% GM", "Weight"}
 
 NUMERIC_COLUMNS = {
     "Actual",
     "Plan",
+    "Fcst",
     "PY",
     "Var VS Plan",
+    "Var VS Fcst",
     "Var VS PY",
     "GSNR",
     "Gross Margin",
@@ -91,9 +94,12 @@ REPORT_4_VISIBLE_COLUMNS = [
     "Cliente",
     "Actual",
     "Plan",
+    "Fcst",
     "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
     "Var VS PY",
     "%Var VS PY",
 ]
@@ -230,10 +236,10 @@ def estimate_column_width(series: pd.Series, header_text: str) -> int:
 
 def excel_number_format_for_column(column_name: str) -> str:
     if is_percent_column(column_name):
-        return "0.00%;[Red](0.00%)"
+        return "0.00%;[Red](0.00%);-"
 
     if is_numeric_column(column_name):
-        return "#,##0;[Red](#,##0)"
+        return "#,##0;[Red](#,##0);-"
 
     return "@"
 
@@ -293,15 +299,28 @@ def get_body_fill(column_name: str, row_flags: dict):
 
     return None
 
-def get_body_font(value, row_flags: dict):
+def get_body_font(value, row_flags: dict, column_name: str | None = None):
+    """
+    Regla tipográfica:
+    - Totales, subtotales y resaltados: toda la fila en negritas.
+    - En Reporte 4, Client Name y Cliente: en negritas.
+    - Resultados normales: sin negritas.
+    - Negativos normales: rojo sin negritas.
+    - Negativos en totales/subtotales: rojo y negritas.
+    """
     is_total = row_flags.get("is_total", False)
     is_grand_total = row_flags.get("is_grand_total", False)
     is_highlight = row_flags.get("is_highlight", False)
+    is_special_row = is_total or is_grand_total or is_highlight
+    clean_column_name = str(column_name or "").strip()
 
     if is_negative_number(value):
-        return NEGATIVE_FONT
+        return NEGATIVE_BOLD_FONT if is_special_row else NEGATIVE_FONT
 
-    if is_total or is_grand_total or is_highlight:
+    if is_special_row:
+        return BODY_BOLD_FONT
+
+    if clean_column_name in {"Client Name", "Cliente"}:
         return BODY_BOLD_FONT
 
     return BODY_FONT
@@ -428,6 +447,8 @@ def write_table_to_worksheet(
             output_value = raw_value
             if is_numeric_column(column_name):
                 output_value = scale_value_for_export(column_name, raw_value)
+                if output_value is None:
+                    output_value = "-"
 
             cell = worksheet.cell(
                 row=excel_row,
@@ -436,12 +457,12 @@ def write_table_to_worksheet(
             )
 
             cell.border = THIN_BORDER
-            cell.font = get_body_font(raw_value, row_flags)
+            cell.font = get_body_font(raw_value, row_flags, str(column_name))
 
             fill_style = get_body_fill(str(column_name), row_flags)
             apply_fill_if_present(cell, fill_style)
 
-            if col_idx == 0:
+            if str(column_name).strip() in {"Client Name", "Cliente"} or col_idx == 0:
                 cell.alignment = LEFT_ALIGNMENT
             else:
                 cell.alignment = RIGHT_ALIGNMENT if is_numeric_column(column_name) else CENTER_ALIGNMENT
@@ -932,11 +953,7 @@ def _dashboard_kpi_dataframe(
     bts_label: str,
 ) -> pd.DataFrame:
     """
-    Construye las tres filas del bloque KPI con la misma posición visual
-    que la tabla del Dashboard:
-    - GSNR
-    - % achievement
-    - BTS
+    Construye KPI Dashboard con Actual, Plan, Forecast y PY.
     """
     gsnr_row = _dashboard_find_period_row(client_table, period)
     bts_row = _dashboard_find_period_row(bts_table, period)
@@ -948,28 +965,41 @@ def _dashboard_kpi_dataframe(
 
     actual = get_value(gsnr_row, "Actual")
     plan = get_value(gsnr_row, "Plan")
+    fcst = get_value(gsnr_row, "Fcst")
     py = get_value(gsnr_row, "PY")
 
     actual_numeric = safe_float(actual)
     plan_numeric = safe_float(plan)
+    fcst_numeric = safe_float(fcst)
     py_numeric = safe_float(py)
 
-    achievement_plan = None
-    if actual_numeric is not None and plan_numeric not in (None, 0):
-        achievement_plan = actual_numeric / plan_numeric
+    achievement_plan = (
+        None
+        if actual_numeric is None or plan_numeric in (None, 0)
+        else actual_numeric / plan_numeric
+    )
+    achievement_fcst = (
+        None
+        if actual_numeric is None or fcst_numeric in (None, 0)
+        else actual_numeric / fcst_numeric
+    )
+    achievement_py = (
+        None
+        if actual_numeric is None or py_numeric in (None, 0)
+        else actual_numeric / py_numeric
+    )
 
-    achievement_py = None
-    if actual_numeric is not None and py_numeric not in (None, 0):
-        achievement_py = actual_numeric / py_numeric
-
-    rows = [
+    return pd.DataFrame([
         {
             "KPI": "GSNR",
             "Actual": actual,
             "Plan": plan,
+            "Fcst": fcst,
             "PY": py,
             "Var VS Plan": get_value(gsnr_row, "Var VS Plan"),
             "%Var VS Plan": get_value(gsnr_row, "%Var VS Plan"),
+            "Var VS Fcst": get_value(gsnr_row, "Var VS Fcst"),
+            "%Var VS Fcst": get_value(gsnr_row, "%Var VS Fcst"),
             "Var VS PY": get_value(gsnr_row, "Var VS PY"),
             "%Var VS PY": get_value(gsnr_row, "%Var VS PY"),
         },
@@ -977,9 +1007,12 @@ def _dashboard_kpi_dataframe(
             "KPI": "% achievement",
             "Actual": None,
             "Plan": None,
+            "Fcst": None,
             "PY": None,
             "Var VS Plan": achievement_plan,
             "%Var VS Plan": None,
+            "Var VS Fcst": achievement_fcst,
+            "%Var VS Fcst": None,
             "Var VS PY": achievement_py,
             "%Var VS PY": None,
         },
@@ -987,15 +1020,16 @@ def _dashboard_kpi_dataframe(
             "KPI": bts_label,
             "Actual": get_value(bts_row, "Actual"),
             "Plan": None,
+            "Fcst": None,
             "PY": get_value(bts_row, "PY"),
             "Var VS Plan": None,
             "%Var VS Plan": 0.0,
+            "Var VS Fcst": None,
+            "%Var VS Fcst": None,
             "Var VS PY": get_value(bts_row, "Var VS PY"),
             "%Var VS PY": get_value(bts_row, "%Var VS PY"),
         },
-    ]
-
-    return pd.DataFrame(rows)
+    ])
 
 
 def _dashboard_is_percent_column(column_name: str) -> bool:
@@ -1038,24 +1072,49 @@ def _dashboard_set_numeric_style(cell, column_name: str, raw_value) -> None:
 
 
 
-def _dashboard_recalculate_metrics(row: dict, actual, plan, py) -> dict:
-    """Recalcula las métricas de una fila consolidada del Dashboard."""
+def _dashboard_recalculate_metrics(
+    row: dict,
+    actual,
+    plan,
+    py,
+    fcst=None,
+) -> dict:
+    """
+    Recalcula las métricas consolidadas del Dashboard incluyendo Forecast.
+    """
     result = dict(row or {})
+
     actual_num = safe_float(actual) or 0.0
     plan_num = safe_float(plan) or 0.0
+    fcst_num = safe_float(fcst) or 0.0
     py_num = safe_float(py) or 0.0
 
     result["Actual"] = actual_num
     result["Plan"] = plan_num
+    result["Fcst"] = fcst_num
     result["PY"] = py_num
+
     result["Var VS Plan"] = actual_num - plan_num
     result["%Var VS Plan"] = (
-        (actual_num - plan_num) / plan_num if plan_num != 0 else None
+        (actual_num - plan_num) / plan_num
+        if plan_num != 0
+        else None
     )
+
+    result["Var VS Fcst"] = actual_num - fcst_num
+    result["%Var VS Fcst"] = (
+        (actual_num - fcst_num) / fcst_num
+        if fcst_num != 0
+        else None
+    )
+
     result["Var VS PY"] = actual_num - py_num
     result["%Var VS PY"] = (
-        (actual_num - py_num) / py_num if py_num != 0 else None
+        (actual_num - py_num) / py_num
+        if py_num != 0
+        else None
     )
+
     return result
 
 
@@ -1088,8 +1147,9 @@ def _dashboard_aggregate_category_table(
     ejecutiva del Dashboard: una sola fila por Category.
     """
     visible_columns = [
-        "Category", "Actual", "Plan", "PY", "Var VS Plan",
-        "%Var VS Plan", "Var VS PY", "%Var VS PY",
+        "Category", "Actual", "Plan", "Fcst", "PY", "Var VS Plan",
+        "%Var VS Plan", "Var VS Fcst", "%Var VS Fcst",
+        "Var VS PY", "%Var VS PY",
         "__is_total__", "__is_grand_total__", "__is_highlight__",
     ]
 
@@ -1138,9 +1198,14 @@ def _dashboard_aggregate_category_table(
             continue
         actual = sum((safe_float(r.get("Actual")) or 0.0) for r in detail_rows)
         plan = sum((safe_float(r.get("Plan")) or 0.0) for r in detail_rows)
+        fcst = sum((safe_float(r.get("Fcst")) or 0.0) for r in detail_rows)
         py = sum((safe_float(r.get("PY")) or 0.0) for r in detail_rows)
         totals_by_category[category] = _dashboard_recalculate_metrics(
-            detail_rows[0] if detail_rows else {}, actual, plan, py
+            detail_rows[0] if detail_rows else {},
+            actual,
+            plan,
+            py,
+            fcst=fcst,
         )
 
     rows: list[dict] = []
@@ -1157,8 +1222,15 @@ def _dashboard_aggregate_category_table(
     if grand_total is None:
         actual = sum((safe_float(r.get("Actual")) or 0.0) for r in rows)
         plan = sum((safe_float(r.get("Plan")) or 0.0) for r in rows)
+        fcst = sum((safe_float(r.get("Fcst")) or 0.0) for r in rows)
         py = sum((safe_float(r.get("PY")) or 0.0) for r in rows)
-        grand_total = _dashboard_recalculate_metrics({}, actual, plan, py)
+        grand_total = _dashboard_recalculate_metrics(
+            {},
+            actual,
+            plan,
+            py,
+            fcst=fcst,
+        )
 
     grand_total = dict(grand_total)
     grand_total["Category"] = "Total Mexico"
@@ -1189,9 +1261,12 @@ DASHBOARD_RANKING_VISIBLE_COLUMNS = [
     "Client Name",
     "Actual",
     "Plan",
+    "Fcst",
     "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
     "Var VS PY",
     "%Var VS PY",
 ]
@@ -1224,9 +1299,12 @@ def _dashboard_prepare_segment_dataframe(df: pd.DataFrame | None) -> pd.DataFram
         "Segment / Region",
         "Actual",
         "Plan",
+        "Fcst",
         "PY",
         "Var VS Plan",
         "%Var VS Plan",
+        "Var VS Fcst",
+        "%Var VS Fcst",
         "Var VS PY",
         "%Var VS PY",
     ]
@@ -2007,3 +2085,51 @@ def build_full_reports_excel_bytes(
 
     remove_default_sheet_if_needed(writer)
     return build_excel_bytes_from_writer(output, writer)
+
+# =========================================================
+# INTEGRACIÓN FORECAST - EXTENSIÓN DE EXPORTACIONES
+# =========================================================
+HEADER_FCST_FILL = PatternFill(fill_type="solid", fgColor="E83E62")
+HEADER_FCST_SKU_FILL = PatternFill(fill_type="solid", fgColor="FFC34D")
+HEADER_VAR_PLAN_FILL = PatternFill(fill_type="solid", fgColor="F4B400")
+HEADER_VAR_FCST_FILL = PatternFill(fill_type="solid", fgColor="34A853")
+HEADER_VAR_PY_FILL = PatternFill(fill_type="solid", fgColor="0B5A7A")
+
+PERCENT_COLUMNS.add("%Var VS Fcst")
+NUMERIC_COLUMNS.update({"Fcst", "Var VS Fcst"})
+
+# Ranking: conserva exactamente el orden visual acordado.
+REPORT_4_VISIBLE_COLUMNS = [
+    "Client Name",
+    "Cliente",
+    "Actual",
+    "Plan",
+    "Fcst",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+def get_header_fill(column_name: str):
+    name = str(column_name).strip()
+
+    if name == "Actual":
+        return HEADER_ACTUAL_FILL
+    if name == "Plan":
+        return HEADER_PLAN_FILL
+    if name == "Fcst":
+        return HEADER_FCST_FILL
+    if name == "PY":
+        return HEADER_PY_FILL
+    if name in {"Var VS Plan", "%Var VS Plan"}:
+        return HEADER_VAR_PLAN_FILL
+    if name in {"Var VS Fcst", "%Var VS Fcst"}:
+        return HEADER_VAR_FCST_FILL
+    if name in {"Var VS PY", "%Var VS PY"}:
+        return HEADER_VAR_PY_FILL
+
+    return HEADER_NEUTRAL_FILL

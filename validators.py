@@ -22,7 +22,7 @@ def normalize_column_name(column_name: str) -> str:
 def validate_required_columns(df, required_columns: Iterable[str]) -> tuple[bool, list[str]]:
     """
     Verifica si el DataFrame contiene las columnas requeridas.
-    
+
     Retorna:
     - bool: True si todo está correcto
     - list: columnas faltantes

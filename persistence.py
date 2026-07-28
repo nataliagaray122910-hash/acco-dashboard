@@ -5,7 +5,8 @@
 
 """
 Este módulo centraliza el guardado, lectura, verificación y borrado de la
-última carga administrativa del dashboard.
+última carga administrativa del dashboard, incluyendo las bases originales
+de ventas, plan y Forecast que app.py incorpore al payload.
 
 La app sigue usando st.session_state para trabajar rápido durante una sesión
 activa, pero este módulo permite respaldar la carga fuera de la sesión temporal.

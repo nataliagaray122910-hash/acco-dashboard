@@ -61,8 +61,10 @@ MONTH_NAME_TO_NUMBER = {
 DEFAULT_MONETARY_COLUMNS = [
     "Actual",
     "Plan",
+    "Fcst",
     "PY",
     "Var VS Plan",
+    "Var VS Fcst",
     "Var VS PY",
     "Valor",
     config.COL_GSNR,
@@ -3644,9 +3646,12 @@ REPORT_4_VISIBLE_COLUMNS = [
     "Cliente",
     "Actual",
     "Plan",
+    "Fcst",
     "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
     "Var VS PY",
     "%Var VS PY",
 ]
@@ -4580,4 +4585,785 @@ def build_report_4_top_clients_payload(
         "ytd_group_51_100_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_51_100),
         "mtd_group_other_table": get_report_4_group_detail_table(mtd_detail_internal, config.REPORT_4_GROUP_OTHER),
         "ytd_group_other_table": get_report_4_group_detail_table(ytd_detail_internal, config.REPORT_4_GROUP_OTHER),
-    } 
+    }
+
+# ==============================================================
+# INTEGRACIÓN FORECAST - EXTENSIÓN CONSERVADORA
+# ==============================================================
+# IMPORTANTE:
+# Las funciones originales anteriores se conservan completas.
+# Las definiciones siguientes amplían únicamente los cálculos necesarios
+# para incorporar Forecast sin eliminar las reglas históricas del archivo.
+#
+# Orden estándar de métricas:
+# Actual | Plan | Fcst | PY | Var VS Plan | %Var VS Plan |
+# Var VS Fcst | %Var VS Fcst | Var VS PY | %Var VS PY
+# ==============================================================
+
+
+def get_fcst_client_month_columns(df_fcst_client: pd.DataFrame) -> dict[int, str]:
+    return get_plan_client_month_columns(df_fcst_client)
+
+
+def get_fcst_sku_gs_columns(df_fcst_sku: pd.DataFrame) -> dict[int, str]:
+    return get_plan_sku_gs_columns(df_fcst_sku)
+
+
+def normalize_forecast_label(forecast_name: str | None) -> str:
+    text = str(forecast_name or "Fcst").strip()
+    if not text:
+        return "Fcst"
+    match = re.search(r"(?i)fcst\s*(\d+)\s*\+\s*(\d+)", text)
+    return f"Fcst {match.group(1)}+{match.group(2)}" if match else "Fcst"
+
+
+def prepare_fcst_client_like_plan(df_fcst_client: pd.DataFrame) -> pd.DataFrame:
+    return standardize_columns(remove_total_like_rows(df_fcst_client))
+
+
+def get_fcst_client_totals(df_fcst_client: pd.DataFrame, latest_month: int) -> tuple[float, float]:
+    df = prepare_fcst_client_like_plan(df_fcst_client)
+    df = exclude_base_mtd_affiliates(df)
+    month_columns = get_fcst_client_month_columns(df)
+    if latest_month not in month_columns:
+        raise ValueError(f"No se encontró la columna del mes {latest_month} en Forecast por Cliente.")
+    month_col = month_columns[latest_month]
+    months_to_sum = [month_columns[m] for m in sorted(month_columns) if m <= latest_month]
+    # Igual que Plan Cliente: la fuente está expresada en miles.
+    mtd = clean_numeric_series(df[month_col]).sum() * 1000
+    ytd = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum) * 1000
+    return float(mtd), float(ytd)
+
+
+def get_fcst_sku_totals(df_fcst_sku: pd.DataFrame, latest_month: int) -> tuple[float, float]:
+    df = standardize_columns(df_fcst_sku)
+    df = exclude_base_mtd_affiliates(df)
+    gs_columns = get_fcst_sku_gs_columns(df)
+    if latest_month not in gs_columns:
+        raise ValueError(f"No se encontró la columna GS del mes {latest_month} en Forecast por SKU.")
+    month_col = gs_columns[latest_month]
+    months_to_sum = [gs_columns[m] for m in sorted(gs_columns) if m <= latest_month]
+    mtd = clean_numeric_series(df[month_col]).sum()
+    ytd = sum(clean_numeric_series(df[col]).sum() for col in months_to_sum)
+    return float(mtd), float(ytd)
+
+
+def calculate_fcst_totals_summary(df_fcst_client, df_fcst_sku, latest_month: int) -> dict:
+    mtd_client, ytd_client = get_fcst_client_totals(df_fcst_client, latest_month)
+    mtd_sku, ytd_sku = get_fcst_sku_totals(df_fcst_sku, latest_month)
+    tolerance = 1000.0
+    return {
+        "mtd_fcst_client": mtd_client, "mtd_fcst_sku": mtd_sku,
+        "ytd_fcst_client": ytd_client, "ytd_fcst_sku": ytd_sku,
+        "mtd_fcst_total": mtd_client, "ytd_fcst_total": ytd_client,
+        "mtd_fcst_diff": abs(mtd_client-mtd_sku),
+        "ytd_fcst_diff": abs(ytd_client-ytd_sku),
+        "mtd_fcst_match": abs(mtd_client-mtd_sku) <= tolerance,
+        "ytd_fcst_match": abs(ytd_client-ytd_sku) <= tolerance,
+    }
+
+
+def prepare_fcst_client_for_report_1(df_fcst_client: pd.DataFrame) -> pd.DataFrame:
+    return prepare_plan_client_for_report_1(df_fcst_client)
+
+
+def get_fcst_channel_totals_for_report_1(df_fcst_client: pd.DataFrame, latest_month: int):
+    return get_plan_channel_totals_for_report_1(df_fcst_client, latest_month)
+
+
+def prepare_fcst_sku_for_report_2(df_fcst_sku: pd.DataFrame) -> pd.DataFrame:
+    return prepare_plan_sku_for_report_2(df_fcst_sku)
+
+
+def get_fcst_segment_region_totals_for_report_2(df_fcst_sku: pd.DataFrame, selected_month: int):
+    return get_plan_segment_region_totals_for_report_2(df_fcst_sku, selected_month)
+
+
+def prepare_fcst_sku_for_report_2_category(df_fcst_sku: pd.DataFrame) -> pd.DataFrame:
+    return prepare_plan_sku_for_report_2_category(df_fcst_sku)
+
+
+def get_fcst_category_totals_for_report_2(df_fcst_sku: pd.DataFrame, selected_month: int):
+    return get_plan_category_totals_for_report_2(df_fcst_sku, selected_month)
+
+
+def prepare_fcst_sku_for_report_3(df_fcst_sku: pd.DataFrame) -> pd.DataFrame:
+    # Misma regla de concatenado que Plan: NORTE/SUR/RETAIL usan Segmento; el resto REGION.
+    return prepare_plan_sku_for_report_3(df_fcst_sku)
+
+
+def get_fcst_channel_totals_for_report_3(df_fcst_sku: pd.DataFrame, selected_month: int):
+    return get_plan_channel_totals_for_report_3(df_fcst_sku, selected_month)
+
+
+def prepare_fcst_client_for_report_4(df_fcst_client: pd.DataFrame) -> pd.DataFrame:
+    return prepare_plan_client_for_report_4(df_fcst_client)
+
+
+def get_fcst_client_totals_for_report_4(df_fcst_client: pd.DataFrame, selected_month: int):
+    return get_plan_client_totals_for_report_4(df_fcst_client, selected_month)
+
+
+def build_horizontal_plan_table(
+    mtd_actual: float, ytd_actual: float,
+    mtd_plan: float, ytd_plan: float,
+    mtd_fcst: float, ytd_fcst: float,
+    mtd_py: float, ytd_py: float,
+) -> pd.DataFrame:
+    rows = []
+    for period, actual, plan, fcst, py in [
+        ("MTD", mtd_actual, mtd_plan, mtd_fcst, mtd_py),
+        ("YTD", ytd_actual, ytd_plan, ytd_fcst, ytd_py),
+    ]:
+        rows.append({
+            "Periodo": period, "Actual": actual, "Plan": plan, "Fcst": fcst, "PY": py,
+            "Var VS Plan": actual-plan, "%Var VS Plan": safe_divide(actual-plan, plan),
+            "Var VS Fcst": actual-fcst, "%Var VS Fcst": safe_divide(actual-fcst, fcst),
+            "Var VS PY": actual-py, "%Var VS PY": safe_divide(actual-py, py),
+        })
+    return pd.DataFrame(rows)
+
+
+def build_mtd_payload(
+    df_processed_sales: pd.DataFrame,
+    df_plan_client: pd.DataFrame, df_plan_sku: pd.DataFrame,
+    df_fcst_client: pd.DataFrame, df_fcst_sku: pd.DataFrame,
+    forecast_name: str | None = None,
+    selected_year: int | None = None, selected_month: int | None = None,
+    progress_callback=None,
+) -> dict:
+    total_steps = 8
+    emit_progress(progress_callback, "Validando bases requeridas para Base MTD", 1, total_steps)
+    required=[(df_processed_sales,"ventas procesadas"),(df_plan_client,"plan por cliente"),(df_plan_sku,"plan por SKU"),(df_fcst_client,"forecast por cliente"),(df_fcst_sku,"forecast por SKU")]
+    for df,label in required:
+        if df is None or df.empty: raise ValueError(f"No existe archivo de {label} cargado.")
+    report_year, report_month = resolve_reporting_period(df_processed_sales, selected_year, selected_month)
+    emit_progress(progress_callback, "Calculando Actual y PY", 2, total_steps)
+    totals=calculate_actual_and_py_totals(df_processed_sales, report_year, report_month)
+    emit_progress(progress_callback, "Conciliando Plan Cliente y Plan SKU", 3, total_steps)
+    plan_summary=calculate_plan_totals_summary(df_plan_client, df_plan_sku, report_month)
+    emit_progress(progress_callback, "Conciliando Forecast Cliente y Forecast SKU", 4, total_steps)
+    fcst_summary=calculate_fcst_totals_summary(df_fcst_client, df_fcst_sku, report_month)
+    emit_progress(progress_callback, "Calculando BTS", 5, total_steps)
+    bts_totals=calculate_bts_totals(df_processed_sales, report_year, report_month)
+    emit_progress(progress_callback, "Construyendo comparativos", 6, total_steps)
+    client_table=build_horizontal_plan_table(totals["mtd_actual"],totals["ytd_actual"],plan_summary["mtd_plan_client"],plan_summary["ytd_plan_client"],fcst_summary["mtd_fcst_client"],fcst_summary["ytd_fcst_client"],totals["mtd_py"],totals["ytd_py"])
+    sku_table=build_horizontal_plan_table(totals["mtd_actual"],totals["ytd_actual"],plan_summary["mtd_plan_sku"],plan_summary["ytd_plan_sku"],fcst_summary["mtd_fcst_sku"],fcst_summary["ytd_fcst_sku"],totals["mtd_py"],totals["ytd_py"])
+    bts_table=build_bts_table(bts_totals["bts_mtd_actual"],bts_totals["bts_mtd_py"],bts_totals["bts_ytd_actual"],bts_totals["bts_ytd_py_comparable"])
+    summary={"mtd_act_total_k":totals["mtd_actual"]/1000,"ytd_act_total_k":totals["ytd_actual"]/1000,"mtd_plan_total_k":plan_summary["mtd_plan_total"]/1000,"ytd_plan_total_k":plan_summary["ytd_plan_total"]/1000,"mtd_fcst_total_k":fcst_summary["mtd_fcst_total"]/1000,"ytd_fcst_total_k":fcst_summary["ytd_fcst_total"]/1000}
+    bts_summary={"bts_actual_k":bts_totals["bts_actual"]/1000,"bts_py_full_k":bts_totals["bts_py_full"]/1000}
+    emit_progress(progress_callback, "Preparando resumen final", 8, total_steps)
+    return {"latest_year":report_year,"latest_month":report_month,"forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name),"summary":summary,"plan_summary":plan_summary,"fcst_summary":fcst_summary,"bts_summary":bts_summary,"client_table":client_table,"sku_table":sku_table,"bts_table":bts_table}
+
+
+def build_report_1_row(
+    office_label: str,
+    actual: float,
+    plan: float | None,
+    fcst: float | None,
+    py: float,
+    is_total: bool = False,
+    is_highlight: bool = False,
+) -> dict:
+    row = {
+        "Oficina de Ventas": office_label,
+        "Actual": float(actual),
+        "Plan": None if plan is None else float(plan),
+        "Fcst": None if fcst is None else float(fcst),
+        "PY": float(py),
+        "Var VS Plan": None,
+        "%Var VS Plan": None,
+        "Var VS Fcst": None,
+        "%Var VS Fcst": None,
+        "Var VS PY": float(actual) - float(py),
+        "%Var VS PY": safe_divide(float(actual) - float(py), float(py)),
+        "__is_total__": is_total,
+        "__is_highlight__": is_highlight,
+    }
+
+    if plan is not None:
+        row["Var VS Plan"] = float(actual) - float(plan)
+        row["%Var VS Plan"] = safe_divide(float(actual) - float(plan), float(plan))
+    if fcst is not None:
+        row["Var VS Fcst"] = float(actual) - float(fcst)
+        row["%Var VS Fcst"] = safe_divide(float(actual) - float(fcst), float(fcst))
+    return row
+
+
+def build_report_1_without_kens_table(actual_dict, plan_dict, fcst_dict, py_dict) -> pd.DataFrame:
+    codes_present=set(actual_dict)|set(plan_dict)|set(fcst_dict)|set(py_dict)
+    ordered_codes=get_ordered_report_1_codes(codes_present, exclude_codes={"AF","AFI"})
+    rows=[]; totals={"actual":0.0,"plan":0.0,"fcst":0.0,"py":0.0}
+    for code in ordered_codes:
+        actual=float(actual_dict.get(code,0)); plan=float(plan_dict.get(code,0)); fcst=float(fcst_dict.get(code,0)); py=float(py_dict.get(code,0))
+        if not has_report_value(actual,plan,fcst,py): continue
+        totals["actual"]+=actual; totals["plan"]+=plan; totals["fcst"]+=fcst; totals["py"]+=py
+        rows.append(build_report_1_row(get_channel_display_label(code),actual,plan,fcst,py))
+    rows.append(build_report_1_row(config.REPORT_1_TOTAL_LABEL,totals["actual"],totals["plan"],totals["fcst"],totals["py"],is_total=True))
+    return pd.DataFrame(rows)
+
+
+def build_report_1_payload(df_processed_sales, df_plan_client, df_fcst_client, forecast_name: str | None = None, selected_year=None, selected_month=None, progress_callback=None) -> dict:
+    total_steps=7
+    emit_progress(progress_callback,"Validando bases para Reporte 1",1,total_steps)
+    for df,label in [(df_processed_sales,"ventas"),(df_plan_client,"plan cliente"),(df_fcst_client,"forecast cliente")]:
+        if df is None or df.empty: raise ValueError(f"No existe base de {label} cargada.")
+    report_year,report_month=resolve_reporting_period(df_processed_sales,selected_year,selected_month)
+    plan_mtd,plan_ytd=get_plan_channel_totals_for_report_1(df_plan_client,report_month)
+    fcst_mtd,fcst_ytd=get_fcst_channel_totals_for_report_1(df_fcst_client,report_month)
+    sales=filter_sales_for_report_1(df_processed_sales,segment_values=list(config.REPORT_1_SEGMENTS_WITHOUT_KENS)+[config.REPORT_1_SEGMENT_KENS])
+    mtd_actual,ytd_actual,mtd_py,ytd_py=get_sales_channel_totals_for_report_1(sales,report_year,report_month)
+    mtd=build_report_1_without_kens_table(mtd_actual,plan_mtd,fcst_mtd,mtd_py)
+    ytd=build_report_1_without_kens_table(ytd_actual,plan_ytd,fcst_ytd,ytd_py)
+    summary={"latest_year":report_year,"latest_month":report_month,"segments_without_kens_label":"ACCO + BARR + KENS","forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name)}
+    return {"summary":summary,"mtd_without_kens_table":mtd,"ytd_without_kens_table":ytd}
+
+
+def build_report_2_row(
+    segment_label: str,
+    region_label: str,
+    actual: float,
+    plan: float,
+    fcst: float,
+    py: float,
+    is_total: bool = False,
+    is_grand_total: bool = False,
+) -> dict:
+    return {
+        "Segmento": segment_label,
+        "Región": region_label,
+        "Actual": float(actual),
+        "Plan": float(plan),
+        "Fcst": float(fcst),
+        "PY": float(py),
+        "Var VS Plan": float(actual) - float(plan),
+        "%Var VS Plan": safe_divide(float(actual) - float(plan), float(plan)),
+        "Var VS Fcst": float(actual) - float(fcst),
+        "%Var VS Fcst": safe_divide(float(actual) - float(fcst), float(fcst)),
+        "Var VS PY": float(actual) - float(py),
+        "%Var VS PY": safe_divide(float(actual) - float(py), float(py)),
+        "__is_total__": is_total,
+        "__is_grand_total__": is_grand_total,
+    }
+
+
+def build_report_2_segment_region_table(actual_df, plan_df, fcst_df, py_df) -> pd.DataFrame:
+    """Construye Segment x Region dejando cada subtotal DEBAJO de su detalle."""
+    actual_dict = aggregated_segment_region_df_to_dict(actual_df)
+    plan_dict = aggregated_segment_region_df_to_dict(plan_df)
+    fcst_dict = aggregated_segment_region_df_to_dict(fcst_df)
+    py_dict = aggregated_segment_region_df_to_dict(py_df)
+
+    all_keys = set(actual_dict) | set(plan_dict) | set(fcst_dict) | set(py_dict)
+    grouped = {}
+    for segment, region in all_keys:
+        if is_forbidden_placeholder_segment(segment):
+            continue
+        grouped.setdefault(segment, set()).add(region)
+
+    rows=[]
+    grand=[0.0,0.0,0.0,0.0]
+    for segment in sorted(grouped, key=get_report_2_segment_sort_key):
+        subtotal=[0.0,0.0,0.0,0.0]
+        detail_rows=[]
+        for region in sorted(grouped[segment], key=get_report_2_region_sort_key):
+            key=(segment,region)
+            vals=[float(d.get(key,0.0)) for d in (actual_dict,plan_dict,fcst_dict,py_dict)]
+            if not has_report_value(*vals):
+                continue
+            detail_rows.append(build_report_2_row(segment,region,*vals))
+            subtotal=[a+b for a,b in zip(subtotal,vals)]
+        if not detail_rows:
+            continue
+        rows.extend(detail_rows)
+        rows.append(build_report_2_row(segment,config.REPORT_2_TOTAL_LABEL,*subtotal,is_total=True))
+        grand=[a+b for a,b in zip(grand,subtotal)]
+
+    rows.append(build_report_2_row("Total Mexico","",*grand,is_total=True,is_grand_total=True))
+    return pd.DataFrame(rows)
+
+
+def build_report_2_segment_region_payload(df_processed_sales, df_plan_sku, df_fcst_sku, forecast_name: str | None = None, selected_year=None, selected_month=None, progress_callback=None) -> dict:
+    for df,label in [(df_processed_sales,"ventas"),(df_plan_sku,"plan SKU"),(df_fcst_sku,"forecast SKU")]:
+        if df is None or df.empty: raise ValueError(f"No existe base de {label} cargada.")
+    year,month=resolve_reporting_period(df_processed_sales,selected_year,selected_month)
+    sales=prepare_sales_for_report_2(df_processed_sales); plan=prepare_plan_sku_for_report_2(df_plan_sku); fcst=prepare_fcst_sku_for_report_2(df_fcst_sku)
+    mtd_a,ytd_a,mtd_py,ytd_py=get_sales_segment_region_totals_for_report_2(sales,year,month)
+    mtd_p,ytd_p=get_plan_segment_region_totals_for_report_2(plan,month)
+    mtd_f,ytd_f=get_fcst_segment_region_totals_for_report_2(fcst,month)
+    return {"summary":{"latest_year":year,"latest_month":month,"forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name)},"mtd_segment_region_table":build_report_2_segment_region_table(mtd_a,mtd_p,mtd_f,mtd_py),"ytd_segment_region_table":build_report_2_segment_region_table(ytd_a,ytd_p,ytd_f,ytd_py)}
+
+
+def build_report_2_category_row(
+    category_label: str,
+    material_label: str,
+    product_label: str,
+    description_label: str,
+    actual: float,
+    plan: float,
+    fcst: float,
+    py: float,
+    is_total: bool = False,
+    is_grand_total: bool = False,
+) -> dict:
+    return {
+        "Category": category_label,
+        "Material": material_label,
+        "Categoría del Material": product_label,
+        "Descripción del Material": description_label,
+        "Actual": float(actual),
+        "Plan": float(plan),
+        "Fcst": float(fcst),
+        "PY": float(py),
+        "Var VS Plan": float(actual) - float(plan),
+        "%Var VS Plan": safe_divide(float(actual) - float(plan), float(plan)),
+        "Var VS Fcst": float(actual) - float(fcst),
+        "%Var VS Fcst": safe_divide(float(actual) - float(fcst), float(fcst)),
+        "Var VS PY": float(actual) - float(py),
+        "%Var VS PY": safe_divide(float(actual) - float(py), float(py)),
+        "__is_total__": is_total,
+        "__is_grand_total__": is_grand_total,
+    }
+
+
+def build_report_2_category_table(actual_df, plan_df, fcst_df, py_df) -> pd.DataFrame:
+    """Construye Category dejando cada subtotal DEBAJO de sus materiales."""
+    actual_dict=aggregated_category_df_to_dict(actual_df)
+    plan_dict=aggregated_category_df_to_dict(plan_df)
+    fcst_dict=aggregated_category_df_to_dict(fcst_df)
+    py_dict=aggregated_category_df_to_dict(py_df)
+    all_keys=set(actual_dict)|set(plan_dict)|set(fcst_dict)|set(py_dict)
+    categories=sorted({k[0] for k in all_keys},key=get_report_2_category_sort_key)
+    rows=[]; grand=[0.0,0.0,0.0,0.0]
+    for category in categories:
+        keys=sorted(
+            [k for k in all_keys if k[0]==category],
+            key=lambda k:(get_report_2_material_sort_key(k[1]),get_report_2_product_sort_key(k[2]),get_report_2_description_sort_key(k[3]))
+        )
+        subtotal=[0.0,0.0,0.0,0.0]; detail=[]
+        for key in keys:
+            vals=[float(d.get(key,0.0)) for d in (actual_dict,plan_dict,fcst_dict,py_dict)]
+            if not has_report_value(*vals):
+                continue
+            detail.append(build_report_2_category_row(key[0],key[1],key[2],key[3],*vals))
+            subtotal=[a+b for a,b in zip(subtotal,vals)]
+        if not detail:
+            continue
+        rows.extend(detail)
+        rows.append(build_report_2_category_row(category,"",config.REPORT_2_TOTAL_LABEL,"",*subtotal,is_total=True))
+        grand=[a+b for a,b in zip(grand,subtotal)]
+    rows.append(build_report_2_category_row("Total Mexico","","","",*grand,is_total=True,is_grand_total=True))
+    return pd.DataFrame(rows)
+
+
+def build_report_2_category_payload(df_processed_sales, df_plan_sku, df_fcst_sku, forecast_name: str | None = None, selected_year=None, selected_month=None, progress_callback=None) -> dict:
+    for df,label in [(df_processed_sales,"ventas"),(df_plan_sku,"plan SKU"),(df_fcst_sku,"forecast SKU")]:
+        if df is None or df.empty: raise ValueError(f"No existe base de {label} cargada.")
+    year,month=resolve_reporting_period(df_processed_sales,selected_year,selected_month)
+    sales=prepare_sales_for_report_2_category(df_processed_sales); plan=prepare_plan_sku_for_report_2_category(df_plan_sku); fcst=prepare_fcst_sku_for_report_2_category(df_fcst_sku)
+    mtd_a,ytd_a,mtd_py,ytd_py=get_sales_category_totals_for_report_2(sales,year,month)
+    mtd_p,ytd_p=get_plan_category_totals_for_report_2(plan,month); mtd_f,ytd_f=get_fcst_category_totals_for_report_2(fcst,month)
+    return {"summary":{"latest_year":year,"latest_month":month,"forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name)},"mtd_category_table":build_report_2_category_table(mtd_a,mtd_p,mtd_f,mtd_py),"ytd_category_table":build_report_2_category_table(ytd_a,ytd_p,ytd_f,ytd_py)}
+
+
+def build_report_3_row(
+    channel_label: str,
+    actual: float,
+    plan: float,
+    fcst: float,
+    py: float,
+    is_total: bool = False,
+    is_grand_total: bool = False,
+) -> dict:
+    return {
+        "Channel": channel_label,
+        "Actual": float(actual),
+        "Plan": float(plan),
+        "Fcst": float(fcst),
+        "PY": float(py),
+        "Var VS Plan": float(actual) - float(plan),
+        "%Var VS Plan": safe_divide(float(actual) - float(plan), float(plan)),
+        "Var VS Fcst": float(actual) - float(fcst),
+        "%Var VS Fcst": safe_divide(float(actual) - float(fcst), float(fcst)),
+        "Var VS PY": float(actual) - float(py),
+        "%Var VS PY": safe_divide(float(actual) - float(py), float(py)),
+        "__is_total__": is_total,
+        "__is_grand_total__": is_grand_total,
+    }
+
+
+def build_report_3_channel_table(actual_df, plan_df, fcst_df, py_df) -> pd.DataFrame:
+    ad=aggregated_channel_df_to_dict(actual_df); pdict=aggregated_channel_df_to_dict(plan_df); fd=aggregated_channel_df_to_dict(fcst_df); pyd=aggregated_channel_df_to_dict(py_df)
+    channels=sorted(set(ad)|set(pdict)|set(fd)|set(pyd),key=get_report_3_channel_sort_key); rows=[]; totals=[0.0]*4
+    for channel in channels:
+        vals=[float(d.get(channel,0)) for d in [ad,pdict,fd,pyd]]
+        if not has_report_value(*vals): continue
+        totals=[a+b for a,b in zip(totals,vals)]; rows.append(build_report_3_row(channel,*vals))
+    rows.append(build_report_3_row("Total Mexico",*totals,is_total=True,is_grand_total=True))
+    return pd.DataFrame(rows)
+
+
+def build_report_3_channel_payload(df_processed_sales, df_plan_sku, df_fcst_sku, forecast_name: str | None = None, selected_year=None, selected_month=None, progress_callback=None) -> dict:
+    for df,label in [(df_processed_sales,"ventas"),(df_plan_sku,"plan SKU"),(df_fcst_sku,"forecast SKU")]:
+        if df is None or df.empty: raise ValueError(f"No existe base de {label} cargada.")
+    year,month=resolve_reporting_period(df_processed_sales,selected_year,selected_month)
+    sales=prepare_sales_for_report_3(df_processed_sales); plan=prepare_plan_sku_for_report_3(df_plan_sku); fcst=prepare_fcst_sku_for_report_3(df_fcst_sku)
+    mtd_a,ytd_a,mtd_py,ytd_py=get_sales_channel_totals_for_report_3(sales,year,month)
+    mtd_p,ytd_p=get_plan_channel_totals_for_report_3(plan,month); mtd_f,ytd_f=get_fcst_channel_totals_for_report_3(fcst,month)
+    return {"summary":{"latest_year":year,"latest_month":month,"forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name)},"mtd_channel_table":build_report_3_channel_table(mtd_a,mtd_p,mtd_f,mtd_py),"ytd_channel_table":build_report_3_channel_table(ytd_a,ytd_p,ytd_f,ytd_py)}
+
+
+def build_report_4_row(
+    client_code: str, client_label: str, actual: float, plan: float, fcst: float, py: float,
+    top_position="", group_label="", is_total: bool=False, is_grand_total: bool=False, is_group_summary: bool=False,
+) -> dict:
+    return {
+        "Client Name": client_label, "Cliente": client_code,
+        "Actual": float(actual), "Plan": float(plan), "Fcst": float(fcst), "PY": float(py),
+        "Var VS Plan": float(actual)-float(plan), "%Var VS Plan": safe_divide(float(actual)-float(plan),float(plan)),
+        "Var VS Fcst": float(actual)-float(fcst), "%Var VS Fcst": safe_divide(float(actual)-float(fcst),float(fcst)),
+        "Var VS PY": float(actual)-float(py), "%Var VS PY": safe_divide(float(actual)-float(py),float(py)),
+        "TOP": top_position, "Grupo": group_label,
+        "__top__": top_position, "__grupo__": group_label,
+        "__is_total__": is_total, "__is_grand_total__": is_grand_total, "__is_group_summary__": is_group_summary,
+    }
+
+
+def build_report_4_detail_table(actual_df, plan_df, fcst_df, py_df, keep_internal: bool=True) -> pd.DataFrame:
+    actual_dict=aggregated_client_df_to_dict(actual_df)
+    plan_dict=aggregated_client_df_to_dict(plan_df)
+    fcst_dict=aggregated_client_df_to_dict(fcst_df)
+    py_dict=aggregated_client_df_to_dict(py_df)
+    actual_names=aggregated_client_df_to_name_dict(actual_df)
+    plan_names=aggregated_client_df_to_name_dict(plan_df)
+    fcst_names=aggregated_client_df_to_name_dict(fcst_df)
+    py_names=aggregated_client_df_to_name_dict(py_df)
+    codes=set(actual_dict)|set(plan_dict)|set(fcst_dict)|set(py_dict)
+    rows=[]
+    for raw_code in codes:
+        code=normalize_report_4_client_code(raw_code)
+        if not code:
+            continue
+        actual=float(actual_dict.get(code,0.0)); plan=float(plan_dict.get(code,0.0)); fcst=float(fcst_dict.get(code,0.0)); py=float(py_dict.get(code,0.0))
+        if not has_report_value(actual,plan,fcst,py):
+            continue
+        label=resolve_report_4_dynamic_client_label(code,actual_names,plan_names,py_names)
+        if (not label or label==code) and str(fcst_names.get(code,"")).strip():
+            label=str(fcst_names[code]).strip()
+        rows.append(build_report_4_row(code,label,actual,plan,fcst,py,top_position=0,group_label=""))
+    if not rows:
+        return finalize_report_4_table(pd.DataFrame(),keep_internal=keep_internal)
+    df=pd.DataFrame(rows).sort_values(
+        by=["Actual","Plan","Fcst","PY","Client Name","Cliente"],
+        ascending=[False,False,False,False,True,True],kind="mergesort"
+    ).reset_index(drop=True)
+    df["__top__"]=range(1,len(df)+1)
+    df["__grupo__"]=df["__top__"].apply(get_report_4_group_from_top)
+    return finalize_report_4_table(df,keep_internal=keep_internal)
+
+
+def build_report_4_group_summary_table(detail_df: pd.DataFrame, keep_internal: bool=True) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty:
+        return finalize_report_4_table(pd.DataFrame(),keep_internal=keep_internal)
+    required=["Actual","Plan","Fcst","PY"]
+    work=detail_df.copy()
+    for col in required:
+        if col not in work.columns:
+            work[col]=0.0
+    rows=[]
+    groups=[config.REPORT_4_GROUP_TOP_15,config.REPORT_4_GROUP_16_50,config.REPORT_4_GROUP_51_100,config.REPORT_4_GROUP_OTHER]
+    for group in groups:
+        group_df=work[work["__grupo__"]==group].copy()
+        if group_df.empty:
+            continue
+        vals=[pd.to_numeric(group_df[c],errors="coerce").fillna(0).sum() for c in required]
+        label=getattr(config,"REPORT_4_GROUP_TOP_15_TOTAL_LABEL","Total Top 15") if group==config.REPORT_4_GROUP_TOP_15 else group
+        rows.append(build_report_4_row("",label,*vals,group_label=group,is_total=True,is_group_summary=True))
+    vals=[pd.to_numeric(work[c],errors="coerce").fillna(0).sum() for c in required]
+    rows.append(build_report_4_row("",config.REPORT_4_TOTAL_LABEL,*vals,group_label=config.REPORT_4_TOTAL_LABEL,is_total=True,is_grand_total=True))
+    return finalize_report_4_table(pd.DataFrame(rows),keep_internal=keep_internal)
+
+
+def build_report_4_clients_table(actual_df, plan_df, fcst_df, py_df) -> pd.DataFrame:
+    detail=build_report_4_detail_table(actual_df,plan_df,fcst_df,py_df,keep_internal=True); summary=build_report_4_group_summary_table(detail,keep_internal=True)
+    top=detail[detail["__grupo__"]==config.REPORT_4_GROUP_TOP_15].copy(); label=getattr(config,"REPORT_4_GROUP_TOP_15_TOTAL_LABEL","Total Top 15")
+    top_summary=summary[(summary["__grupo__"]==config.REPORT_4_GROUP_TOP_15)|(summary["Client Name"]==label)].copy()
+    other=summary[summary["Client Name"].isin([config.REPORT_4_GROUP_16_50,config.REPORT_4_GROUP_51_100,config.REPORT_4_GROUP_OTHER,config.REPORT_4_TOTAL_LABEL])].copy()
+    return finalize_report_4_table(pd.concat([top,top_summary,other],ignore_index=True),keep_internal=False)
+
+
+def get_report_4_group_detail_table(detail_df: pd.DataFrame, group_label: str) -> pd.DataFrame:
+    if detail_df is None or detail_df.empty: return finalize_report_4_table(pd.DataFrame(),keep_internal=False)
+    filtered=detail_df[detail_df["__grupo__"]==group_label].copy()
+    if filtered.empty: return finalize_report_4_table(filtered,keep_internal=False)
+    vals=[filtered[c].apply(float).sum() for c in ["Actual","Plan","Fcst","PY"]]
+    total=build_report_4_row("",f"Total {group_label}",*vals,group_label=group_label,is_total=True,is_group_summary=True)
+    return finalize_report_4_table(pd.concat([filtered,pd.DataFrame([total])],ignore_index=True),keep_internal=False)
+
+
+def build_report_4_top_clients_payload(
+    df_processed_sales,
+    df_plan_client,
+    df_fcst_client,
+    forecast_name: str | None = None,
+    selected_year=None,
+    selected_month=None,
+    progress_callback=None,
+) -> dict:
+    """
+    Construye el payload completo del Ranking de Clientes con Forecast.
+
+    Conserva:
+    - Top 15 cliente por cliente.
+    - Total Top 15.
+    - Resumen Clients 16 to 50.
+    - Resumen Clients 51 to 100.
+    - Resumen Other clients.
+    - Total Mexico.
+
+    Restaura además las tablas detalle MTD/YTD de:
+    - Clients 16 to 50.
+    - Clients 51 to 100.
+    - Other clients.
+    """
+    total_steps = 8
+
+    emit_progress(
+        progress_callback,
+        "Validando bases para Ranking de Clientes",
+        1,
+        total_steps,
+    )
+
+    required_sources = [
+        (df_processed_sales, "ventas"),
+        (df_plan_client, "plan cliente"),
+        (df_fcst_client, "forecast cliente"),
+    ]
+
+    for dataframe, label in required_sources:
+        if dataframe is None or dataframe.empty:
+            raise ValueError(f"No existe base de {label} cargada.")
+
+    emit_progress(
+        progress_callback,
+        "Resolviendo periodo del Ranking",
+        2,
+        total_steps,
+    )
+
+    year, month = resolve_reporting_period(
+        df_processed_sales,
+        selected_year,
+        selected_month,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Calculando Actual y PY por cliente",
+        3,
+        total_steps,
+    )
+
+    (
+        mtd_actual,
+        ytd_actual,
+        mtd_py,
+        ytd_py,
+    ) = get_sales_client_totals_for_report_4(
+        df_processed_sales,
+        year,
+        month,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Integrando Plan y Forecast por cliente",
+        4,
+        total_steps,
+    )
+
+    mtd_plan, ytd_plan = get_plan_client_totals_for_report_4(
+        df_plan_client,
+        month,
+    )
+    mtd_fcst, ytd_fcst = get_fcst_client_totals_for_report_4(
+        df_fcst_client,
+        month,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Ordenando clientes y asignando ranking",
+        5,
+        total_steps,
+    )
+
+    mtd_detail_internal = build_report_4_detail_table(
+        mtd_actual,
+        mtd_plan,
+        mtd_fcst,
+        mtd_py,
+        keep_internal=True,
+    )
+    ytd_detail_internal = build_report_4_detail_table(
+        ytd_actual,
+        ytd_plan,
+        ytd_fcst,
+        ytd_py,
+        keep_internal=True,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Calculando Top 15, clientes 16-50, 51-100 y resto",
+        6,
+        total_steps,
+    )
+
+    mtd_summary_internal = build_report_4_group_summary_table(
+        mtd_detail_internal,
+        keep_internal=True,
+    )
+    ytd_summary_internal = build_report_4_group_summary_table(
+        ytd_detail_internal,
+        keep_internal=True,
+    )
+
+    emit_progress(
+        progress_callback,
+        "Construyendo tablas ejecutivas MTD y YTD",
+        7,
+        total_steps,
+    )
+
+    mtd_top_clients = build_report_4_clients_table(
+        mtd_actual,
+        mtd_plan,
+        mtd_fcst,
+        mtd_py,
+    )
+    ytd_top_clients = build_report_4_clients_table(
+        ytd_actual,
+        ytd_plan,
+        ytd_fcst,
+        ytd_py,
+    )
+
+    def get_total_value(summary_df, column_name: str) -> float:
+        if summary_df is None or summary_df.empty:
+            return 0.0
+
+        if "Client Name" not in summary_df.columns:
+            return 0.0
+
+        total_rows = summary_df[
+            summary_df["Client Name"].astype(str).str.strip()
+            == str(config.REPORT_4_TOTAL_LABEL).strip()
+        ]
+
+        if total_rows.empty or column_name not in total_rows.columns:
+            return 0.0
+
+        return float(
+            pd.to_numeric(
+                total_rows[column_name],
+                errors="coerce",
+            ).fillna(0).sum()
+        )
+
+    emit_progress(
+        progress_callback,
+        "Preparando resumen y tablas detalle",
+        8,
+        total_steps,
+    )
+
+    summary = {
+        "latest_year": year,
+        "latest_month": month,
+        "forecast_name": forecast_name or "Fcst",
+        "forecast_label": normalize_forecast_label(forecast_name),
+        "mtd_actual_total_k": get_total_value(mtd_summary_internal, "Actual") / 1000,
+        "mtd_plan_total_k": get_total_value(mtd_summary_internal, "Plan") / 1000,
+        "mtd_fcst_total_k": get_total_value(mtd_summary_internal, "Fcst") / 1000,
+        "mtd_py_total_k": get_total_value(mtd_summary_internal, "PY") / 1000,
+        "ytd_actual_total_k": get_total_value(ytd_summary_internal, "Actual") / 1000,
+        "ytd_plan_total_k": get_total_value(ytd_summary_internal, "Plan") / 1000,
+        "ytd_fcst_total_k": get_total_value(ytd_summary_internal, "Fcst") / 1000,
+        "ytd_py_total_k": get_total_value(ytd_summary_internal, "PY") / 1000,
+    }
+
+    return {
+        "summary": summary,
+
+        # Vista ejecutiva principal.
+        "mtd_top_clients_table": mtd_top_clients,
+        "ytd_top_clients_table": ytd_top_clients,
+
+        # Detalle completo.
+        "mtd_detail_table": finalize_report_4_table(
+            mtd_detail_internal,
+            keep_internal=False,
+        ),
+        "ytd_detail_table": finalize_report_4_table(
+            ytd_detail_internal,
+            keep_internal=False,
+        ),
+
+        # Resúmenes por bloques.
+        "mtd_summary_table": finalize_report_4_table(
+            mtd_summary_internal,
+            keep_internal=False,
+        ),
+        "ytd_summary_table": finalize_report_4_table(
+            ytd_summary_internal,
+            keep_internal=False,
+        ),
+
+        # TABLAS DETALLE RESTAURADAS.
+        "mtd_group_16_50_table": get_report_4_group_detail_table(
+            mtd_detail_internal,
+            config.REPORT_4_GROUP_16_50,
+        ),
+        "ytd_group_16_50_table": get_report_4_group_detail_table(
+            ytd_detail_internal,
+            config.REPORT_4_GROUP_16_50,
+        ),
+        "mtd_group_51_100_table": get_report_4_group_detail_table(
+            mtd_detail_internal,
+            config.REPORT_4_GROUP_51_100,
+        ),
+        "ytd_group_51_100_table": get_report_4_group_detail_table(
+            ytd_detail_internal,
+            config.REPORT_4_GROUP_51_100,
+        ),
+        "mtd_group_other_table": get_report_4_group_detail_table(
+            mtd_detail_internal,
+            config.REPORT_4_GROUP_OTHER,
+        ),
+        "ytd_group_other_table": get_report_4_group_detail_table(
+            ytd_detail_internal,
+            config.REPORT_4_GROUP_OTHER,
+        ),
+    }
+
+# Forecast también es monetario para conversiones auxiliares.
+for _forecast_col in ["Fcst", "Var VS Fcst"]:
+    if _forecast_col not in DEFAULT_MONETARY_COLUMNS:
+        DEFAULT_MONETARY_COLUMNS.append(_forecast_col)
+
+
+# =========================================================
+# CORRECCIÓN FINAL: NORMALIZACIÓN DEL CÓDIGO DE CLIENTE
+# =========================================================
+def normalize_report_4_client_code(value) -> str:
+    """Conserva el código de cliente como texto y evita formatos tipo 123.0."""
+    if pd.isna(value):
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", "null", "nat"}:
+        return ""
+    if re.fullmatch(r"[-+]?\d+\.0+", text):
+        text = text.split(".", 1)[0]
+    return text

@@ -56,6 +56,21 @@ if "df_plan_client" not in st.session_state:
 if "df_plan_sku" not in st.session_state:
     st.session_state["df_plan_sku"] = None
 
+if "df_fcst_client" not in st.session_state:
+    st.session_state["df_fcst_client"] = None
+
+if "df_fcst_sku" not in st.session_state:
+    st.session_state["df_fcst_sku"] = None
+
+if "forecast_name" not in st.session_state:
+    st.session_state["forecast_name"] = ""
+
+if "forecast_client_sheet_name" not in st.session_state:
+    st.session_state["forecast_client_sheet_name"] = ""
+
+if "forecast_sku_sheet_name" not in st.session_state:
+    st.session_state["forecast_sku_sheet_name"] = ""
+
 if "sales_valid" not in st.session_state:
     st.session_state["sales_valid"] = False
 
@@ -64,6 +79,12 @@ if "plan_client_valid" not in st.session_state:
 
 if "plan_sku_valid" not in st.session_state:
     st.session_state["plan_sku_valid"] = False
+
+if "fcst_client_valid" not in st.session_state:
+    st.session_state["fcst_client_valid"] = False
+
+if "fcst_sku_valid" not in st.session_state:
+    st.session_state["fcst_sku_valid"] = False
 
 if "df_processed_sales" not in st.session_state:
     st.session_state["df_processed_sales"] = None
@@ -130,7 +151,7 @@ if "login_error_message" not in st.session_state:
 # parezca que el código nuevo no cambió nada.
 # Esta llave fuerza a limpiar SOLO los reportes y filtros de R1/R2/R3 para que
 # se reconstruyan con la lógica actual. No toca archivos cargados ni Reporte 4.
-REPORT_LOGIC_VERSION_R123 = "r123_filtros_categorias_reales_na_v20260624_08"
+REPORT_LOGIC_VERSION_R123 = "forecast_integral_conservador_v20260724_02"
 if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R123:
     for _key in [
         "mtd_payload",
@@ -224,14 +245,17 @@ def format_monetary_value(
     is_percent: bool = False,
     allow_blank: bool = False,
 ) -> str:
+    # Regla global de visualización para reportes:
+    # valores inexistentes o cero se muestran como guion para dejar claro
+    # que no hay registro, sin aparentar un error del programa.
     if is_blank_number(value):
-        return "" if allow_blank and not is_percent else (
-            "0.00%" if is_percent else ("" if allow_blank else "-")
-        )
+        return "-"
 
     numeric_value = float(value)
 
     if is_percent:
+        if abs(numeric_value) < 1e-12:
+            return "-"
         if numeric_value < 0:
             return f"({abs(numeric_value) * 100:,.2f}%)"
         return f"{numeric_value * 100:,.2f}%"
@@ -269,8 +293,10 @@ def convert_currency_columns_for_display(df_table, monetary_columns: list[str] |
         monetary_columns = [
             "Actual",
             "Plan",
+            "Fcst",
             "PY",
             "Var VS Plan",
+            "Var VS Fcst",
             "Var VS PY",
             config.COL_GSNR,
             config.COL_GROSS_MARGIN,
@@ -290,7 +316,7 @@ def convert_currency_columns_for_display(df_table, monetary_columns: list[str] |
 def convert_report_table_for_export(df_table):
     return convert_currency_columns_for_display(
         df_table,
-        monetary_columns=["Actual", "Plan", "PY", "Var VS Plan", "Var VS PY"],
+        monetary_columns=["Actual", "Plan", "Fcst", "PY", "Var VS Plan", "Var VS Fcst", "Var VS PY"],
     )
 
 
@@ -560,16 +586,27 @@ def clear_current_session_data() -> bool:
             "df_sales": None,
             "df_plan_client": None,
             "df_plan_sku": None,
+            "df_fcst_client": None,
+            "df_fcst_sku": None,
+            "forecast_name": "",
+            "forecast_client_sheet_name": "",
+            "forecast_sku_sheet_name": "",
             "df_processed_sales": None,
             "sales_valid": False,
             "plan_client_valid": False,
             "plan_sku_valid": False,
+            "fcst_client_valid": False,
+            "fcst_sku_valid": False,
             "sales_missing_columns": [],
             "plan_client_missing_columns": [],
             "plan_sku_missing_columns": [],
+            "fcst_client_missing_columns": [],
+            "fcst_sku_missing_columns": [],
             "sales_file_name": "",
             "plan_client_file_name": "",
             "plan_sku_file_name": "",
+            "fcst_client_file_name": "",
+            "fcst_sku_file_name": "",
             "master_file_name": "",
             "master_upload_signature": "",
             "persistent_data_loaded": False,
@@ -688,6 +725,11 @@ def build_persistent_metadata() -> dict:
         "sales_file_name": st.session_state.get("sales_file_name", "Archivo de ventas"),
         "plan_client_file_name": st.session_state.get("plan_client_file_name", "Plan2026 by Client"),
         "plan_sku_file_name": st.session_state.get("plan_sku_file_name", "Plan2026 by SKU"),
+        "fcst_client_file_name": st.session_state.get("fcst_client_file_name", "Forecast by Client"),
+        "fcst_sku_file_name": st.session_state.get("fcst_sku_file_name", "Forecast by SKU"),
+        "forecast_name": st.session_state.get("forecast_name", ""),
+        "forecast_client_sheet_name": st.session_state.get("forecast_client_sheet_name", ""),
+        "forecast_sku_sheet_name": st.session_state.get("forecast_sku_sheet_name", ""),
     }
 
 
@@ -705,6 +747,8 @@ def save_current_data_for_viewers(progress=None) -> bool:
             st.session_state.get("df_sales") is not None,
             st.session_state.get("df_plan_client") is not None,
             st.session_state.get("df_plan_sku") is not None,
+            st.session_state.get("df_fcst_client") is not None,
+            st.session_state.get("df_fcst_sku") is not None,
         ]
     )
 
@@ -713,12 +757,14 @@ def save_current_data_for_viewers(progress=None) -> bool:
             st.session_state.get("sales_valid", False),
             st.session_state.get("plan_client_valid", False),
             st.session_state.get("plan_sku_valid", False),
+            st.session_state.get("fcst_client_valid", False),
+            st.session_state.get("fcst_sku_valid", False),
         ]
     )
 
     if not required_data_loaded or not required_data_valid:
         set_warning_message(
-            "Para guardar la carga administrativa, primero deben estar cargados y validados los tres archivos."
+            "Para guardar la carga administrativa, primero deben estar cargadas y validadas las cinco hojas funcionales."
         )
         return False
 
@@ -726,22 +772,33 @@ def save_current_data_for_viewers(progress=None) -> bool:
 
     payload = {
         "metadata": metadata,
-        "payload_version": "viewer_raw_inputs_only_v3",
+        "payload_version": "viewer_raw_inputs_with_forecast_v4",
         "df_sales": st.session_state.get("df_sales"),
         "df_plan_client": st.session_state.get("df_plan_client"),
         "df_plan_sku": st.session_state.get("df_plan_sku"),
+        "df_fcst_client": st.session_state.get("df_fcst_client"),
+        "df_fcst_sku": st.session_state.get("df_fcst_sku"),
+        "forecast_name": st.session_state.get("forecast_name", ""),
+        "forecast_client_sheet_name": st.session_state.get("forecast_client_sheet_name", ""),
+        "forecast_sku_sheet_name": st.session_state.get("forecast_sku_sheet_name", ""),
         # IMPORTANTE:
         # No se guarda df_processed_sales en la carga compartida.
         # Cada viewer debe procesar ventas en su propia sesión.
         "sales_valid": st.session_state.get("sales_valid", False),
         "plan_client_valid": st.session_state.get("plan_client_valid", False),
         "plan_sku_valid": st.session_state.get("plan_sku_valid", False),
+        "fcst_client_valid": st.session_state.get("fcst_client_valid", False),
+        "fcst_sku_valid": st.session_state.get("fcst_sku_valid", False),
         "sales_missing_columns": st.session_state.get("sales_missing_columns", []),
         "plan_client_missing_columns": st.session_state.get("plan_client_missing_columns", []),
         "plan_sku_missing_columns": st.session_state.get("plan_sku_missing_columns", []),
+        "fcst_client_missing_columns": st.session_state.get("fcst_client_missing_columns", []),
+        "fcst_sku_missing_columns": st.session_state.get("fcst_sku_missing_columns", []),
         "sales_file_name": st.session_state.get("sales_file_name", "Archivo cargado por administrador"),
         "plan_client_file_name": st.session_state.get("plan_client_file_name", "Archivo cargado por administrador"),
         "plan_sku_file_name": st.session_state.get("plan_sku_file_name", "Archivo cargado por administrador"),
+        "fcst_client_file_name": st.session_state.get("fcst_client_file_name", "Archivo cargado por administrador"),
+        "fcst_sku_file_name": st.session_state.get("fcst_sku_file_name", "Archivo cargado por administrador"),
     }
 
     try:
@@ -779,13 +836,28 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         df_sales = payload.get("df_sales")
         df_plan_client = payload.get("df_plan_client")
         df_plan_sku = payload.get("df_plan_sku")
+        df_fcst_client = payload.get("df_fcst_client")
+        df_fcst_sku = payload.get("df_fcst_sku")
 
-        if df_sales is None or df_plan_client is None or df_plan_sku is None:
+        if (
+            df_sales is None
+            or df_plan_client is None
+            or df_plan_sku is None
+            or df_fcst_client is None
+            or df_fcst_sku is None
+        ):
+            # Payloads anteriores a la incorporación de Forecast no se restauran
+            # como carga completa, porque ya no contienen las cinco hojas requeridas.
             return False
 
         st.session_state["df_sales"] = df_sales
         st.session_state["df_plan_client"] = df_plan_client
         st.session_state["df_plan_sku"] = df_plan_sku
+        st.session_state["df_fcst_client"] = df_fcst_client
+        st.session_state["df_fcst_sku"] = df_fcst_sku
+        st.session_state["forecast_name"] = payload.get("forecast_name", "")
+        st.session_state["forecast_client_sheet_name"] = payload.get("forecast_client_sheet_name", "")
+        st.session_state["forecast_sku_sheet_name"] = payload.get("forecast_sku_sheet_name", "")
 
         # IMPORTANTE:
         # La carga administrativa compartida solo trae las bases originales.
@@ -796,14 +868,20 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
         st.session_state["sales_valid"] = payload.get("sales_valid", True)
         st.session_state["plan_client_valid"] = payload.get("plan_client_valid", True)
         st.session_state["plan_sku_valid"] = payload.get("plan_sku_valid", True)
+        st.session_state["fcst_client_valid"] = payload.get("fcst_client_valid", True)
+        st.session_state["fcst_sku_valid"] = payload.get("fcst_sku_valid", True)
 
         st.session_state["sales_missing_columns"] = payload.get("sales_missing_columns", [])
         st.session_state["plan_client_missing_columns"] = payload.get("plan_client_missing_columns", [])
         st.session_state["plan_sku_missing_columns"] = payload.get("plan_sku_missing_columns", [])
+        st.session_state["fcst_client_missing_columns"] = payload.get("fcst_client_missing_columns", [])
+        st.session_state["fcst_sku_missing_columns"] = payload.get("fcst_sku_missing_columns", [])
 
         st.session_state["sales_file_name"] = payload.get("sales_file_name", "Archivo cargado por administrador")
         st.session_state["plan_client_file_name"] = payload.get("plan_client_file_name", "Archivo cargado por administrador")
         st.session_state["plan_sku_file_name"] = payload.get("plan_sku_file_name", "Archivo cargado por administrador")
+        st.session_state["fcst_client_file_name"] = payload.get("fcst_client_file_name", "Archivo cargado por administrador")
+        st.session_state["fcst_sku_file_name"] = payload.get("fcst_sku_file_name", "Archivo cargado por administrador")
 
         metadata = payload.get("metadata", {})
         st.session_state["persistent_data_metadata"] = metadata
@@ -910,7 +988,16 @@ def logout() -> None:
 # 6. PANTALLA DE LOGIN
 # =========================================================
 def render_login_screen() -> None:
-    # Aplica la imagen de fondo únicamente en la pantalla de inicio de sesión.
+    """
+    Renderiza el inicio de sesión.
+
+    La validación se ejecuta únicamente cuando:
+    - se presiona el botón "Iniciar sesión"; o
+    - se presiona Enter dentro del formulario.
+
+    Mostrar u ocultar la contraseña con el icono del ojo no ejecuta
+    la validación ni permite entrar automáticamente.
+    """
     st.markdown(
         styles.apply_login_background("assets/fondo.png"),
         unsafe_allow_html=True,
@@ -922,23 +1009,33 @@ def render_login_screen() -> None:
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.markdown(styles.build_hero_section(), unsafe_allow_html=True)
 
-        # Login con inputs normales para conservar el diseño original.
-        # La contraseña usa on_change para que Enter dispare la misma validación
-        # que el botón, sin depender de st.form.
-        st.text_input("Usuario", key="input_user")
-        st.text_input(
-            "Contraseña",
-            type="password",
-            key="input_password",
-            on_change=check_login,
-        )
+        with st.form(
+            key="login_form",
+            clear_on_submit=False,
+            enter_to_submit=True,
+            border=False,
+        ):
+            st.text_input(
+                "Usuario",
+                key="input_user",
+            )
+            st.text_input(
+                "Contraseña",
+                type="password",
+                key="input_password",
+            )
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.button(
-            "Iniciar sesión",
-            on_click=check_login,
-            use_container_width=True,
-        )
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            login_submitted = st.form_submit_button(
+                "Iniciar sesión",
+                use_container_width=True,
+            )
+
+        if login_submitted:
+            check_login()
+            if st.session_state.get("authenticated"):
+                st.rerun()
 
         if st.session_state.get("login_error_message"):
             st.error(st.session_state["login_error_message"])
@@ -1285,6 +1382,16 @@ def render_sidebar() -> str:
             menu_options,
             index=0,
         )
+
+        # Los avisos pertenecen a la vista donde fueron generados.
+        # Al cambiar de sección se eliminan para que un error de Ranking no
+        # aparezca posteriormente en Category, Canal u otra pestaña.
+        previous_section = st.session_state.get("__active_dashboard_section__")
+        if previous_section is not None and previous_section != selected_option:
+            st.session_state["mensaje_exito"] = None
+            st.session_state["mensaje_error"] = None
+            st.session_state["mensaje_warning"] = None
+        st.session_state["__active_dashboard_section__"] = selected_option
 
         st.markdown("---")
         st.markdown("### Descarga global")
@@ -2267,6 +2374,7 @@ def render_mtd_base_summary() -> None:
     latest_year = payload["latest_year"]
     summary = payload["summary"]
     plan_summary = payload["plan_summary"]
+    fcst_summary = payload.get("fcst_summary", {})
     bts_summary = payload["bts_summary"]
 
     period_label = f"{get_month_label(int(latest_month))} {int(latest_year)}"
@@ -2287,11 +2395,9 @@ def render_mtd_base_summary() -> None:
         unsafe_allow_html=True,
     )
 
-    # Se usan columnas nativas de Streamlit para garantizar 3 tarjetas arriba
-    # y 3 tarjetas abajo. No se usa un contenedor grid HTML abierto, porque
-    # Streamlit envuelve cada markdown y puede romper la cuadrícula visual.
-    row1 = st.columns(3)
-    row2 = st.columns(3)
+    # 8 KPIs: Actual, Plan, Forecast y BTS.
+    row1 = st.columns(4)
+    row2 = st.columns(4)
 
     with row1[0]:
         st.markdown(
@@ -2329,7 +2435,7 @@ def render_mtd_base_summary() -> None:
             unsafe_allow_html=True,
         )
 
-    with row2[0]:
+    with row1[3]:
         st.markdown(
             styles.build_base_mtd_kpi_card(
                 title=f"YTD PLAN TOTAL ({get_currency_kpi_suffix()})",
@@ -2341,7 +2447,31 @@ def render_mtd_base_summary() -> None:
             unsafe_allow_html=True,
         )
 
+    with row2[0]:
+        st.markdown(
+            styles.build_base_mtd_kpi_card(
+                title=f"MTD FCST TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary.get("mtd_fcst_total_k", 0.0) * 1000),
+                description="Forecast del mes de corte seleccionado.",
+                icon="F",
+                color="pink",
+            ),
+            unsafe_allow_html=True,
+        )
+
     with row2[1]:
+        st.markdown(
+            styles.build_base_mtd_kpi_card(
+                title=f"YTD FCST TOTAL ({get_currency_kpi_suffix()})",
+                value=format_monetary_value(summary.get("ytd_fcst_total_k", 0.0) * 1000),
+                description="Forecast acumulado de enero al mes de corte.",
+                icon="Σ",
+                color="pink",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with row2[2]:
         st.markdown(
             styles.build_base_mtd_kpi_card(
                 title=f"BTS ACTUAL ({get_currency_kpi_suffix()})",
@@ -2353,7 +2483,7 @@ def render_mtd_base_summary() -> None:
             unsafe_allow_html=True,
         )
 
-    with row2[2]:
+    with row2[3]:
         st.markdown(
             styles.build_base_mtd_kpi_card(
                 title=f"BTS PY COMPLETO ({get_currency_kpi_suffix()})",
@@ -2365,9 +2495,7 @@ def render_mtd_base_summary() -> None:
             unsafe_allow_html=True,
         )
 
-    # IMPORTANTE:
-    # Estos avisos se conservan igual, porque son validaciones funcionales
-    # que ya existían en la vista original.
+    # Validaciones existentes de Plan.
     if plan_summary["mtd_plan_match"]:
         st.success("Validación MTD Plan: Plan Cliente y Plan SKU coinciden.")
     else:
@@ -2384,16 +2512,38 @@ def render_mtd_base_summary() -> None:
             f"Diferencia detectada: {round(convert_monetary_value(plan_summary['ytd_plan_diff']) / 1000):,}"
         )
 
+    # Validaciones nuevas de Forecast Cliente vs Forecast SKU.
+    if fcst_summary:
+        if fcst_summary.get("mtd_fcst_match", False):
+            st.success("Validación MTD Forecast: Forecast Cliente y Forecast SKU coinciden.")
+        else:
+            st.warning(
+                "Validación MTD Forecast: Forecast Cliente y Forecast SKU no coinciden. "
+                f"Diferencia detectada: {round(convert_monetary_value(fcst_summary.get('mtd_fcst_diff', 0.0)) / 1000):,}"
+            )
+
+        if fcst_summary.get("ytd_fcst_match", False):
+            st.success("Validación YTD Forecast: Forecast Cliente y Forecast SKU coinciden.")
+        else:
+            st.warning(
+                "Validación YTD Forecast: Forecast Cliente y Forecast SKU no coinciden. "
+                f"Diferencia detectada: {round(convert_monetary_value(fcst_summary.get('ytd_fcst_diff', 0.0)) / 1000):,}"
+            )
+
 def format_table_value(value: float, is_percent: bool = False) -> str:
     return format_monetary_value(value, is_percent=is_percent)
 
 
 def build_mtd_legend_html() -> str:
+    forecast_name = str(st.session_state.get("forecast_name", "Fcst") or "Fcst").strip()
+
     return (
         '<div class="metric-legend">'
         '<span class="metric-chip chip-real">REAL (BASE SAP)</span>'
         '<span class="metric-chip chip-client">Plan2026 by Client</span>'
         '<span class="metric-chip chip-sku">Plan2026 by SKU</span>'
+        f'<span class="metric-chip chip-fcst-client">{escape(forecast_name)} by Client</span>'
+        f'<span class="metric-chip chip-fcst-sku">{escape(forecast_name)} by SKU</span>'
         "</div>"
     )
 
@@ -4255,8 +4405,8 @@ def render_report_4_view() -> None:
     with st.expander("Ver detalle: Clients 16 to 50", expanded=False):
         render_report_4_detail_block(
             "Clients 16 to 50",
-            payload["mtd_group_16_50_table"],
-            payload["ytd_group_16_50_table"],
+            payload.get("mtd_group_16_50_table", data_processor.pd.DataFrame()),
+            payload.get("ytd_group_16_50_table", data_processor.pd.DataFrame()),
             payload["summary"]["latest_year"],
             payload["summary"]["latest_month"],
         )
@@ -4264,8 +4414,8 @@ def render_report_4_view() -> None:
     with st.expander("Ver detalle: Clients 51 to 100", expanded=False):
         render_report_4_detail_block(
             "Clients 51 to 100",
-            payload["mtd_group_51_100_table"],
-            payload["ytd_group_51_100_table"],
+            payload.get("mtd_group_51_100_table", data_processor.pd.DataFrame()),
+            payload.get("ytd_group_51_100_table", data_processor.pd.DataFrame()),
             payload["summary"]["latest_year"],
             payload["summary"]["latest_month"],
         )
@@ -4273,8 +4423,8 @@ def render_report_4_view() -> None:
     with st.expander("Ver detalle: Other clients", expanded=False):
         render_report_4_detail_block(
             "Other clients",
-            payload["mtd_group_other_table"],
-            payload["ytd_group_other_table"],
+            payload.get("mtd_group_other_table", data_processor.pd.DataFrame()),
+            payload.get("ytd_group_other_table", data_processor.pd.DataFrame()),
             payload["summary"]["latest_year"],
             payload["summary"]["latest_month"],
         )
@@ -5789,7 +5939,7 @@ def render_upload_view() -> None:
     upload_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta etapa:</b><br>
-        Cargar correctamente el archivo corporativo de ventas y planes,
+        Cargar correctamente el archivo corporativo de ventas, planes y Forecast,
         manteniendo persistencia, validaciones y vistas previas por hoja.
         """
     )
@@ -5806,11 +5956,15 @@ def render_upload_view() -> None:
     sales_loaded = st.session_state.get("df_sales") is not None
     plan_client_loaded = st.session_state.get("df_plan_client") is not None
     plan_sku_loaded = st.session_state.get("df_plan_sku") is not None
+    fcst_client_loaded = st.session_state.get("df_fcst_client") is not None
+    fcst_sku_loaded = st.session_state.get("df_fcst_sku") is not None
 
+    # Tarjetas superiores: se conservan en tres columnas iguales.
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown(
+        sales_status_placeholder = st.empty()
+        sales_status_placeholder.markdown(
             styles.build_info_card(
                 "Ventas",
                 "Cargado" if sales_loaded else "Pendiente",
@@ -5820,7 +5974,8 @@ def render_upload_view() -> None:
         )
 
     with col2:
-        st.markdown(
+        plan_client_status_placeholder = st.empty()
+        plan_client_status_placeholder.markdown(
             styles.build_info_card(
                 "Plan Cliente",
                 "Cargado" if plan_client_loaded else "Pendiente",
@@ -5830,11 +5985,43 @@ def render_upload_view() -> None:
         )
 
     with col3:
-        st.markdown(
+        plan_sku_status_placeholder = st.empty()
+        plan_sku_status_placeholder.markdown(
             styles.build_info_card(
                 "Plan SKU",
                 "Cargado" if plan_sku_loaded else "Pendiente",
                 "Hoja Plan2026 by SKU",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # Forecast: dos tarjetas con exactamente el mismo ancho que una tarjeta
+    # de la fila superior. Los márgenes laterales de 0.5 + 0.5 las centran
+    # como bloque dentro del ancho disponible.
+    fcst_left_spacer, col4, col5, fcst_right_spacer = st.columns([0.5, 1, 1, 0.5])
+
+    with col4:
+        fcst_client_status_placeholder = st.empty()
+        fcst_client_status_placeholder.markdown(
+            styles.build_info_card(
+                "Forecast Cliente",
+                "Cargado" if fcst_client_loaded else "Pendiente",
+                st.session_state.get("forecast_client_sheet_name") or "Hoja FcstX+Y by Client",
+                icon_override="◈",
+                color_override="green",
+            ),
+            unsafe_allow_html=True,
+        )
+
+    with col5:
+        fcst_sku_status_placeholder = st.empty()
+        fcst_sku_status_placeholder.markdown(
+            styles.build_info_card(
+                "Forecast SKU",
+                "Cargado" if fcst_sku_loaded else "Pendiente",
+                st.session_state.get("forecast_sku_sheet_name") or "Hoja FcstX+Y by SKU",
+                icon_override="◈",
+                color_override="green",
             ),
             unsafe_allow_html=True,
         )
@@ -5849,8 +6036,9 @@ def render_upload_view() -> None:
         unsafe_allow_html=True,
     )
     st.caption(
-        "Sube una sola vez el Excel corporativo. La app leerá internamente las hojas BASE SAP, "
-        "Plan2026 by Client y Plan2026 by SKU."
+        "Sube una sola vez el Excel corporativo. La app leerá internamente BASE SAP, "
+        "Plan2026 by Client, Plan2026 by SKU y detectará automáticamente el par activo "
+        "de hojas Forecast by Client / by SKU."
     )
 
     uploaded_master_file = st.file_uploader(
@@ -5888,6 +6076,8 @@ def render_upload_view() -> None:
                 df_sales = payload.get("df_sales")
                 df_plan_client = payload.get("df_plan_client")
                 df_plan_sku = payload.get("df_plan_sku")
+                df_fcst_client = payload.get("df_fcst_client")
+                df_fcst_sku = payload.get("df_fcst_sku")
 
                 is_valid_sales, missing_sales = validators.validate_required_columns(
                     df_sales,
@@ -5901,24 +6091,96 @@ def render_upload_view() -> None:
                     df_plan_sku,
                     config.EXPECTED_COLUMNS_PLAN_SKU,
                 )
+                is_valid_fcst_client, missing_fcst_client = validators.validate_required_columns(
+                    df_fcst_client,
+                    config.EXPECTED_COLUMNS_FCST_CLIENT,
+                )
+                is_valid_fcst_sku, missing_fcst_sku = validators.validate_required_columns(
+                    df_fcst_sku,
+                    config.EXPECTED_COLUMNS_FCST_SKU,
+                )
 
                 st.session_state["df_sales"] = df_sales
                 st.session_state["df_plan_client"] = df_plan_client
                 st.session_state["df_plan_sku"] = df_plan_sku
+                st.session_state["df_fcst_client"] = df_fcst_client
+                st.session_state["df_fcst_sku"] = df_fcst_sku
+
+                st.session_state["forecast_name"] = payload.get("forecast_name", "")
+                st.session_state["forecast_client_sheet_name"] = payload.get("forecast_client_sheet_name", "")
+                st.session_state["forecast_sku_sheet_name"] = payload.get("forecast_sku_sheet_name", "")
 
                 st.session_state["sales_valid"] = is_valid_sales
                 st.session_state["plan_client_valid"] = is_valid_plan_client
                 st.session_state["plan_sku_valid"] = is_valid_plan_sku
+                st.session_state["fcst_client_valid"] = is_valid_fcst_client
+                st.session_state["fcst_sku_valid"] = is_valid_fcst_sku
 
                 st.session_state["sales_missing_columns"] = missing_sales
                 st.session_state["plan_client_missing_columns"] = missing_plan_client
                 st.session_state["plan_sku_missing_columns"] = missing_plan_sku
+                st.session_state["fcst_client_missing_columns"] = missing_fcst_client
+                st.session_state["fcst_sku_missing_columns"] = missing_fcst_sku
 
                 st.session_state["master_upload_signature"] = master_signature
                 st.session_state["master_file_name"] = uploaded_master_file.name
                 st.session_state["sales_file_name"] = f"{uploaded_master_file.name} | BASE SAP"
                 st.session_state["plan_client_file_name"] = f"{uploaded_master_file.name} | Plan2026 by Client"
                 st.session_state["plan_sku_file_name"] = f"{uploaded_master_file.name} | Plan2026 by SKU"
+                st.session_state["fcst_client_file_name"] = (
+                    f"{uploaded_master_file.name} | {payload.get('forecast_client_sheet_name', 'Forecast by Client')}"
+                )
+                st.session_state["fcst_sku_file_name"] = (
+                    f"{uploaded_master_file.name} | {payload.get('forecast_sku_sheet_name', 'Forecast by SKU')}"
+                )
+
+                # Actualiza inmediatamente las cinco tarjetas del resumen de carga
+                # en el mismo ciclo de Streamlit. Esto evita que permanezcan en
+                # "Pendiente" después de que las hojas ya fueron cargadas.
+                sales_status_placeholder.markdown(
+                    styles.build_info_card(
+                        "Ventas",
+                        "Cargado",
+                        "Hoja BASE SAP del archivo corporativo",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                plan_client_status_placeholder.markdown(
+                    styles.build_info_card(
+                        "Plan Cliente",
+                        "Cargado",
+                        "Hoja Plan2026 by Client",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                plan_sku_status_placeholder.markdown(
+                    styles.build_info_card(
+                        "Plan SKU",
+                        "Cargado",
+                        "Hoja Plan2026 by SKU",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                fcst_client_status_placeholder.markdown(
+                    styles.build_info_card(
+                        "Forecast Cliente",
+                        "Cargado",
+                        payload.get("forecast_client_sheet_name") or "Hoja FcstX+Y by Client",
+                        icon_override="◈",
+                        color_override="green",
+                    ),
+                    unsafe_allow_html=True,
+                )
+                fcst_sku_status_placeholder.markdown(
+                    styles.build_info_card(
+                        "Forecast SKU",
+                        "Cargado",
+                        payload.get("forecast_sku_sheet_name") or "Hoja FcstX+Y by SKU",
+                        icon_override="◈",
+                        color_override="green",
+                    ),
+                    unsafe_allow_html=True,
+                )
 
                 st.session_state["df_processed_sales"] = None
                 st.session_state["persistent_data_loaded"] = False
@@ -5926,8 +6188,18 @@ def render_upload_view() -> None:
 
                 clear_report_payloads()
 
-                if all([is_valid_sales, is_valid_plan_client, is_valid_plan_sku]):
-                    st.success("Archivo corporativo cargado correctamente. Las tres hojas mínimas fueron validadas.")
+                if all([
+                    is_valid_sales,
+                    is_valid_plan_client,
+                    is_valid_plan_sku,
+                    is_valid_fcst_client,
+                    is_valid_fcst_sku,
+                ]):
+                    detected_forecast = payload.get("forecast_name", "Forecast")
+                    st.success(
+                        f"Archivo corporativo cargado correctamente. Las cinco hojas funcionales fueron validadas. "
+                        f"Forecast detectado: {detected_forecast}."
+                    )
                 else:
                     st.warning(
                         "El archivo corporativo se cargó, pero alguna hoja no contiene las columnas mínimas esperadas. "
@@ -6030,6 +6302,72 @@ def render_upload_view() -> None:
     st.markdown("---")
 
     # =====================================================
+    # VISTA PREVIA - FORECAST POR CLIENTE
+    # =====================================================
+    st.markdown(
+        f'<div class="base-mtd-section-heading">{escape(config.FCST_CLIENT_DISPLAY_TITLE)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.get("df_fcst_client") is not None:
+        fcst_client_missing = st.session_state.get("fcst_client_missing_columns", [])
+        render_file_validation_result(
+            is_valid=st.session_state.get("fcst_client_valid", False),
+            missing_columns=fcst_client_missing,
+            success_message=config.MSG_VALIDATION_OK,
+        )
+
+        fcst_client_file_name = st.session_state.get(
+            "fcst_client_file_name",
+            "Archivo cargado en sesión",
+        )
+        st.caption(f"Archivo en sesión: {fcst_client_file_name}")
+
+        render_preview_expander(
+            config.FCST_CLIENT_PREVIEW_TITLE,
+            st.session_state.get("df_fcst_client"),
+            rows=10,
+            convert_currency=False,
+        )
+    else:
+        st.info("Aún no se ha cargado la hoja Forecast by Client.")
+
+    st.markdown("---")
+
+    # =====================================================
+    # VISTA PREVIA - FORECAST POR SKU
+    # =====================================================
+    st.markdown(
+        f'<div class="base-mtd-section-heading">{escape(config.FCST_SKU_DISPLAY_TITLE)}</div>',
+        unsafe_allow_html=True,
+    )
+
+    if st.session_state.get("df_fcst_sku") is not None:
+        fcst_sku_missing = st.session_state.get("fcst_sku_missing_columns", [])
+        render_file_validation_result(
+            is_valid=st.session_state.get("fcst_sku_valid", False),
+            missing_columns=fcst_sku_missing,
+            success_message=config.MSG_VALIDATION_OK,
+        )
+
+        fcst_sku_file_name = st.session_state.get(
+            "fcst_sku_file_name",
+            "Archivo cargado en sesión",
+        )
+        st.caption(f"Archivo en sesión: {fcst_sku_file_name}")
+
+        render_preview_expander(
+            config.FCST_SKU_PREVIEW_TITLE,
+            st.session_state.get("df_fcst_sku"),
+            rows=10,
+            convert_currency=False,
+        )
+    else:
+        st.info("Aún no se ha cargado la hoja Forecast by SKU.")
+
+    st.markdown("---")
+
+    # =====================================================
     # GUARDAR CARGA PARA VIEWERS
     # =====================================================
     st.markdown(
@@ -6040,10 +6378,18 @@ def render_upload_view() -> None:
     sales_loaded = st.session_state.get("df_sales") is not None
     plan_client_loaded = st.session_state.get("df_plan_client") is not None
     plan_sku_loaded = st.session_state.get("df_plan_sku") is not None
+    fcst_client_loaded = st.session_state.get("df_fcst_client") is not None
+    fcst_sku_loaded = st.session_state.get("df_fcst_sku") is not None
 
-    if sales_loaded and plan_client_loaded and plan_sku_loaded:
+    if all([
+        sales_loaded,
+        plan_client_loaded,
+        plan_sku_loaded,
+        fcst_client_loaded,
+        fcst_sku_loaded,
+    ]):
         st.info(
-            "Cuando las tres hojas estén validadas, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
+            "Cuando las cinco hojas funcionales estén validadas, guarda esta carga para que los usuarios viewer puedan consultar la app sin subir archivos."
         )
         if st.button("Guardar carga administrativa para viewers", use_container_width=True):
             save_ok = execute_with_status(
@@ -6434,6 +6780,1142 @@ def render_placeholder_view(section_name: str) -> None:
     st.markdown(placeholder_box_html, unsafe_allow_html=True)
 
 # =========================================================
+# INTEGRACIÓN FORECAST - OVERRIDES CONSERVADORES
+# =========================================================
+# El código original de la aplicación permanece completo arriba.
+# Estas redefiniciones se cargan antes de main() y añaden únicamente
+# Forecast a Base MTD, reportes, filtros, conversiones y tablas visuales.
+# =========================================================
+
+
+def convert_currency_columns_for_display(df_table, monetary_columns: list[str] | None = None):
+    if df_table is None:
+        return df_table
+
+    if get_active_currency_mode() != "USD":
+        return df_table
+
+    df_display = df_table.copy()
+
+    if monetary_columns is None:
+        monetary_columns = [
+            "Actual",
+            "Plan",
+            "Fcst",
+            "PY",
+            "Var VS Plan",
+            "Var VS Fcst",
+            "Var VS PY",
+            config.COL_GSNR,
+            config.COL_GROSS_MARGIN,
+            "Importe Vtas Brutas",
+            "Importe Devoluciones",
+            "Importe Fact No Embq",
+            "Costo Vtas Netas",
+        ]
+
+    for column_name in monetary_columns:
+        if column_name in df_display.columns:
+            df_display[column_name] = df_display[column_name].apply(convert_monetary_value)
+
+    return df_display
+
+
+def convert_report_table_for_export(df_table):
+    return convert_currency_columns_for_display(
+        df_table,
+        monetary_columns=["Actual", "Plan", "Fcst", "PY", "Var VS Plan", "Var VS Fcst", "Var VS PY"],
+    )
+
+
+def recalculate_row_metrics(template_row, actual: float, plan, fcst, py: float):
+    row=dict(template_row); actual_value=safe_float(actual); py_value=safe_float(py)
+    plan_value=None if plan is None else safe_float(plan); fcst_value=None if fcst is None else safe_float(fcst)
+    row.update({"Actual":actual_value,"Plan":plan_value,"Fcst":fcst_value,"PY":py_value})
+    row["Var VS Plan"]=None if plan_value is None else actual_value-plan_value; row["%Var VS Plan"]=None if plan_value is None else (0.0 if plan_value==0 else (actual_value-plan_value)/plan_value)
+    row["Var VS Fcst"]=None if fcst_value is None else actual_value-fcst_value; row["%Var VS Fcst"]=None if fcst_value is None else (0.0 if fcst_value==0 else (actual_value-fcst_value)/fcst_value)
+    row["Var VS PY"]=actual_value-py_value; row["%Var VS PY"]=0.0 if py_value==0 else (actual_value-py_value)/py_value
+    return row
+
+
+def filter_report_1_without_kens_table(
+    df_table,
+    selected_labels: list[str],
+):
+    if df_table is None or df_table.empty:
+        return df_table
+
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
+
+    normal_rows = df_table[
+        ~df_table["__is_total__"].fillna(False)
+        & ~df_table["__is_highlight__"].fillna(False)
+        & ~df_table.get("__is_grand_total__", False)
+    ].copy()
+
+    filtered_normals = normal_rows[
+        normal_rows["Oficina de Ventas"].astype(str).isin(selected_set)
+    ].copy()
+
+    total_template = df_table[df_table["__is_total__"].fillna(False)].copy()
+
+    rows = []
+
+    for _, row in filtered_normals.iterrows():
+        rows.append(dict(row))
+
+    if not total_template.empty:
+        total_row_template = total_template.iloc[0].to_dict()
+
+        total_actual = filtered_normals["Actual"].apply(safe_float).sum()
+        total_plan = filtered_normals["Plan"].apply(lambda x: safe_float(x, 0.0)).sum()
+        total_fcst = filtered_normals["Fcst"].apply(lambda x: safe_float(x, 0.0)).sum()
+        total_py = filtered_normals["PY"].apply(safe_float).sum()
+
+        rows.append(
+            recalculate_row_metrics(
+                total_row_template, actual=total_actual, plan=total_plan, fcst=total_fcst, py=total_py,
+            )
+        )
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def filter_report_2_segment_region_table(
+    df_table,
+    selected_labels: list[str],
+):
+    if df_table is None or df_table.empty:
+        return df_table
+
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
+    rows: list[dict] = []
+
+    normal_mask = (
+        ~df_table["__is_total__"].fillna(False)
+        & ~df_table["__is_grand_total__"].fillna(False)
+    )
+
+    filtered_normals = df_table.loc[normal_mask].copy()
+    filtered_normals["__display_label__"] = filtered_normals.apply(
+        build_report_2_segment_region_display_label,
+        axis=1,
+    )
+    filtered_normals = filtered_normals[
+        filtered_normals["__display_label__"].isin(selected_set)
+    ].copy()
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+
+        if not is_total and not is_grand_total:
+            label_value = build_report_2_segment_region_display_label(row)
+            if label_value in selected_set:
+                row_copy = dict(row)
+                row_copy.pop("__display_label__", None)
+                rows.append(row_copy)
+            continue
+
+        if is_total and not is_grand_total:
+            segment_value = str(row.get("Segmento", "")).strip()
+            segment_rows = filtered_normals[
+                filtered_normals["Segmento"].astype(str).str.strip() == segment_value
+            ].copy()
+
+            total_actual = segment_rows["Actual"].apply(safe_float).sum()
+            total_plan = segment_rows["Plan"].apply(safe_float).sum()
+            total_fcst = segment_rows["Fcst"].apply(safe_float).sum()
+            total_py = segment_rows["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=total_actual, plan=total_plan, fcst=total_fcst, py=total_py,
+                )
+            )
+            continue
+
+        if is_grand_total:
+            grand_actual = filtered_normals["Actual"].apply(safe_float).sum()
+            grand_plan = filtered_normals["Plan"].apply(safe_float).sum()
+            grand_fcst = filtered_normals["Fcst"].apply(safe_float).sum()
+            grand_py = filtered_normals["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=grand_actual, plan=grand_plan, fcst=grand_fcst, py=grand_py,
+                )
+            )
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def filter_report_2_category_table(
+    df_table,
+    selected_labels: list[str],
+):
+    if df_table is None or df_table.empty:
+        return df_table
+
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
+    rows: list[dict] = []
+
+    normal_mask = (
+        ~df_table["__is_total__"].fillna(False)
+        & ~df_table["__is_grand_total__"].fillna(False)
+    )
+
+    filtered_normals = df_table.loc[normal_mask].copy()
+    filtered_normals = filtered_normals[
+        filtered_normals["Category"].astype(str).isin(selected_set)
+    ].copy()
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+        category_value = str(row.get("Category", "")).strip()
+
+        if not is_total and not is_grand_total:
+            if category_value in selected_set:
+                rows.append(dict(row))
+            continue
+
+        if is_total and not is_grand_total:
+            if category_value not in selected_set:
+                continue
+
+            category_rows = filtered_normals[
+                filtered_normals["Category"].astype(str).str.strip() == category_value
+            ].copy()
+
+            total_actual = category_rows["Actual"].apply(safe_float).sum()
+            total_plan = category_rows["Plan"].apply(safe_float).sum()
+            total_fcst = category_rows["Fcst"].apply(safe_float).sum()
+            total_py = category_rows["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=total_actual, plan=total_plan, fcst=total_fcst, py=total_py,
+                )
+            )
+            continue
+
+        if is_grand_total:
+            grand_actual = filtered_normals["Actual"].apply(safe_float).sum()
+            grand_plan = filtered_normals["Plan"].apply(safe_float).sum()
+            grand_fcst = filtered_normals["Fcst"].apply(safe_float).sum()
+            grand_py = filtered_normals["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=grand_actual, plan=grand_plan, fcst=grand_fcst, py=grand_py,
+                )
+            )
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def filter_report_3_channel_table(
+    df_table,
+    selected_labels: list[str],
+):
+    if df_table is None or df_table.empty:
+        return df_table
+
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
+    rows: list[dict] = []
+
+    normal_mask = (
+        ~df_table["__is_total__"].fillna(False)
+        & ~df_table["__is_grand_total__"].fillna(False)
+    )
+
+    filtered_normals = df_table.loc[normal_mask].copy()
+    filtered_normals["__display_label__"] = filtered_normals.apply(
+        build_report_3_display_label,
+        axis=1,
+    )
+    filtered_normals = filtered_normals[
+        filtered_normals["__display_label__"].isin(selected_set)
+    ].copy()
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+
+        if not is_total and not is_grand_total:
+            label_value = build_report_3_display_label(row)
+            if label_value in selected_set:
+                row_copy = dict(row)
+                row_copy.pop("__display_label__", None)
+                rows.append(row_copy)
+            continue
+
+        if is_grand_total:
+            grand_actual = filtered_normals["Actual"].apply(safe_float).sum()
+            grand_plan = filtered_normals["Plan"].apply(safe_float).sum()
+            grand_fcst = filtered_normals["Fcst"].apply(safe_float).sum()
+            grand_py = filtered_normals["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=grand_actual, plan=grand_plan, fcst=grand_fcst, py=grand_py,
+                )
+            )
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def filter_report_4_top_clients_table(
+    df_table,
+    selected_labels: list[str],
+):
+    if df_table is None or df_table.empty:
+        return df_table
+
+    selected_set = {label for label in set(selected_labels) if not is_forbidden_filter_label(label)}
+    rows: list[dict] = []
+
+    normal_mask = (
+        ~df_table["__is_total__"].fillna(False)
+        & ~df_table["__is_grand_total__"].fillna(False)
+    )
+
+    filtered_normals = df_table.loc[normal_mask].copy()
+    filtered_normals = filtered_normals[
+        filtered_normals["Client Name"].astype(str).isin(selected_set)
+    ].copy()
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+
+        if not is_total and not is_grand_total:
+            label_value = str(row.get("Client Name", "")).strip()
+            if label_value in selected_set:
+                rows.append(dict(row))
+            continue
+
+        if is_grand_total:
+            grand_actual = filtered_normals["Actual"].apply(safe_float).sum()
+            grand_plan = filtered_normals["Plan"].apply(safe_float).sum()
+            grand_fcst = filtered_normals["Fcst"].apply(safe_float).sum()
+            grand_py = filtered_normals["PY"].apply(safe_float).sum()
+
+            rows.append(
+                recalculate_row_metrics(
+                    row, actual=grand_actual, plan=grand_plan, fcst=grand_fcst, py=grand_py,
+                )
+            )
+
+    return data_processor.pd.DataFrame(rows)
+
+
+def run_mtd_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    dfs={k:st.session_state.get(k) for k in ["df_processed_sales","df_plan_client","df_plan_sku","df_fcst_client","df_fcst_sku"]}
+    if any(v is None for v in dfs.values()):
+        set_error_message("Para construir Base MTD se requieren ventas procesadas, Plan Cliente, Plan SKU, Forecast Cliente y Forecast SKU."); return False
+    try:
+        payload=data_processor.build_mtd_payload(dfs["df_processed_sales"],dfs["df_plan_client"],dfs["df_plan_sku"],dfs["df_fcst_client"],dfs["df_fcst_sku"],forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        st.session_state["mtd_payload"]=payload; st.session_state["df_mtd_base"]=None; set_success_message(config.MSG_MTD_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_MTD_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) -> str:
+    if df_table is None or df_table.empty: return ""
+    visible=["Periodo","Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    header_class={"Actual":"h-header-real","Plan":"plan-header-client" if plan_variant=="client" else "plan-header-sku","Fcst":"fcst-header-client" if plan_variant=="client" else "fcst-header-sku","PY":"h-header-real","Var VS Plan":"var-header-plan","%Var VS Plan":"var-header-plan","Var VS Fcst":"var-header-fcst","%Var VS Fcst":"var-header-fcst","Var VS PY":"var-header-py","%Var VS PY":"var-header-py"}
+    grid="grid-template-columns:1.2fr "+" ".join(["1fr"]*(len(visible)-1))
+    heads=''.join([f'<div class="h-cell h-header {header_class.get(c,"h-header-neutral")}">{escape(c)}</div>' for c in visible])
+    rows=[]
+    for _,r in df_table.iterrows():
+        cells=[f'<div class="h-cell h-row-label">{escape(str(r.get("Periodo","")))}</div>']
+        for c in visible[1:]:
+            v=r.get(c); pct=c.startswith("%"); cls="negative-value" if safe_float(v)<0 else "neutral-value"; cells.append(f'<div class="h-cell h-value {cls}">{format_monetary_value(v,is_percent=pct)}</div>')
+        rows.append(''.join(cells))
+    return f'<div class="horizontal-table-card base-mtd-number-table-card"><div class="horizontal-table-title">{escape(title)}</div><div class="h-table" style="{grid}">{heads}{"".join(rows)}</div></div>'
+
+
+def run_report_1_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_client"); fcst=st.session_state.get("df_fcst_client")
+    if sales is None or plan is None or fcst is None:
+        set_error_message("Para construir Reporte 1 se requieren ventas procesadas, Plan Cliente y Forecast Cliente."); return False
+    try:
+        st.session_state["report1_payload"]=data_processor.build_report_1_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        set_success_message(config.MSG_REPORT_1_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_REPORT_1_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def build_report_1_table_html(title: str, df_table) -> str:
+    if df_table is None or df_table.empty:
+        return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div>Sin información disponible</div></div>'
+    visible=[c for c in df_table.columns if not str(c).startswith("__") and c not in {"TOP","Grupo"}]
+    metric_classes={"Actual":"report-header-actual","Plan":"report-header-plan","Fcst":"report-header-fcst","PY":"report-header-py","Var VS Plan":"report-header-var-plan","%Var VS Plan":"report-header-var-plan","Var VS Fcst":"report-header-var-fcst","%Var VS Fcst":"report-header-var-fcst","Var VS PY":"report-header-var-py","%Var VS PY":"report-header-var-py"}
+    grid=f"grid-template-columns: minmax(220px,2.2fr) " + " ".join(["minmax(105px,1fr)" for _ in visible[1:]]) + "; min-width:"+str(max(1100,len(visible)*125))+"px;"
+    headers=[]
+    for i,col in enumerate(visible):
+        cls="report-header-neutral report-header-sticky" if i==0 else metric_classes.get(col,"report-header-neutral")
+        headers.append(f'<div class="report-cell report-header {cls}">{escape(str(col))}</div>')
+    rows=[]
+    for _,row in df_table.iterrows():
+        row_cls="report-total" if bool(row.get("__is_total__",False) or row.get("__is_grand_total__",False)) else ("report-highlight" if bool(row.get("__is_highlight__",False)) else "")
+        cells=[]
+        for i,col in enumerate(visible):
+            val=row.get(col)
+            if i==0:
+                text=str(val or ""); cells.append(f'<div class="report-cell report-label-cell">{escape(text)}</div>')
+            else:
+                is_pct=str(col).startswith("%"); formatted=format_monetary_value(val,is_percent=is_pct,allow_blank=True); neg=" report-negative" if safe_float(val)<0 else ""
+                cells.append(f'<div class="report-cell report-value-cell{neg}">{formatted}</div>')
+        rows.append(f'<div class="report-row {row_cls}">'+"".join(cells)+"</div>")
+    return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div class="report-table-scroll"><div class="report-grid report-grid-dynamic" style="{grid}">'+"".join(headers)+"".join(rows)+'</div></div></div>'
+
+
+def run_report_2_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
+    if sales is None or plan is None or fcst is None:
+        set_error_message("Para construir Segment x Region se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+    try:
+        st.session_state["report2_payload"]=data_processor.build_report_2_segment_region_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        set_success_message(config.MSG_REPORT_2_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_REPORT_2_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def run_report_2_category_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
+    if sales is None or plan is None or fcst is None:
+        set_error_message("Para construir Category se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+    try:
+        st.session_state["report2_category_payload"]=data_processor.build_report_2_category_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        set_success_message(config.MSG_REPORT_2_CATEGORY_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_REPORT_2_CATEGORY_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def build_report_2_table_html(title: str, df_table, first_header: str, view_type: str) -> str:
+    """
+    Renderiza Segment x Region y Category con Forecast.
+
+    Corrección específica de layout:
+    - Segment x Region conserva 2 columnas dimensionales antes de las métricas.
+    - Category conserva 4 columnas dimensionales antes de las métricas.
+    - Las dimensiones se muestran como texto (Material ya no se formatea como importe).
+    - Las 10 métricas mantienen el orden Actual, Plan, Fcst, PY y variaciones.
+    - Se conserva el scroll horizontal para no comprimir ni montar encabezados.
+    """
+    if df_table is None or df_table.empty:
+        return (
+            '<div class="report-table-card">'
+            f'<div class="report-table-title">{escape(title)}</div>'
+            '<div>Sin información disponible</div>'
+            '</div>'
+        )
+
+    metric_columns = [
+        "Actual",
+        "Plan",
+        "Fcst",
+        "PY",
+        "Var VS Plan",
+        "%Var VS Plan",
+        "Var VS Fcst",
+        "%Var VS Fcst",
+        "Var VS PY",
+        "%Var VS PY",
+    ]
+
+    metric_classes = {
+        "Actual": "report-header-actual",
+        "Plan": "report-header-plan",
+        "Fcst": "report-header-fcst",
+        "PY": "report-header-py",
+        "Var VS Plan": "report-header-var-plan",
+        "%Var VS Plan": "report-header-var-plan",
+        "Var VS Fcst": "report-header-var-fcst",
+        "%Var VS Fcst": "report-header-var-fcst",
+        "Var VS PY": "report-header-var-py",
+        "%Var VS PY": "report-header-var-py",
+    }
+
+    if view_type == "category":
+        dimension_columns = [
+            "Category",
+            "Material",
+            "Categoría del Material",
+            "Descripción del Material",
+        ]
+        dimension_widths = [
+            "minmax(235px,1.55fr)",
+            "minmax(145px,1.00fr)",
+            "minmax(225px,1.55fr)",
+            "minmax(270px,1.85fr)",
+        ]
+        scroll_class = "report-table-scroll report-category-scroll"
+        card_class = "report-table-card report-category-card"
+    elif view_type == "segment_region":
+        dimension_columns = ["Segmento", "Región"]
+        dimension_widths = [
+            "minmax(220px,1.65fr)",
+            "minmax(170px,1.20fr)",
+        ]
+        scroll_class = "report-table-scroll"
+        card_class = "report-table-card"
+    else:
+        available_non_metric = [
+            c for c in df_table.columns
+            if not str(c).startswith("__")
+            and c not in {"TOP", "Grupo"}
+            and c not in metric_columns
+        ]
+        dimension_columns = available_non_metric[:1] or [first_header]
+        dimension_widths = ["minmax(220px,2.2fr)"]
+        scroll_class = "report-table-scroll"
+        card_class = "report-table-card"
+
+    # Solo incluye columnas que realmente existen en el DataFrame.
+    dimension_columns = [c for c in dimension_columns if c in df_table.columns]
+    metrics_present = [c for c in metric_columns if c in df_table.columns]
+    visible_columns = dimension_columns + metrics_present
+
+    grid_template = " ".join(
+        dimension_widths[:len(dimension_columns)]
+        + ["minmax(108px,1fr)" for _ in metrics_present]
+    )
+    min_width = max(
+        1280,
+        235 * len(dimension_columns) + 112 * len(metrics_present),
+    )
+    grid_style = (
+        f"grid-template-columns:{grid_template};"
+        f"min-width:{min_width}px;"
+        "width:100%;"
+    )
+
+    headers: list[str] = []
+
+    for index, column_name in enumerate(visible_columns):
+        if column_name in metric_classes:
+            header_class = metric_classes[column_name]
+        else:
+            header_class = "report-header-neutral"
+            if index == 0:
+                if view_type == "category":
+                    header_class += " report-category-header-sticky"
+                else:
+                    header_class += " report-header-sticky"
+
+        headers.append(
+            f'<div class="report-cell report-header {header_class}">'
+            f'{escape(str(column_name).upper())}'
+            '</div>'
+        )
+
+    rows: list[str] = []
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+        is_highlight = bool(row.get("__is_highlight__", False))
+
+        row_classes = ["report-row"]
+        if is_total:
+            row_classes.append("report-total")
+        if is_grand_total or is_highlight:
+            row_classes.append("report-highlight")
+
+        cells: list[str] = []
+
+        for index, column_name in enumerate(visible_columns):
+            value = row.get(column_name)
+
+            if column_name in dimension_columns:
+                # Las dimensiones son texto; nunca se formatean como importes.
+                if value is None:
+                    text_value = ""
+                else:
+                    try:
+                        text_value = "" if data_processor.pd.isna(value) else str(value)
+                    except Exception:
+                        text_value = str(value)
+
+                cell_class = "report-cell report-category-product-cell"
+                if index == 0:
+                    cell_class = "report-cell report-label-cell report-sticky-cell"
+
+                cells.append(
+                    f'<div class="{cell_class}">{escape(text_value)}</div>'
+                )
+                continue
+
+            is_percent = str(column_name).startswith("%")
+            formatted = format_monetary_value(
+                value,
+                is_percent=is_percent,
+                allow_blank=True,
+            )
+            negative_class = (
+                " report-negative"
+                if safe_float(value) < 0
+                else ""
+            )
+
+            cells.append(
+                f'<div class="report-cell report-value-cell{negative_class}">'
+                f'{formatted}'
+                '</div>'
+            )
+
+        rows.append(
+            f'<div class="{" ".join(row_classes)}">'
+            + "".join(cells)
+            + "</div>"
+        )
+
+    return (
+        f'<div class="{card_class}">'
+        f'<div class="report-table-title">{escape(title)}</div>'
+        f'<div class="{scroll_class}">'
+        f'<div class="report-grid report-grid-dynamic" style="{grid_style}">'
+        + "".join(headers)
+        + "".join(rows)
+        + "</div>"
+        + "</div>"
+        + "</div>"
+    )
+
+
+def run_report_3_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
+    if sales is None or plan is None or fcst is None:
+        set_error_message("Para construir Reporte 3 se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+    try:
+        st.session_state["report3_payload"]=data_processor.build_report_3_channel_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        set_success_message(config.MSG_REPORT_3_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_REPORT_3_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def build_report_3_table_html(title: str, df_table) -> str:
+    if df_table is None or df_table.empty:
+        return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div>Sin información disponible</div></div>'
+    visible=[c for c in df_table.columns if not str(c).startswith("__") and c not in {"TOP","Grupo"}]
+    metric_classes={"Actual":"report-header-actual","Plan":"report-header-plan","Fcst":"report-header-fcst","PY":"report-header-py","Var VS Plan":"report-header-var-plan","%Var VS Plan":"report-header-var-plan","Var VS Fcst":"report-header-var-fcst","%Var VS Fcst":"report-header-var-fcst","Var VS PY":"report-header-var-py","%Var VS PY":"report-header-var-py"}
+    grid=f"grid-template-columns: minmax(220px,2.2fr) " + " ".join(["minmax(105px,1fr)" for _ in visible[1:]]) + "; min-width:"+str(max(1100,len(visible)*125))+"px;"
+    headers=[]
+    for i,col in enumerate(visible):
+        cls="report-header-neutral report-header-sticky" if i==0 else metric_classes.get(col,"report-header-neutral")
+        headers.append(f'<div class="report-cell report-header {cls}">{escape(str(col))}</div>')
+    rows=[]
+    for _,row in df_table.iterrows():
+        row_cls="report-total" if bool(row.get("__is_total__",False) or row.get("__is_grand_total__",False)) else ("report-highlight" if bool(row.get("__is_highlight__",False)) else "")
+        cells=[]
+        for i,col in enumerate(visible):
+            val=row.get(col)
+            if i==0:
+                text=str(val or ""); cells.append(f'<div class="report-cell report-label-cell">{escape(text)}</div>')
+            else:
+                is_pct=str(col).startswith("%"); formatted=format_monetary_value(val,is_percent=is_pct,allow_blank=True); neg=" report-negative" if safe_float(val)<0 else ""
+                cells.append(f'<div class="report-cell report-value-cell{neg}">{formatted}</div>')
+        rows.append(f'<div class="report-row {row_cls}">'+"".join(cells)+"</div>")
+    return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div class="report-table-scroll"><div class="report-grid report-grid-dynamic" style="{grid}">'+"".join(headers)+"".join(rows)+'</div></div></div>'
+
+
+def run_report_4_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_client"); fcst=st.session_state.get("df_fcst_client")
+    if sales is None or plan is None or fcst is None:
+        set_error_message("Para construir Ranking Clientes se requieren ventas procesadas, Plan Cliente y Forecast Cliente."); return False
+    try:
+        st.session_state["report4_payload"]=data_processor.build_report_4_top_clients_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
+        set_success_message(config.MSG_REPORT_4_BUILD_SUCCESS); return True
+    except Exception as exc:
+        set_error_message(f"{config.MSG_REPORT_4_BUILD_ERROR} Detalle: {exc}"); return False
+
+
+def build_report_4_table_html(title: str, df_table) -> str:
+    if df_table is None or df_table.empty:
+        return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div>Sin información disponible</div></div>'
+    visible=[c for c in df_table.columns if not str(c).startswith("__") and c not in {"TOP","Grupo"}]
+    metric_classes={"Actual":"report-header-actual","Plan":"report-header-plan","Fcst":"report-header-fcst","PY":"report-header-py","Var VS Plan":"report-header-var-plan","%Var VS Plan":"report-header-var-plan","Var VS Fcst":"report-header-var-fcst","%Var VS Fcst":"report-header-var-fcst","Var VS PY":"report-header-var-py","%Var VS PY":"report-header-var-py"}
+    grid=f"grid-template-columns: minmax(220px,2.2fr) " + " ".join(["minmax(105px,1fr)" for _ in visible[1:]]) + "; min-width:"+str(max(1100,len(visible)*125))+"px;"
+    headers=[]
+    for i,col in enumerate(visible):
+        cls="report-header-neutral report-header-sticky" if i==0 else metric_classes.get(col,"report-header-neutral")
+        headers.append(f'<div class="report-cell report-header {cls}">{escape(str(col))}</div>')
+    rows=[]
+    for _,row in df_table.iterrows():
+        row_cls="report-total" if bool(row.get("__is_total__",False) or row.get("__is_grand_total__",False)) else ("report-highlight" if bool(row.get("__is_highlight__",False)) else "")
+        cells=[]
+        for i,col in enumerate(visible):
+            val=row.get(col)
+            if i==0:
+                text=str(val or ""); cells.append(f'<div class="report-cell report-label-cell">{escape(text)}</div>')
+            else:
+                is_pct=str(col).startswith("%"); formatted=format_monetary_value(val,is_percent=is_pct,allow_blank=True); neg=" report-negative" if safe_float(val)<0 else ""
+                cells.append(f'<div class="report-cell report-value-cell{neg}">{formatted}</div>')
+        rows.append(f'<div class="report-row {row_cls}">'+"".join(cells)+"</div>")
+    return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div class="report-table-scroll"><div class="report-grid report-grid-dynamic" style="{grid}">'+"".join(headers)+"".join(rows)+'</div></div></div>'
+
+# Fuerza reconstrucción de reportes con la estructura Forecast actual.
+REPORT_LOGIC_VERSION_R123 = "forecast_integral_conservador_v20260724_02"
+if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R123:
+    clear_report_payloads()
+    for _key in list(st.session_state.keys()):
+        if _key.startswith(("report1_", "report2_", "report3_", "report4_", "base_mtd_")):
+            st.session_state.pop(_key, None)
+    st.session_state["report_logic_version_r123"] = REPORT_LOGIC_VERSION_R123
+
+# =========================================================
+# CORRECCIONES FINALES DE PRESENTACIÓN Y BASE MTD
+# =========================================================
+# Se redefinen únicamente los renderers afectados. Las definiciones originales
+# se conservan completas arriba para mantener el historial y las demás reglas.
+
+def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) -> str:
+    if df_table is None or df_table.empty:
+        return ""
+    visible=["Periodo","Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    is_client=plan_variant=="client"
+    header_class={
+        "Actual":"h-header-real",
+        "Plan":"plan-header-client" if is_client else "plan-header-sku",
+        "Fcst":"fcst-header-client" if is_client else "fcst-header-sku",
+        "PY":"h-header-real",
+        "Var VS Plan":"var-header-plan-client" if is_client else "var-header-plan-sku",
+        "%Var VS Plan":"var-header-plan-client" if is_client else "var-header-plan-sku",
+        "Var VS Fcst":"var-header-fcst-client" if is_client else "var-header-fcst-sku",
+        "%Var VS Fcst":"var-header-fcst-client" if is_client else "var-header-fcst-sku",
+        "Var VS PY":"var-header-py",
+        "%Var VS PY":"var-header-py",
+    }
+    grid="grid-template-columns:1.2fr "+" ".join(["1fr"]*(len(visible)-1))
+    heads=''.join(f'<div class="h-cell h-header {header_class.get(c,"h-header-neutral")}">{escape(c)}</div>' for c in visible)
+    rows=[]
+    for _,r in df_table.iterrows():
+        cells=[f'<div class="h-cell h-row-label">{escape(str(r.get("Periodo","")))}</div>']
+        for c in visible[1:]:
+            v=r.get(c); pct=c.startswith("%")
+            cls="negative-value" if safe_float(v)<0 else "neutral-value"
+            cells.append(f'<div class="h-cell h-value {cls}">{format_monetary_value(v,is_percent=pct)}</div>')
+        rows.append(''.join(cells))
+    return f'<div class="horizontal-table-card base-mtd-number-table-card"><div class="horizontal-table-title">{escape(title)}</div><div class="h-table" style="{grid}">{heads}{"".join(rows)}</div></div>'
+
+def build_report_2_table_html(title: str, df_table, first_header: str, view_type: str) -> str:
+    if df_table is None or df_table.empty:
+        return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div>Sin información disponible</div></div>'
+    metrics=["Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    metric_classes={"Actual":"report-header-actual","Plan":"report-header-plan","Fcst":"report-header-fcst","PY":"report-header-py","Var VS Plan":"report-header-var-plan","%Var VS Plan":"report-header-var-plan","Var VS Fcst":"report-header-var-fcst","%Var VS Fcst":"report-header-var-fcst","Var VS PY":"report-header-var-py","%Var VS PY":"report-header-var-py"}
+    if view_type=="category":
+        dims=["Category","Material","Categoría del Material","Descripción del Material"]
+        widths=["minmax(235px,1.55fr)","minmax(145px,1fr)","minmax(225px,1.55fr)","minmax(270px,1.85fr)"]
+        scroll_class="report-table-scroll report-category-scroll"
+    else:
+        dims=["Segmento","Región"] if view_type=="segment_region" else [first_header]
+        widths=["minmax(220px,1.65fr)","minmax(170px,1.2fr)"][:len(dims)]
+        scroll_class="report-table-scroll"
+    dims=[c for c in dims if c in df_table.columns]; metrics=[c for c in metrics if c in df_table.columns]
+    visible=dims+metrics
+    template=" ".join(widths[:len(dims)]+["minmax(108px,1fr)" for _ in metrics])
+    min_width=max(1280,235*len(dims)+112*len(metrics))
+    style=f"grid-template-columns:{template};min-width:{min_width}px;width:100%;"
+    headers=[]
+    for i,c in enumerate(visible):
+        cls=metric_classes.get(c,"report-header-neutral")
+        if i==0: cls += " report-category-header-sticky" if view_type=="category" else " report-header-sticky"
+        headers.append(f'<div class="report-cell report-header {cls}" title="{escape(str(c))}">{escape(str(c).upper())}</div>')
+    rows=[]
+    for _,row in df_table.iterrows():
+        classes=["report-row"]
+        if bool(row.get("__is_total__",False)): classes.append("report-total")
+        if bool(row.get("__is_grand_total__",False) or row.get("__is_highlight__",False)): classes.append("report-highlight")
+        cells=[]
+        for i,c in enumerate(visible):
+            value=row.get(c)
+            if c in dims:
+                text="" if value is None else str(value)
+                cls="report-cell report-category-product-cell report-text-clamped"
+                if i==0: cls="report-cell report-label-cell report-sticky-cell report-text-clamped"
+                cells.append(f'<div class="{cls}" title="{escape(text)}">{escape(text)}</div>')
+            else:
+                pct=c.startswith("%"); neg=" report-negative" if safe_float(value)<0 else ""
+                cells.append(f'<div class="report-cell report-value-cell{neg}">{format_monetary_value(value,is_percent=pct,allow_blank=True)}</div>')
+        rows.append(f'<div class="{" ".join(classes)}">'+''.join(cells)+'</div>')
+    return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div class="{scroll_class}"><div class="report-grid report-grid-dynamic" style="{style}">'+''.join(headers)+''.join(rows)+'</div></div></div>'
+
+
+# =========================================================
+# DASHBOARD CON FORECAST
+# =========================================================
+DASHBOARD_METRIC_COLUMNS = [
+    "Actual",
+    "Plan",
+    "Fcst",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+
+def _dashboard_metric_cell(row, column_name: str) -> str:
+    return dashboard_compact_td(
+        row.get(column_name),
+        is_percent=column_name.startswith("%"),
+        allow_blank=True,
+    )
+
+
+def _dashboard_generic_compact_table_html(
+    title: str,
+    df_table,
+    label_column: str,
+    label_header: str,
+    label_builder=None,
+    extra_block_class: str = "",
+) -> str:
+    """
+    Tabla compacta estándar del Dashboard con Forecast.
+
+    Orden:
+    Actual | Plan | Fcst | PY |
+    Var VS Plan | %Var VS Plan |
+    Var VS Fcst | %Var VS Fcst |
+    Var VS PY | %Var VS PY
+    """
+    if df_table is None or getattr(df_table, "empty", True):
+        return (
+            f'<div class="dashboard-compact-block {escape(extra_block_class)}">'
+            f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+            '<div class="dashboard-kpi-muted">Información no disponible.</div>'
+            '</div>'
+        )
+
+    rows_html_parts: list[str] = []
+
+    for _, row in df_table.iterrows():
+        is_total = bool(row.get("__is_total__", False))
+        is_grand_total = bool(row.get("__is_grand_total__", False))
+        is_group_summary = bool(row.get("__is_group_summary__", False))
+
+        if is_grand_total:
+            row_class = ' class="dashboard-compact-grand-total"'
+        elif is_total or is_group_summary:
+            row_class = ' class="dashboard-compact-total"'
+        else:
+            row_class = ""
+
+        if label_builder is not None:
+            label_value = str(label_builder(row) or "").strip()
+        else:
+            label_value = str(row.get(label_column, "") or "").strip()
+
+        if is_grand_total or label_value.lower() in {
+            "total",
+            "total general",
+            "grand total",
+            "total mexico",
+            "total méxico",
+        }:
+            label_value = "Total Mexico"
+
+        metric_cells = "".join(
+            _dashboard_metric_cell(row, column_name)
+            for column_name in DASHBOARD_METRIC_COLUMNS
+        )
+
+        rows_html_parts.append(
+            f'<tr{row_class}>'
+            f'<td class="dashboard-compact-label" title="{escape(label_value)}">'
+            f'{escape(label_value)}'
+            '</td>'
+            f'{metric_cells}'
+            '</tr>'
+        )
+
+    headers = "".join(
+        f"<th>{escape(column_name)}</th>"
+        for column_name in DASHBOARD_METRIC_COLUMNS
+    )
+
+    return (
+        f'<div class="dashboard-compact-block {escape(extra_block_class)}">'
+        f'<div class="dashboard-compact-title-box">{escape(title)}</div>'
+        '<div class="dashboard-compact-table-wrap dashboard-forecast-table-wrap">'
+        '<table class="dashboard-compact-table dashboard-forecast-table">'
+        '<thead><tr>'
+        f'<th>{escape(label_header)}</th>'
+        f'{headers}'
+        '</tr></thead>'
+        '<tbody>'
+        + "".join(rows_html_parts)
+        + '</tbody></table></div></div>'
+    )
+
+
+def build_dashboard_metric_row(
+    metric_name: str,
+    actual,
+    plan,
+    fcst,
+    py,
+    var_plan,
+    pct_var_plan,
+    var_fcst,
+    pct_var_fcst,
+    var_py,
+    pct_var_py,
+    row_class: str = "",
+) -> str:
+    return (
+        f'<tr class="{escape(row_class)}">'
+        f'<td class="dashboard-kpi-name">{escape(metric_name)}</td>'
+        f'{dashboard_td(actual)}'
+        f'{dashboard_td(plan)}'
+        f'{dashboard_td(fcst)}'
+        f'{dashboard_td(py)}'
+        f'{dashboard_td(var_plan)}'
+        f'{dashboard_td(pct_var_plan, is_percent=True)}'
+        f'{dashboard_td(var_fcst)}'
+        f'{dashboard_td(pct_var_fcst, is_percent=True)}'
+        f'{dashboard_td(var_py)}'
+        f'{dashboard_td(pct_var_py, is_percent=True)}'
+        '</tr>'
+    )
+
+
+def build_dashboard_achievement_row(gsnr_row) -> str:
+    if gsnr_row is None:
+        actual_value = None
+        plan_value = None
+        fcst_value = None
+        py_value = None
+    else:
+        actual_value = safe_float(gsnr_row.get("Actual"))
+        plan_value = safe_float(gsnr_row.get("Plan"))
+        fcst_value = safe_float(gsnr_row.get("Fcst"))
+        py_value = safe_float(gsnr_row.get("PY"))
+
+    achievement_plan = (
+        None
+        if actual_value is None or plan_value in (None, 0)
+        else actual_value / plan_value
+    )
+    achievement_fcst = (
+        None
+        if actual_value is None or fcst_value in (None, 0)
+        else actual_value / fcst_value
+    )
+    achievement_py = (
+        None
+        if actual_value is None or py_value in (None, 0)
+        else actual_value / py_value
+    )
+
+    return (
+        '<tr class="dashboard-achievement-row">'
+        '<td class="dashboard-kpi-name">% achievement</td>'
+        f'{dashboard_td(None)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_percent_closed_td(achievement_plan)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_percent_closed_td(achievement_fcst)}'
+        f'{dashboard_td(None)}'
+        f'{dashboard_percent_closed_td(achievement_py)}'
+        f'{dashboard_td(None)}'
+        '</tr>'
+    )
+
+
+def build_dashboard_kpi_table_html(title: str, rows_html: str) -> str:
+    headers = "".join(
+        f"<th>{escape(column_name)}</th>"
+        for column_name in DASHBOARD_METRIC_COLUMNS
+    )
+
+    return (
+        '<div class="dashboard-kpi-panel">'
+        f'<div class="dashboard-kpi-panel-title">{escape(title)}</div>'
+        '<div class="dashboard-kpi-table-wrap dashboard-forecast-table-wrap">'
+        '<table class="dashboard-kpi-table dashboard-forecast-table">'
+        '<thead><tr>'
+        '<th>KPI</th>'
+        f'{headers}'
+        '</tr></thead>'
+        '<tbody>'
+        f'{rows_html}'
+        '</tbody></table></div></div>'
+    )
+
+
+def build_dashboard_report1_compact_table_html(title: str, df_table) -> str:
+    return _dashboard_generic_compact_table_html(
+        title=title,
+        df_table=df_table,
+        label_column="Oficina de Ventas",
+        label_header="Channel",
+    )
+
+
+def build_dashboard_segment_compact_table_html(title: str, df_table) -> str:
+    return _dashboard_generic_compact_table_html(
+        title=title,
+        df_table=df_table,
+        label_column="Segmento",
+        label_header="Segment / Region",
+        label_builder=build_report_2_segment_region_display_label,
+    )
+
+
+def build_dashboard_category_compact_table_html(title: str, df_table) -> str:
+    return _dashboard_generic_compact_table_html(
+        title=title,
+        df_table=df_table,
+        label_column="Category",
+        label_header="Category",
+    )
+
+
+def build_dashboard_report3_compact_table_html(title: str, df_table) -> str:
+    return _dashboard_generic_compact_table_html(
+        title=title,
+        df_table=df_table,
+        label_column="Channel",
+        label_header="Channel",
+        label_builder=lambda row: (
+            str(row.get("Channel", "") or "").strip()
+            or build_report_3_display_label(row)
+        ),
+    )
+
+
+def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
+    return _dashboard_generic_compact_table_html(
+        title=title,
+        df_table=df_table,
+        label_column="Client Name",
+        label_header="Client Name",
+        extra_block_class="dashboard-clients-block",
+    )
+
+
+def build_dashboard_stage_one_html(payload: dict) -> str:
+    latest_month = int(payload["latest_month"])
+    latest_year = int(payload["latest_year"])
+
+    month_label = get_dashboard_month_label_en(latest_month)
+    currency_label = (
+        "$Kmxn"
+        if get_currency_status_label() == "MXN"
+        else "$Kusd"
+    )
+
+    client_table = payload.get("client_table")
+    bts_table = payload.get("bts_table")
+
+    mtd_gsnr = dashboard_safe_get_row(client_table, "MTD")
+    ytd_gsnr = dashboard_safe_get_row(client_table, "YTD")
+    mtd_bts = dashboard_safe_get_row(bts_table, "MTD")
+    ytd_bts = dashboard_safe_get_row(bts_table, "YTD")
+
+    def gsnr_row(period_row, css_class: str) -> str:
+        return build_dashboard_metric_row(
+            metric_name="GSNR",
+            actual=None if period_row is None else period_row.get("Actual"),
+            plan=None if period_row is None else period_row.get("Plan"),
+            fcst=None if period_row is None else period_row.get("Fcst"),
+            py=None if period_row is None else period_row.get("PY"),
+            var_plan=None if period_row is None else period_row.get("Var VS Plan"),
+            pct_var_plan=None if period_row is None else period_row.get("%Var VS Plan"),
+            var_fcst=None if period_row is None else period_row.get("Var VS Fcst"),
+            pct_var_fcst=None if period_row is None else period_row.get("%Var VS Fcst"),
+            var_py=None if period_row is None else period_row.get("Var VS PY"),
+            pct_var_py=None if period_row is None else period_row.get("%Var VS PY"),
+            row_class=css_class,
+        )
+
+    month_rows = (
+        gsnr_row(mtd_gsnr, "dashboard-gsnr-row")
+        + build_dashboard_achievement_row(mtd_gsnr)
+        + build_dashboard_metric_row(
+            metric_name=f"BTS ({month_label})",
+            actual=None if mtd_bts is None else mtd_bts.get("Actual"),
+            plan=None,
+            fcst=None,
+            py=None if mtd_bts is None else mtd_bts.get("PY"),
+            var_plan=None,
+            pct_var_plan=None,
+            var_fcst=None,
+            pct_var_fcst=None,
+            var_py=None if mtd_bts is None else mtd_bts.get("Var VS PY"),
+            pct_var_py=None if mtd_bts is None else mtd_bts.get("%Var VS PY"),
+            row_class="dashboard-bts-row",
+        )
+    )
+
+    ytd_rows = (
+        gsnr_row(ytd_gsnr, "dashboard-gsnr-row")
+        + build_dashboard_achievement_row(ytd_gsnr)
+        + build_dashboard_metric_row(
+            metric_name=f"BTS (Oct-{month_label})",
+            actual=None if ytd_bts is None else ytd_bts.get("Actual"),
+            plan=None,
+            fcst=None,
+            py=None if ytd_bts is None else ytd_bts.get("PY"),
+            var_plan=None,
+            pct_var_plan=None,
+            var_fcst=None,
+            pct_var_fcst=None,
+            var_py=None if ytd_bts is None else ytd_bts.get("Var VS PY"),
+            pct_var_py=None if ytd_bts is None else ytd_bts.get("%Var VS PY"),
+            row_class="dashboard-bts-row",
+        )
+    )
+
+    return (
+        '<div class="dashboard-stage-card dashboard-scroll-aligned-layout">'
+        '<div style="display:flex; align-items:flex-start; '
+        'justify-content:flex-start; margin:0 0 8px 0;">'
+        '<table style="border-collapse:collapse; '
+        'font-family:Segoe UI, Arial, sans-serif; '
+        'font-size:15px; color:#1F2A44;">'
+        '<tr>'
+        '<td style="font-weight:800; color:#E60023; '
+        'padding:0 20px 4px 0;">Month</td>'
+        f'<td style="font-weight:700; padding:0 0 4px 0;">'
+        f'{escape(month_label)}</td>'
+        '</tr>'
+        '<tr>'
+        '<td style="font-weight:800; color:#E60023; '
+        'padding:0 20px 4px 0;">Year</td>'
+        f'<td style="font-weight:700; padding:0 0 4px 0;">'
+        f'{escape(str(latest_year))}</td>'
+        '</tr>'
+        '</table>'
+        '</div>'
+        '<div class="dashboard-main-title-box">'
+        '<div class="dashboard-main-title">Mexico Dashboard 2026</div>'
+        '</div>'
+        f'<div class="dashboard-currency-label">{escape(currency_label)}</div>'
+        '<div class="dashboard-kpi-grid">'
+        f'{build_dashboard_kpi_table_html("Sales Month", month_rows)}'
+        f'{build_dashboard_kpi_table_html("Sales YTD", ytd_rows)}'
+        '</div>'
+        f'{build_dashboard_report1_section_html()}'
+        f'{build_dashboard_report2_segment_section_html()}'
+        f'{build_dashboard_report2_category_section_html()}'
+        f'{build_dashboard_report3_section_html()}'
+        f'{build_dashboard_report4_section_html()}'
+        '</div>'
+    )
+
+# =========================================================
 # 19. FLUJO PRINCIPAL
 # =========================================================
 def main() -> None:
@@ -6476,6 +7958,88 @@ def main() -> None:
         render_mtd_base_view()
     else:   
         render_placeholder_view(selected)
+
+
+# =========================================================
+# CORRECCIÓN FINAL: RANKING DE CLIENTES Y FORMATO GLOBAL
+# =========================================================
+def build_report_4_table_html(title: str, df_table) -> str:
+    """
+    Renderiza Ranking de Clientes conservando visibles las dos dimensiones.
+    Solo Client Name permanece fijo; Cliente se desplaza con las métricas.
+    """
+    if df_table is None or df_table.empty:
+        return (
+            '<div class="report-table-card">'
+            f'<div class="report-table-title">{escape(title)}</div>'
+            '<div class="report-empty-state">-</div>'
+            '</div>'
+        )
+
+    preferred = [
+        "Client Name", "Cliente", "Actual", "Plan", "Fcst", "PY",
+        "Var VS Plan", "%Var VS Plan", "Var VS Fcst", "%Var VS Fcst",
+        "Var VS PY", "%Var VS PY",
+    ]
+    visible = [c for c in preferred if c in df_table.columns]
+    visible += [
+        c for c in df_table.columns
+        if c not in visible and not str(c).startswith("__") and c not in {"TOP", "Grupo"}
+    ]
+
+    metric_classes = {
+        "Actual": "report-header-actual", "Plan": "report-header-plan",
+        "Fcst": "report-header-fcst", "PY": "report-header-py",
+        "Var VS Plan": "report-header-var-plan", "%Var VS Plan": "report-header-var-plan",
+        "Var VS Fcst": "report-header-var-fcst", "%Var VS Fcst": "report-header-var-fcst",
+        "Var VS PY": "report-header-var-py", "%Var VS PY": "report-header-var-py",
+    }
+
+    widths = []
+    for col in visible:
+        if col == "Client Name": widths.append("minmax(230px,230px)")
+        elif col == "Cliente": widths.append("minmax(105px,105px)")
+        else: widths.append("minmax(108px,1fr)")
+    grid = f"grid-template-columns:{' '.join(widths)};min-width:{335 + 112 * max(len(visible)-2, 0)}px;width:100%;"
+
+    headers = []
+    for col in visible:
+        if col == "Client Name": cls = "report-header-neutral report4-name-header"
+        elif col == "Cliente": cls = "report-header-neutral report4-code-header"
+        else: cls = metric_classes.get(col, "report-header-neutral")
+        headers.append(f'<div class="report-cell report-header {cls}" title="{escape(str(col))}">{escape(str(col).upper())}</div>')
+
+    rows = []
+    for _, row in df_table.iterrows():
+        row_classes = ["report-row"]
+        if bool(row.get("__is_total__", False) or row.get("__is_group_summary__", False)):
+            row_classes.append("report-total")
+        if bool(row.get("__is_grand_total__", False) or row.get("__is_highlight__", False)):
+            row_classes.append("report-highlight")
+
+        cells = []
+        for col in visible:
+            value = row.get(col)
+            if col in {"Client Name", "Cliente"}:
+                text = "" if value is None else str(value).strip()
+                if col == "Client Name": cls = "report-cell report4-name-cell report-text-clamped"
+                else: cls = "report-cell report4-code-cell report-text-clamped"
+                cells.append(f'<div class="{cls}" title="{escape(text)}">{escape(text)}</div>')
+            else:
+                is_pct = str(col).startswith("%")
+                formatted = format_monetary_value(value, is_percent=is_pct, allow_blank=False)
+                negative = " report-negative" if safe_float(value) < 0 else ""
+                cells.append(f'<div class="report-cell report-value-cell report4-metric-cell{negative}">{formatted}</div>')
+        rows.append(f'<div class="{" ".join(row_classes)}">' + "".join(cells) + "</div>")
+
+    return (
+        '<div class="report-table-card report4-card">'
+        f'<div class="report-table-title">{escape(title)}</div>'
+        '<div class="report-table-scroll report4-scroll-fixed">'
+        f'<div class="report-grid report-grid-dynamic report4-grid-fixed" style="{grid}">'
+        + "".join(headers) + "".join(rows)
+        + '</div></div></div>'
+    )
 
 # =========================================================
 # 20. EJECUCIÓN PRINCIPAL

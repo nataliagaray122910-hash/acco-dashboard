@@ -216,6 +216,18 @@ FILE_KEY_SALES = "sales_file"
 FILE_KEY_PLAN_CLIENT = "plan_client_file"
 FILE_KEY_PLAN_SKU = "plan_sku_file"
 
+# Forecast se detecta dinámicamente por nombre de hoja.
+FILE_KEY_FCST_CLIENT = "fcst_client_file"
+FILE_KEY_FCST_SKU = "fcst_sku_file"
+
+# Patrón funcional esperado para los ciclos Forecast:
+# Fcst2+10, Fcst5+7, Fcst8+4, Fcst10+2, Fcst11+1, etc.
+# La detección real se hace por patrón en data_loader.py para evitar
+# dejar el sistema amarrado a un Forecast específico.
+FORECAST_CLIENT_HEADER_ROW = 32
+FORECAST_SKU_HEADER_ROW = 8
+FORECAST_CLIENT_USECOLS = "A:T"
+
 # ---------------------------------------------------------
 # COLUMNAS MÍNIMAS ESPERADAS
 # ---------------------------------------------------------
@@ -231,6 +243,22 @@ EXPECTED_COLUMNS_PLAN_CLIENT = [
 EXPECTED_COLUMNS_PLAN_SKU = [
     "Material",
 ]
+
+EXPECTED_COLUMNS_FCST_CLIENT = [
+    "Segment",
+    "Client",
+]
+
+EXPECTED_COLUMNS_FCST_SKU = [
+    "Material",
+]
+
+# Nombres estables de interfaz. El nombre real de la hoja se conserva
+# por separado en sesión para identificar el ciclo activo (ej. Fcst5+7).
+FCST_CLIENT_DISPLAY_TITLE = "Archivo de forecast por cliente"
+FCST_SKU_DISPLAY_TITLE = "Archivo de forecast por SKU"
+FCST_CLIENT_PREVIEW_TITLE = "Vista previa - Fcst by Client"
+FCST_SKU_PREVIEW_TITLE = "Vista previa - Fcst by SKU"
 
 # ---------------------------------------------------------
 # MENSAJES REUTILIZABLES
@@ -821,5 +849,36 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "y plan por cliente cargado."
 )
 
+# =========================================================
+# INTEGRACIÓN FORECAST EN REPORTES
+# =========================================================
+# Orden único acordado para Base MTD y todos los reportes.
+REPORT_METRIC_COLUMNS_WITH_FORECAST = [
+    "Actual",
+    "Plan",
+    "Fcst",
+    "PY",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Var VS Fcst",
+    "%Var VS Fcst",
+    "Var VS PY",
+    "%Var VS PY",
+]
 
+# Colores de referencia tomados de las tablas Excel proporcionadas.
+COLOR_HEADER_ACTUAL = "#0B5A7A"
+COLOR_HEADER_PLAN_CLIENT = "#ED7D31"
+COLOR_HEADER_PLAN_SKU = "#2E7D32"
+COLOR_HEADER_FCST_CLIENT = "#E83E62"
+COLOR_HEADER_FCST_SKU = "#FFC34D"
+COLOR_HEADER_PY = "#0B5A7A"
+COLOR_HEADER_VAR_PLAN = "#F4B400"
+COLOR_HEADER_VAR_FCST = "#34A853"
+COLOR_HEADER_VAR_PY = "#0B5A7A"
 
+# Etiquetas cortas visibles. El ciclo real se conserva dinámicamente
+# en forecast_name / forecast_label dentro de los payloads.
+REPORT_FCST_COLUMN = "Fcst"
+REPORT_VAR_FCST_COLUMN = "Var VS Fcst"
+REPORT_PCT_VAR_FCST_COLUMN = "%Var VS Fcst"

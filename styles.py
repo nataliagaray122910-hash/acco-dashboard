@@ -2207,10 +2207,19 @@ def build_hero_section() -> str:
     </div>
     """
 
-def build_info_card(title: str, value: str, description: str = "") -> str:
+def build_info_card(
+    title: str,
+    value: str,
+    description: str = "",
+    icon_override: str | None = None,
+    color_override: str | None = None,
+) -> str:
     """
     Genera una tarjeta ejecutiva con icono, usando el mismo lenguaje visual
     que Base MTD y Visión general.
+
+    icon_override y color_override son opcionales para casos específicos,
+    sin alterar el comportamiento de las tarjetas existentes.
     """
     title_text = str(title or "").strip().lower()
 
@@ -2229,6 +2238,12 @@ def build_info_card(title: str, value: str, description: str = "") -> str:
     else:
         icon = "•"
         color = "blue"
+
+    if icon_override is not None and str(icon_override).strip():
+        icon = str(icon_override).strip()
+
+    if color_override is not None and str(color_override).strip():
+        color = str(color_override).strip().lower()
 
     return build_base_mtd_kpi_card(
         title=title.upper(),
@@ -2878,3 +2893,801 @@ def build_project_progress_html() -> str:
 def build_dashboard_download_anchor() -> str:
     """Marcador visual reutilizable para la zona de descarga del Dashboard."""
     return '<div class="dashboard-download-wrap"></div>'
+
+# =========================================================
+# INTEGRACIÓN FORECAST - EXTENSIÓN DE ESTILOS
+# =========================================================
+_build_global_css_base = build_global_css
+
+def build_global_css() -> str:
+    """
+    Conserva todos los estilos originales e inserta las reglas Forecast
+    dentro del mismo bloque <style>, evitando que Streamlit muestre CSS
+    como texto visible en la página.
+    """
+    css = _build_global_css_base()
+
+    forecast_rules = f"""
+    /* Forecast: colores según las tablas Excel de referencia */
+    .fcst-header-client {{
+        background: {getattr(config, "COLOR_HEADER_FCST_CLIENT", "#E83E62")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    /* En TODOS los reportes, la columna Fcst usa el mismo verde que sus variaciones. */
+    .report-header-fcst {{
+        background: {getattr(config, "COLOR_HEADER_VAR_FCST", "#34A853")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    .fcst-header-sku {{
+        background: {getattr(config, "COLOR_HEADER_FCST_SKU", "#FFC34D")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    /* Acotaciones de Base MTD: Forecast Cliente rosa / Forecast SKU amarillo claro */
+    .chip-fcst-client {{
+        background: {getattr(config, "COLOR_HEADER_FCST_CLIENT", "#E83E62")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    .chip-fcst-sku {{
+        background: {getattr(config, "COLOR_HEADER_FCST_SKU", "#FFC34D")} !important;
+        color: #1F2A44 !important;
+    }}
+
+    .base-mtd-kpi-icon-pink {{
+        background: linear-gradient(135deg, #E83E62 0%, #F36A86 100%) !important;
+    }}
+
+    .var-header-plan,
+    .report-header-var-plan {{
+        background: {getattr(config, "COLOR_HEADER_VAR_PLAN", "#F4B400")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    .var-header-fcst,
+    .report-header-var-fcst {{
+        background: {getattr(config, "COLOR_HEADER_VAR_FCST", "#34A853")} !important;
+        color: #FFFFFF !important;
+    }}
+
+    .var-header-py,
+    .report-header-var-py {{
+        background: {getattr(config, "COLOR_HEADER_VAR_PY", "#0B5A7A")} !important;
+        color: #FFFFFF !important;
+    }}
+
+
+
+    /* Base MTD: cada variación usa el color de su fuente/acotación. */
+    .var-header-plan-client {{ background: #ED7D31 !important; color:#FFFFFF !important; }}
+    .var-header-plan-sku {{ background: #2E7D32 !important; color:#FFFFFF !important; }}
+    .var-header-fcst-client {{ background: #E83E62 !important; color:#FFFFFF !important; }}
+    .var-header-fcst-sku {{ background: #FFC34D !important; color:#1F2A44 !important; }}
+
+    /* Category: ningún texto puede invadir columnas vecinas. */
+    .report-text-clamped,
+    .report-category-product-cell,
+    .report-category-grid .report-cell {{
+        min-width: 0 !important;
+        max-width: 100% !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+        word-break: normal !important;
+    }}
+
+    .report-category-grid .report-header,
+    .report-grid-dynamic .report-header {{
+        min-width: 0 !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        white-space: nowrap !important;
+    }}
+
+        /* Nuevos tamaños: 1 dimensión + 10 métricas */
+    .h-table-11 {{
+        grid-template-columns: 1.20fr repeat(10, minmax(105px, 1fr));
+        min-width: 1260px;
+    }}
+
+    .report-grid-11-metrics {{
+        grid-template-columns: 2.15fr repeat(10, minmax(105px, 1fr));
+        min-width: 1420px;
+    }}
+
+    /* Ranking: 2 dimensiones + 10 métricas */
+    .report-grid-12 {{
+        grid-template-columns: 1.65fr 2.05fr repeat(10, minmax(105px, 1fr));
+        min-width: 1640px;
+    }}
+
+    /* Category: 4 dimensiones + 10 métricas */
+    .report-grid-14 {{
+        grid-template-columns:
+            1.45fr 1.20fr 1.90fr 2.15fr
+            repeat(10, minmax(105px, 1fr));
+        min-width: 2020px;
+    }}
+    """
+
+    closing_tag = "</style>"
+    closing_index = css.rfind(closing_tag)
+
+    if closing_index == -1:
+        # Salvaguarda: si por alguna razón el CSS original no contiene cierre,
+        # se devuelve un único bloque válido.
+        return f"<style>{forecast_rules}</style>" + css
+
+    return (
+        css[:closing_index]
+        + forecast_rules
+        + "\n"
+        + css[closing_index:]
+    )
+
+
+# =========================================================
+# BASE MTD - SOPORTE DE KPI FORECAST
+# =========================================================
+def build_base_mtd_kpi_card(
+    title: str,
+    value: str,
+    description: str = "",
+    icon: str = "$",
+    color: str = "blue",
+) -> str:
+    """
+    Tarjeta KPI ejecutiva para Base MTD.
+    Conserva blue/orange/green y añade pink para Forecast.
+    """
+    safe_color = str(color or "blue").strip().lower()
+    if safe_color not in {"blue", "orange", "green", "pink"}:
+        safe_color = "blue"
+
+    return f"""
+    <div class="base-mtd-kpi-card">
+        <div class="base-mtd-kpi-icon base-mtd-kpi-icon-{safe_color}">{icon}</div>
+        <div class="base-mtd-kpi-body">
+            <div class="base-mtd-kpi-title">{title}</div>
+            <div class="base-mtd-kpi-value">{value}</div>
+            <div class="base-mtd-kpi-description">{description}</div>
+        </div>
+    </div>
+    """
+
+# =========================================================
+# DASHBOARD CON FORECAST - ANCHO Y SCROLL
+# =========================================================
+_build_dashboard_css_html_before_forecast = build_dashboard_css_html
+
+def build_dashboard_css_html() -> str:
+    """
+    Conserva todo el CSS original del Dashboard y agrega únicamente
+    el ancho necesario para imprimir Forecast y sus variaciones.
+    """
+    css = _build_dashboard_css_html_before_forecast()
+
+    forecast_dashboard_rules = """
+    .dashboard-forecast-table-wrap {
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .dashboard-forecast-table {
+        min-width: 1280px !important;
+        width: 100% !important;
+        table-layout: fixed !important;
+    }
+
+    .dashboard-forecast-table th,
+    .dashboard-forecast-table td {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        min-width: 88px !important;
+    }
+
+    .dashboard-forecast-table th:first-child,
+    .dashboard-forecast-table td:first-child {
+        min-width: 210px !important;
+        width: 210px !important;
+        text-align: left !important;
+    }
+
+    .dashboard-kpi-grid {
+        align-items: start !important;
+    }
+    """
+
+    closing_tag = "</style>"
+    closing_index = css.rfind(closing_tag)
+
+    if closing_index == -1:
+        return css + f"<style>{forecast_dashboard_rules}</style>"
+
+    return (
+        css[:closing_index]
+        + forecast_dashboard_rules
+        + css[closing_index:]
+    )
+
+# =========================================================
+# DASHBOARD SIN DESPLAZAMIENTO HORIZONTAL
+# =========================================================
+_build_dashboard_css_html_before_no_scroll = build_dashboard_css_html
+
+def build_dashboard_css_html() -> str:
+    """
+    Conserva todos los estilos anteriores y aplica al Dashboard final
+    una distribución vertical de ancho completo, sin barras horizontales.
+    """
+    css = _build_dashboard_css_html_before_no_scroll()
+
+    no_scroll_rules = """
+    /* El Dashboard completo permanece dentro del ancho visible. */
+    .dashboard-no-scroll-layout {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Sales Month y Sales YTD: uno debajo del otro. */
+    .dashboard-no-scroll-layout .dashboard-kpi-grid {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 1.35rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    /* Todos los pares Monthly/YTD pasan a distribución vertical. */
+    .dashboard-no-scroll-layout .dashboard-report-pair-grid {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) !important;
+        gap: 1.35rem !important;
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .dashboard-no-scroll-layout .dashboard-report-section,
+    .dashboard-no-scroll-layout .dashboard-compact-block,
+    .dashboard-no-scroll-layout .dashboard-kpi-panel {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Quita las barras horizontales internas. */
+    .dashboard-no-scroll-layout .dashboard-forecast-table-wrap,
+    .dashboard-no-scroll-layout .dashboard-compact-table-wrap,
+    .dashboard-no-scroll-layout .dashboard-kpi-table-wrap,
+    .dashboard-no-scroll-layout .dashboard-clients-table-wrap,
+    .dashboard-no-scroll-layout .dashboard-table-wrap {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: hidden !important;
+        overflow-y: visible !important;
+    }
+
+    /* Las tablas se ajustan exactamente al ancho de la página. */
+    .dashboard-no-scroll-layout .dashboard-forecast-table,
+    .dashboard-no-scroll-layout .dashboard-compact-table,
+    .dashboard-no-scroll-layout .dashboard-kpi-table,
+    .dashboard-no-scroll-layout .dashboard-clients-table {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+        font-size: 0.72rem !important;
+    }
+
+    /* Primera columna más amplia; las diez métricas comparten el resto. */
+    .dashboard-no-scroll-layout .dashboard-forecast-table th:first-child,
+    .dashboard-no-scroll-layout .dashboard-forecast-table td:first-child,
+    .dashboard-no-scroll-layout .dashboard-compact-table th:first-child,
+    .dashboard-no-scroll-layout .dashboard-compact-table td:first-child,
+    .dashboard-no-scroll-layout .dashboard-kpi-table th:first-child,
+    .dashboard-no-scroll-layout .dashboard-kpi-table td:first-child {
+        width: 20% !important;
+        max-width: 20% !important;
+        min-width: 0 !important;
+        text-align: left !important;
+    }
+
+    .dashboard-no-scroll-layout .dashboard-forecast-table th:not(:first-child),
+    .dashboard-no-scroll-layout .dashboard-forecast-table td:not(:first-child),
+    .dashboard-no-scroll-layout .dashboard-compact-table th:not(:first-child),
+    .dashboard-no-scroll-layout .dashboard-compact-table td:not(:first-child),
+    .dashboard-no-scroll-layout .dashboard-kpi-table th:not(:first-child),
+    .dashboard-no-scroll-layout .dashboard-kpi-table td:not(:first-child) {
+        width: 8% !important;
+        max-width: 8% !important;
+        min-width: 0 !important;
+        text-align: right !important;
+    }
+
+    /* Encabezados legibles en dos líneas cuando sea necesario. */
+    .dashboard-no-scroll-layout .dashboard-forecast-table th,
+    .dashboard-no-scroll-layout .dashboard-compact-table th,
+    .dashboard-no-scroll-layout .dashboard-kpi-table th {
+        white-space: normal !important;
+        overflow-wrap: anywhere !important;
+        word-break: normal !important;
+        line-height: 1.12 !important;
+        padding: 0.38rem 0.18rem !important;
+        vertical-align: bottom !important;
+        font-size: 0.68rem !important;
+    }
+
+    /* Valores alineados y sin invadir columnas vecinas. */
+    .dashboard-no-scroll-layout .dashboard-forecast-table td,
+    .dashboard-no-scroll-layout .dashboard-compact-table td,
+    .dashboard-no-scroll-layout .dashboard-kpi-table td {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        padding: 0.38rem 0.20rem !important;
+        line-height: 1.2 !important;
+        box-sizing: border-box !important;
+    }
+
+    .dashboard-no-scroll-layout .dashboard-compact-label,
+    .dashboard-no-scroll-layout .dashboard-client-name,
+    .dashboard-no-scroll-layout .dashboard-kpi-name {
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        padding-left: 0.35rem !important;
+        text-align: left !important;
+    }
+
+    /* Títulos alineados al inicio del bloque correspondiente. */
+    .dashboard-no-scroll-layout .dashboard-compact-title-box,
+    .dashboard-no-scroll-layout .dashboard-kpi-panel-title {
+        width: auto !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        text-align: left !important;
+    }
+
+    /* Evita que reglas anteriores vuelvan a imponer anchos grandes. */
+    .dashboard-no-scroll-layout col,
+    .dashboard-no-scroll-layout .dashboard-col-label,
+    .dashboard-no-scroll-layout .dashboard-col-client-name,
+    .dashboard-no-scroll-layout .dashboard-col-num,
+    .dashboard-no-scroll-layout .dashboard-col-pct {
+        min-width: 0 !important;
+    }
+
+    @media (max-width: 1100px) {
+        .dashboard-no-scroll-layout .dashboard-forecast-table,
+        .dashboard-no-scroll-layout .dashboard-compact-table,
+        .dashboard-no-scroll-layout .dashboard-kpi-table,
+        .dashboard-no-scroll-layout .dashboard-clients-table {
+            font-size: 0.66rem !important;
+        }
+
+        .dashboard-no-scroll-layout .dashboard-forecast-table th,
+        .dashboard-no-scroll-layout .dashboard-compact-table th,
+        .dashboard-no-scroll-layout .dashboard-kpi-table th {
+            font-size: 0.62rem !important;
+            padding-left: 0.10rem !important;
+            padding-right: 0.10rem !important;
+        }
+
+        .dashboard-no-scroll-layout .dashboard-forecast-table td,
+        .dashboard-no-scroll-layout .dashboard-compact-table td,
+        .dashboard-no-scroll-layout .dashboard-kpi-table td {
+            padding-left: 0.12rem !important;
+            padding-right: 0.12rem !important;
+        }
+    }
+    """
+
+    closing_tag = "</style>"
+    closing_index = css.rfind(closing_tag)
+
+    if closing_index == -1:
+        return css + f"<style>{no_scroll_rules}</style>"
+
+    return css[:closing_index] + no_scroll_rules + css[closing_index:]
+
+# =========================================================
+# DASHBOARD LADO A LADO CON SCROLL ALINEADO
+# =========================================================
+_build_dashboard_css_html_before_aligned_scroll = build_dashboard_css_html
+
+def build_dashboard_css_html() -> str:
+    """
+    Conserva los estilos existentes y aplica la distribución final:
+
+    - MTD y YTD permanecen lado a lado.
+    - Sales Month y Sales YTD también tienen barra horizontal.
+    - Cada panel desplaza únicamente su propia tabla.
+    - Ambos paneles conservan el mismo ancho, altura y punto de inicio.
+    """
+    css = _build_dashboard_css_html_before_aligned_scroll()
+
+    aligned_scroll_rules = """
+    .dashboard-scroll-aligned-layout {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Mantiene MTD y YTD lado a lado en todos los bloques. */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-grid,
+    .dashboard-scroll-aligned-layout .dashboard-report-pair-grid {
+        display: grid !important;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+        gap: 1.35rem !important;
+        align-items: start !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+    }
+
+    .dashboard-scroll-aligned-layout .dashboard-kpi-panel,
+    .dashboard-scroll-aligned-layout .dashboard-report-section,
+    .dashboard-scroll-aligned-layout .dashboard-compact-block {
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+    }
+
+    /*
+    La barra horizontal se aplica también al primer bloque Sales.
+    Así Sales Month y Sales YTD se comportan exactamente igual que
+    las tablas inferiores y dejan de verse desalineados.
+    */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table-wrap,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table-wrap,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table-wrap,
+    .dashboard-scroll-aligned-layout .dashboard-clients-table-wrap,
+    .dashboard-scroll-aligned-layout .dashboard-table-wrap {
+        display: block !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        min-width: 0 !important;
+        overflow-x: auto !important;
+        overflow-y: hidden !important;
+        scrollbar-gutter: stable !important;
+        padding-bottom: 0.22rem !important;
+        box-sizing: border-box !important;
+    }
+
+    /* Todas las tablas usan el mismo ancho interno. */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table,
+    .dashboard-scroll-aligned-layout .dashboard-clients-table {
+        width: 1280px !important;
+        min-width: 1280px !important;
+        max-width: none !important;
+        table-layout: fixed !important;
+        border-collapse: collapse !important;
+        font-size: 0.78rem !important;
+    }
+
+    /* Primera columna uniforme en KPI y reportes. */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table th:first-child,
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table td:first-child,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table th:first-child,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table td:first-child,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table th:first-child,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table td:first-child {
+        width: 220px !important;
+        min-width: 220px !important;
+        max-width: 220px !important;
+        text-align: left !important;
+    }
+
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table th,
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table td,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table th,
+    .dashboard-scroll-aligned-layout .dashboard-forecast-table td,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table th,
+    .dashboard-scroll-aligned-layout .dashboard-compact-table td {
+        min-width: 96px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        box-sizing: border-box !important;
+    }
+
+    /*
+    Los títulos no se desplazan con la tabla.
+    Permanecen alineados arriba de cada panel.
+    */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-panel-title {
+        width: 190px !important;
+        margin: 0.55rem auto 0.7rem auto !important;
+        text-align: center !important;
+    }
+
+    .dashboard-scroll-aligned-layout .dashboard-compact-title-box {
+        width: fit-content !important;
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+        text-align: left !important;
+    }
+
+    /* Altura consistente para que ambos paneles comiencen parejos. */
+    .dashboard-scroll-aligned-layout .dashboard-kpi-panel {
+        display: flex !important;
+        flex-direction: column !important;
+        align-self: stretch !important;
+    }
+
+    .dashboard-scroll-aligned-layout .dashboard-kpi-table-wrap {
+        margin-top: 0 !important;
+    }
+
+    /* Revierte las reglas del bloque vertical anterior. */
+    .dashboard-no-scroll-layout .dashboard-kpi-grid,
+    .dashboard-no-scroll-layout .dashboard-report-pair-grid {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    }
+
+    @media (max-width: 900px) {
+        .dashboard-scroll-aligned-layout .dashboard-kpi-grid,
+        .dashboard-scroll-aligned-layout .dashboard-report-pair-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+        }
+    }
+    """
+
+    closing_tag = "</style>"
+    closing_index = css.rfind(closing_tag)
+
+    if closing_index == -1:
+        return css + f"<style>{aligned_scroll_rules}</style>"
+
+    return (
+        css[:closing_index]
+        + aligned_scroll_rules
+        + css[closing_index:]
+    )
+
+
+
+# =========================================================
+# CORRECCIÓN FINAL DE ESTILOS: RANKING + NEGATIVOS EN TOTALES
+# =========================================================
+_original_build_global_css = build_global_css
+
+
+def build_global_css() -> str:
+    """
+    Devuelve un único bloque <style> válido.
+
+    Algunas extensiones anteriores de styles.py agregaban nuevos bloques
+    <style> dentro de otro bloque <style>. El navegador interpretaba ese HTML
+    anidado como texto visible. Aquí se eliminan todas las etiquetas de estilo
+    intermedias y se vuelve a envolver el CSS completo una sola vez.
+    """
+    base_css = str(_original_build_global_css() or "")
+    base_css = base_css.replace("<style>", "").replace("</style>", "")
+
+    extra_rules = r"""
+/* =====================================================
+   REGLAS DEFINITIVAS DEL RANKING DE CLIENTES
+   ===================================================== */
+
+/* El contenedor puede desplazarse en ambas direcciones. */
+.report4-scroll-fixed {
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    max-height: 560px !important;
+    position: relative !important;
+    isolation: isolate !important;
+    background: #FFFFFF !important;
+}
+
+/* Todas las celdas respetan el ancho de su columna y no invaden otras. */
+.report4-grid-fixed > .report-cell {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-sizing: border-box !important;
+}
+
+/* Todos los encabezados permanecen alineados y fijos únicamente en vertical. */
+.report4-grid-fixed > .report-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 300 !important;
+}
+
+/* ÚNICAMENTE CLIENT NAME, incluyendo su encabezado, queda fijo horizontalmente. */
+.report4-name-header,
+.report4-name-cell {
+    position: sticky !important;
+    left: 0 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 0.85rem !important;
+    box-shadow: 3px 0 5px rgba(15, 23, 42, 0.08) !important;
+}
+
+.report4-name-header {
+    top: 0 !important;
+    z-index: 330 !important;
+    color: #FFFFFF !important;
+    background: #1F2A44 !important;
+    font-weight: 800 !important;
+}
+
+.report4-name-cell {
+    z-index: 230 !important;
+    color: #1F2A44 !important;
+    background: #F8FAFC !important;
+    font-weight: 700 !important;
+}
+
+/* CLIENTE (código) va en negritas, pero NO queda fijo horizontalmente. */
+.report4-code-header {
+    position: sticky !important;
+    top: 0 !important;
+    left: auto !important;
+    z-index: 300 !important;
+    color: #FFFFFF !important;
+    background: #1F2A44 !important;
+    font-weight: 800 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 0.75rem !important;
+    box-shadow: none !important;
+}
+
+.report4-code-cell {
+    position: static !important;
+    left: auto !important;
+    z-index: 1 !important;
+    color: #1F2A44 !important;
+    background: #F8FAFC !important;
+    font-weight: 700 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 0.75rem !important;
+    box-shadow: none !important;
+}
+
+/* Resultados normales: sin negritas. */
+.report4-grid-fixed .report4-metric-cell,
+.report4-grid-fixed .report-value-cell {
+    font-weight: 500 !important;
+}
+
+/* Subtotales y totales: toda la fila en negritas. */
+.report4-grid-fixed .report-total .report-cell,
+.report4-grid-fixed .report-highlight .report-cell {
+    font-weight: 800 !important;
+}
+
+.report4-grid-fixed .report-total .report-cell {
+    background: #F3F6FA !important;
+}
+
+.report4-grid-fixed .report-highlight .report-cell {
+    background: #DCEFD8 !important;
+}
+
+/* Conserva el fondo correcto de la primera columna y del código en totales. */
+.report4-grid-fixed .report-total .report4-name-cell,
+.report4-grid-fixed .report-total .report4-code-cell {
+    background: #F3F6FA !important;
+}
+
+.report4-grid-fixed .report-highlight .report4-name-cell,
+.report4-grid-fixed .report-highlight .report4-code-cell {
+    background: #DCEFD8 !important;
+}
+
+/* Negativos normales: rojo, entre paréntesis desde app.py y sin negritas. */
+.report4-grid-fixed .report-cell.report-negative {
+    color: #C0392B !important;
+    font-weight: 500 !important;
+}
+
+/* Negativos dentro de total o subtotal: rojo y en negritas. */
+.report4-grid-fixed .report-total .report-cell.report-negative,
+.report4-grid-fixed .report-highlight .report-cell.report-negative {
+    color: #C0392B !important;
+    font-weight: 800 !important;
+}
+
+/* Regla general para negativos de otros reportes:
+   rojo; solo los totales y resaltados se conservan en negritas. */
+.report-cell.report-negative {
+    color: #C0392B !important;
+}
+
+.report-row:not(.report-total):not(.report-highlight) .report-cell.report-negative {
+    font-weight: 500 !important;
+}
+
+.report-total .report-cell.report-negative,
+.report-highlight .report-cell.report-negative {
+    color: #C0392B !important;
+    font-weight: 800 !important;
+}
+
+.report-empty-state {
+    padding: 0.9rem;
+    text-align: center;
+    font-weight: 700;
+    color: #1F2A44;
+}
+"""
+
+    extra_rules = extra_rules.rstrip() + r"""
+/* =====================================================
+   ÚLTIMO OVERRIDE: PRIMERA COLUMNA COMPLETA FIJA
+   Incluye CLIENT NAME y su encabezado.
+   ===================================================== */
+.report4-scroll-fixed .report4-grid-fixed > .report4-name-header {
+    position: sticky !important;
+    top: 0 !important;
+    left: 0 !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: #FFFFFF !important;
+    background: #1F2A44 !important;
+    font-weight: 800 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 0.85rem !important;
+    overflow: hidden !important;
+    white-space: nowrap !important;
+    box-shadow: 4px 0 8px rgba(15, 23, 42, 0.18) !important;
+}
+
+.report4-scroll-fixed .report4-grid-fixed > .report4-name-cell {
+    position: sticky !important;
+    left: 0 !important;
+    z-index: 9000 !important;
+    display: flex !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    color: #1F2A44 !important;
+    background: #F8FAFC !important;
+    font-weight: 700 !important;
+    justify-content: flex-start !important;
+    text-align: left !important;
+    padding-left: 0.85rem !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-shadow: 4px 0 8px rgba(15, 23, 42, 0.12) !important;
+}
+
+.report4-scroll-fixed .report4-grid-fixed .report-total > .report4-name-cell {
+    background: #F3F6FA !important;
+    font-weight: 800 !important;
+}
+
+.report4-scroll-fixed .report4-grid-fixed .report-highlight > .report4-name-cell {
+    background: #DCEFD8 !important;
+    font-weight: 800 !important;
+}
+"""
+
+    return "<style>\n" + base_css.strip() + "\n" + extra_rules.strip() + "\n</style>"

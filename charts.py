@@ -956,3 +956,32 @@ def build_channel_mix_grouped_bar_interactive_chart(
     )
 
     return fig
+
+# =========================================================
+# INTEGRACIÓN FORECAST - COMPARACIONES DE GRÁFICAS
+# =========================================================
+def _comparison_config(comparison_type: str) -> dict:
+    comparison = str(comparison_type or "plan").strip().lower()
+
+    if comparison in {"fcst", "forecast"}:
+        return {
+            "base_col": "Fcst",
+            "var_col": "Var VS Fcst",
+            "pct_col": "%Var VS Fcst",
+            "label": "Fcst",
+        }
+
+    if comparison == "py":
+        return {
+            "base_col": "PY",
+            "var_col": "Var VS PY",
+            "pct_col": "%Var VS PY",
+            "label": "PY",
+        }
+
+    return {
+        "base_col": "Plan",
+        "var_col": "Var VS Plan",
+        "pct_col": "%Var VS Plan",
+        "label": "Plan",
+    }
