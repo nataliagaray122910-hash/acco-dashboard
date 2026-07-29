@@ -173,6 +173,20 @@ if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R12
 
     st.session_state["report_logic_version_r123"] = REPORT_LOGIC_VERSION_R123
 
+# La lógica del Ranking de Clientes se versiona por separado para invalidar
+# payloads construidos antes de conservar clientes sin código y corregir O16/O18.
+REPORT_LOGIC_VERSION_R4 = "ranking_clientes_blank_code_v20260729_01"
+if st.session_state.get("report_logic_version_r4") != REPORT_LOGIC_VERSION_R4:
+    st.session_state["report4_payload"] = None
+
+    for _key in list(st.session_state.keys()):
+        if _key.startswith("report4_"):
+            st.session_state.pop(_key, None)
+
+    st.session_state.pop("__global_export_signature", None)
+    st.session_state.pop("__global_export_bytes", None)
+    st.session_state["report_logic_version_r4"] = REPORT_LOGIC_VERSION_R4
+
 # =========================================================
 # 4. CONFIGURACIÓN GLOBAL DE MONEDA
 # =========================================================

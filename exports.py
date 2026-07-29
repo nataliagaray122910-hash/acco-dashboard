@@ -193,6 +193,14 @@ def prepare_report_4_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
         if column_name not in clean_df.columns:
             clean_df[column_name] = "" if column_name in {"Client Name", "Cliente"} else 0.0
 
+    # Protección adicional: las llaves internas usadas para conservar clientes
+    # sin código nunca deben aparecer en el Excel descargado.
+    if "Cliente" in clean_df.columns:
+        internal_client_mask = clean_df["Cliente"].astype(str).str.startswith(
+            ("NAME_ONLY_", "PLAN_ONLY_")
+        )
+        clean_df.loc[internal_client_mask, "Cliente"] = "(blank)"
+
     return clean_df[REPORT_4_VISIBLE_COLUMNS].copy()
 
 def get_first_column_name(df: pd.DataFrame) -> str | None:

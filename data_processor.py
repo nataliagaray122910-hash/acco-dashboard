@@ -3816,7 +3816,7 @@ def exclude_report_4_material_categories(df: pd.DataFrame) -> pd.DataFrame:
     - Esta exclusión NO se aplica al Plan por Cliente.
     - El Plan se toma tal cual viene en la hoja Plan2026 by Client.
     - La exclusión replica el filtro de la tabla dinámica de ventas:
-      O14, O15, O16 y O17 no deben entrar en Actual ni PY.
+      O14, O15, O17 y O18 no deben entrar en Actual ni PY.
     """
     df = df.copy()
 
@@ -3887,12 +3887,31 @@ def prepare_sales_for_report_4(df_processed_sales: pd.DataFrame) -> pd.DataFrame
     df = df.copy()
     df["Cliente"] = df[client_code_col].apply(normalize_report_4_client_code)
     df["Nombre del Cliente"] = df[client_name_col].fillna("").astype(str).str.strip()
+
+    # Regla crítica para clientes sin código:
+    # Si existe Nombre del Cliente, la venta se conserva mediante una llave
+    # interna estable basada en el nombre. Así casos como VENTA A EMPLEADOS
+    # no desaparecen del Actual/PY ni descuadran el Total México.
+    blank_code_mask = df["Cliente"].eq("")
+    valid_name_mask = df["Nombre del Cliente"].apply(normalize_report_4_client_name).ne("")
+    name_only_mask = blank_code_mask & valid_name_mask
+
+    if name_only_mask.any():
+        df.loc[name_only_mask, "Cliente"] = (
+            "NAME_ONLY_"
+            + df.loc[name_only_mask, "Nombre del Cliente"]
+                .apply(normalize_report_4_client_name)
+                .str.replace(r"[^A-Z0-9]+", "_", regex=True)
+                .str.strip("_")
+        )
+
     df["Client Name"] = df.apply(
         lambda row: resolve_report_4_display_name(row["Nombre del Cliente"], row["Cliente"]),
         axis=1,
     )
     df["__gsnr__"] = clean_numeric_series(df[gsnr_col])
 
+    # Solo se eliminan registros sin código Y sin nombre.
     df = df[df["Cliente"] != ""].copy()
     return df
 
@@ -3947,30 +3966,19 @@ def build_report_4_default_plan_name_to_code_overrides() -> dict[str, str]:
 # --------------------------------------------------------------
 def build_report_4_plan_only_client_code(row) -> str:
     """
-    Cuando Plan2026 by Client trae una fila sin código y no existe una
-    equivalencia por nombre, no se debe tirar esa fila porque descuadra
-    el total del Plan.
+    Construye una llave interna estable para Plan/Forecast sin código.
 
-    Se genera una llave interna estable para conservar el monto en el
-    ranking dinámico. Esto no afecta Actual/PY, que siguen cruzando por
-    código real cuando existe.
+    La llave usa el nombre del cliente para que pueda cruzarse con ventas que
+    también vengan sin código (por ejemplo, VENTA A EMPLEADOS). La llave nunca
+    debe mostrarse en la interfaz ni en la exportación.
     """
     name_value = normalize_report_4_client_name(row.get("Nombre del Cliente", ""))
-
-    extra_parts = []
-    for column_name in ["Segment", "Sales Region", "Sales region short", "Channel"]:
-        if column_name in row.index:
-            normalized_part = normalize_report_4_client_name(row.get(column_name, ""))
-            if normalized_part:
-                extra_parts.append(normalized_part)
-
-    raw_key = "_".join([part for part in [name_value] + extra_parts if part])
-    raw_key = re.sub(r"[^A-Z0-9]+", "_", raw_key).strip("_")
+    raw_key = re.sub(r"[^A-Z0-9]+", "_", name_value).strip("_")
 
     if not raw_key:
         raw_key = f"ROW_{row.name}"
 
-    return f"PLAN_ONLY_{raw_key}"
+    return f"NAME_ONLY_{raw_key}"
 
 
 # --------------------------------------------------------------
@@ -4026,10 +4034,10 @@ def prepare_plan_client_for_report_4(df_plan_client: pd.DataFrame) -> pd.DataFra
         axis=1,
     )
 
-    # Para llaves internas PLAN_ONLY, el nombre visible debe ser el Customer name del Plan.
-    plan_only_mask = df["Cliente"].astype(str).str.startswith("PLAN_ONLY_")
-    df.loc[plan_only_mask, "Client Name"] = df.loc[
-        plan_only_mask,
+    # Para llaves internas NAME_ONLY, el nombre visible debe ser el Customer name.
+    name_only_mask = df["Cliente"].astype(str).str.startswith("NAME_ONLY_")
+    df.loc[name_only_mask, "Client Name"] = df.loc[
+        name_only_mask,
         "Nombre del Cliente",
     ].fillna("").astype(str).str.strip()
 
@@ -5013,12 +5021,20 @@ def build_report_3_channel_payload(df_processed_sales, df_plan_sku, df_fcst_sku,
     return {"summary":{"latest_year":year,"latest_month":month,"forecast_name":forecast_name or "Fcst","forecast_label":normalize_forecast_label(forecast_name)},"mtd_channel_table":build_report_3_channel_table(mtd_a,mtd_p,mtd_f,mtd_py),"ytd_channel_table":build_report_3_channel_table(ytd_a,ytd_p,ytd_f,ytd_py)}
 
 
+def get_report_4_visible_client_code(client_code) -> str:
+    """Oculta llaves internas de clientes sin código en la salida visible."""
+    normalized_code = normalize_report_4_client_code(client_code)
+    if normalized_code.startswith(("NAME_ONLY_", "PLAN_ONLY_")):
+        return "(blank)"
+    return normalized_code
+
+
 def build_report_4_row(
     client_code: str, client_label: str, actual: float, plan: float, fcst: float, py: float,
     top_position="", group_label="", is_total: bool=False, is_grand_total: bool=False, is_group_summary: bool=False,
 ) -> dict:
     return {
-        "Client Name": client_label, "Cliente": client_code,
+        "Client Name": client_label, "Cliente": get_report_4_visible_client_code(client_code),
         "Actual": float(actual), "Plan": float(plan), "Fcst": float(fcst), "PY": float(py),
         "Var VS Plan": float(actual)-float(plan), "%Var VS Plan": safe_divide(float(actual)-float(plan),float(plan)),
         "Var VS Fcst": float(actual)-float(fcst), "%Var VS Fcst": safe_divide(float(actual)-float(fcst),float(fcst)),
