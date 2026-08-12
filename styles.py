@@ -94,7 +94,8 @@ def build_global_css() -> str:
     header[data-testid="stHeader"] {{
         background: #000000 !important;
         height: 4.6rem !important;
-        border-bottom: 1px solid #111111 !important;
+        border-bottom: 0 !important;
+        box-shadow: none !important;
     }}
 
     div[data-testid="stToolbar"] {{
@@ -208,7 +209,7 @@ def build_global_css() -> str:
         height: 116px;
         margin-left: -2rem;
         margin-right: -2rem;
-        margin-top: -0.2rem;
+        margin-top: -0.45rem;
         margin-bottom: -92px;
     }}
 

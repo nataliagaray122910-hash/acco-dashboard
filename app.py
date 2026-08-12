@@ -38,6 +38,26 @@ st.set_page_config(
 # =========================================================
 st.markdown(styles.build_global_css(), unsafe_allow_html=True)
 
+# Streamlit marca como "stale" los elementos del render anterior mientras
+# ejecuta un nuevo rerun. Como esta app tiene vistas pesadas (gráficas,
+# reportes y dashboard), esos elementos podían permanecer visibles en gris
+# durante la navegación y dar la impresión de que se mezclaban pestañas.
+#
+# Esta regla los oculta globalmente en cuanto Streamlit los marca como stale.
+# No elimina session_state, filtros, payloads ni datos persistidos.
+st.markdown(
+    """
+    <style>
+    [data-stale="true"] {
+        display: none !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # =========================================================
 # 3. ESTADO DE SESIÓN
 # =========================================================
@@ -489,6 +509,40 @@ def render_global_alerts() -> None:
     if st.session_state.get("mensaje_warning"):
         st.warning(st.session_state["mensaje_warning"])
         st.session_state["mensaje_warning"] = None
+
+
+# =========================================================
+# 4.2.1 PERSISTENCIA DE ESTADO ENTRE VISTAS
+# =========================================================
+VIEW_STATE_KEYS_TO_PRESERVE = (
+    "base_mtd_year",
+    "base_mtd_month",
+    "report1_without_kens_year",
+    "report1_without_kens_month",
+    "report2_segment_year",
+    "report2_segment_month",
+    "report2_category_year",
+    "report2_category_month",
+    "report3_channel_year",
+    "report3_channel_month",
+    "report4_clients_year",
+    "report4_clients_month",
+)
+
+
+def preserve_view_state_across_navigation() -> None:
+    """
+    Conserva selecciones de Año/Mes aunque el widget no se renderice
+    temporalmente porque el usuario cambió de sección.
+
+    Los payloads, filtros aplicados y bases ya viven en st.session_state;
+    esta función refuerza únicamente los estados de widgets que Streamlit
+    podría limpiar al dejar de mostrarlos durante una navegación.
+    """
+    for key in VIEW_STATE_KEYS_TO_PRESERVE:
+        if key in st.session_state:
+            st.session_state[key] = st.session_state[key]
+
 
 # =========================================================
 
@@ -1395,6 +1449,7 @@ def render_sidebar() -> str:
             "Selecciona una sección",
             menu_options,
             index=0,
+            key="main_navigation",
         )
 
         # Los avisos pertenecen a la vista donde fueron generados.
@@ -1405,6 +1460,7 @@ def render_sidebar() -> str:
             st.session_state["mensaje_exito"] = None
             st.session_state["mensaje_error"] = None
             st.session_state["mensaje_warning"] = None
+
         st.session_state["__active_dashboard_section__"] = selected_option
 
         st.markdown("---")
@@ -1567,11 +1623,13 @@ def render_period_filter_block(
         )
         return None, None
 
-    default_year = st.session_state.get(year_key, latest_year)
-    if default_year not in years:
-        default_year = latest_year
-
-    year_index = years.index(default_year)
+    # Inicializa/corrige el estado ANTES de crear los widgets.
+    # Así evitamos combinar un valor por `index=` con otro valor ya presente
+    # en st.session_state, que es lo que genera el warning amarillo de Streamlit.
+    current_year = st.session_state.get(year_key, latest_year)
+    if current_year not in years:
+        current_year = latest_year
+    st.session_state[year_key] = current_year
 
     col1, col2 = st.columns(2)
 
@@ -1579,7 +1637,6 @@ def render_period_filter_block(
         selected_year = st.selectbox(
             "Año",
             options=years,
-            index=year_index,
             key=year_key,
         )
 
@@ -1589,23 +1646,21 @@ def render_period_filter_block(
         st.warning("No hay meses disponibles para el año seleccionado.")
         return selected_year, None
 
-    default_month = st.session_state.get(month_key)
+    current_month = st.session_state.get(month_key)
 
     if selected_year == latest_year:
         fallback_month = latest_month
     else:
         fallback_month = max(available_months)
 
-    if default_month not in available_months:
-        default_month = fallback_month
-
-    month_index = available_months.index(default_month)
+    if current_month not in available_months:
+        current_month = fallback_month
+    st.session_state[month_key] = current_month
 
     with col2:
         selected_month = st.selectbox(
             "Mes de corte",
             options=available_months,
-            index=month_index,
             key=month_key,
             format_func=get_month_label,
         )
@@ -6475,17 +6530,12 @@ def render_overview_view() -> None:
         if process_ok:
             st.rerun()
 
-    st.markdown(
-        '<div class="base-mtd-section-heading">Resumen de la base procesada</div>',
-        unsafe_allow_html=True,
-    )
-
-    render_processed_data_summary()
-
+    # La base sigue procesándose normalmente, pero se retira de esta vista
+    # el resumen de registros / GSNR / Gross Margin para evitar confusión.
     df_processed = st.session_state.get("df_processed_sales")
 
     st.markdown(
-        '<div class="base-mtd-section-heading">Tendencia Mensual</div>',
+        '<div class="base-mtd-section-heading">Tendencia Historica</div>',
         unsafe_allow_html=True,
     )
 
@@ -6498,7 +6548,7 @@ def render_overview_view() -> None:
     if trend_fig is not None:
         st.plotly_chart(trend_fig, use_container_width=True)
     else:
-        st.info("No hay información suficiente para construir la tendencia mensual.")
+        st.info("No hay información suficiente para construir la tendencia histórica.")
 
     st.markdown(
         '<div class="base-mtd-section-heading">Vista previa de la base procesada</div>',
@@ -6608,11 +6658,13 @@ def render_mtd_base_view() -> None:
     years, latest_year, latest_month = get_available_year_month_options()
 
     if years:
-        default_year = st.session_state.get("base_mtd_year", payload["latest_year"])
-        if default_year not in years:
-            default_year = latest_year
-
-        year_index = years.index(default_year)
+        current_year_mtd = st.session_state.get(
+            "base_mtd_year",
+            payload["latest_year"],
+        )
+        if current_year_mtd not in years:
+            current_year_mtd = latest_year
+        st.session_state["base_mtd_year"] = current_year_mtd
 
         filter_col_year, filter_col_month, filter_col_apply = st.columns(
             [1.1, 1.25, 0.95]
@@ -6622,7 +6674,6 @@ def render_mtd_base_view() -> None:
             selected_year_mtd = st.selectbox(
                 "Año",
                 options=years,
-                index=year_index,
                 key="base_mtd_year",
             )
 
@@ -6630,23 +6681,24 @@ def render_mtd_base_view() -> None:
 
         selected_month_mtd = None
         if available_months:
-            default_month = st.session_state.get("base_mtd_month", payload["latest_month"])
+            current_month_mtd = st.session_state.get(
+                "base_mtd_month",
+                payload["latest_month"],
+            )
 
             if selected_year_mtd == latest_year:
                 fallback_month = latest_month
             else:
                 fallback_month = max(available_months)
 
-            if default_month not in available_months:
-                default_month = fallback_month
-
-            month_index = available_months.index(default_month)
+            if current_month_mtd not in available_months:
+                current_month_mtd = fallback_month
+            st.session_state["base_mtd_month"] = current_month_mtd
 
             with filter_col_month:
                 selected_month_mtd = st.selectbox(
                     "Mes de corte",
                     options=available_months,
-                    index=month_index,
                     key="base_mtd_month",
                     format_func=get_month_label,
                 )
@@ -7942,6 +7994,10 @@ def main() -> None:
     # en cuanto el usuario entra, siempre que la sesión esté vacía.
     ensure_persistent_data_loaded_if_available(show_message=False)
 
+    # Conserva el estado propio de filtros/periodos aunque una sección
+    # deje de renderizarse temporalmente.
+    preserve_view_state_across_navigation()
+
     render_main_header()
     selected = render_sidebar()
 
@@ -7949,6 +8005,9 @@ def main() -> None:
 
     render_global_alerts()
 
+    # Solo se ejecuta la vista seleccionada.
+    # Los elementos de la vista anterior que Streamlit marque como stale
+    # quedan ocultos por la regla CSS global definida al inicio del archivo.
     if selected == "Inicio":
         render_home_view()
     elif selected == "Carga de datos":
@@ -7970,7 +8029,7 @@ def main() -> None:
         render_report_4_view()
     elif selected == "Base MTD":
         render_mtd_base_view()
-    else:   
+    else:
         render_placeholder_view(selected)
 
 

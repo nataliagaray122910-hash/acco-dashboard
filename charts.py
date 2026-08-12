@@ -535,6 +535,15 @@ def build_monthly_gsnr_trend_chart(
     currency_mode: str = "MXN",
     exchange_rate: float = 20.0,
 ):
+    """
+    Construye la tendencia histórica mensual de GSNR.
+
+    Reglas de esta gráfica:
+    - Trabaja sobre una copia de la base procesada.
+    - Excluye registros de afiliadas únicamente para esta visualización.
+    - Agrupa por Año y Mes.
+    - Muestra las fechas solo como Mes + Año, sin día.
+    """
     if df_processed_sales is None or df_processed_sales.empty:
         return None
 
@@ -543,6 +552,50 @@ def build_monthly_gsnr_trend_chart(
         return None
 
     df = df_processed_sales.copy()
+
+    # -----------------------------------------------------
+    # EXCLUSIÓN DE AFILIADAS SOLO PARA LA GRÁFICA
+    # -----------------------------------------------------
+    vendor_group_candidates = [
+        "Grupo de Vendedores",
+        "Grupo de vendedores",
+        "Grupo Vendedores",
+        "Grupo vendedores",
+    ]
+
+    vendor_group_col = next(
+        (col for col in vendor_group_candidates if col in df.columns),
+        None,
+    )
+
+    if vendor_group_col is not None:
+        configured_exclusions = getattr(
+            config,
+            "BASE_MTD_EXCLUDED_VENDOR_GROUPS",
+            [
+                "AFI: Afiliadas",
+                "AFI",
+                "AF: Afiliadas",
+                "AF",
+            ],
+        )
+
+        excluded_values = {
+            re.sub(r"\s+", " ", str(value).strip()).upper()
+            for value in configured_exclusions
+        }
+
+        vendor_group_values = (
+            df[vendor_group_col]
+            .fillna("")
+            .astype(str)
+            .str.replace(r"\s+", " ", regex=True)
+            .str.strip()
+            .str.upper()
+        )
+
+        df = df.loc[~vendor_group_values.isin(excluded_values)].copy()
+
     df = df.dropna(subset=[config.COL_YEAR, config.COL_MONTH])
 
     if df.empty:
@@ -553,6 +606,11 @@ def build_monthly_gsnr_trend_chart(
     df[config.COL_GSNR] = df[config.COL_GSNR].apply(safe_float)
 
     df = df.dropna(subset=[config.COL_YEAR, config.COL_MONTH])
+    df = df[df[config.COL_MONTH].between(1, 12)].copy()
+
+    if df.empty:
+        return None
+
     df[config.COL_YEAR] = df[config.COL_YEAR].astype(int)
     df[config.COL_MONTH] = df[config.COL_MONTH].astype(int)
 
@@ -560,12 +618,30 @@ def build_monthly_gsnr_trend_chart(
         df.groupby([config.COL_YEAR, config.COL_MONTH], as_index=False)[config.COL_GSNR]
         .sum()
         .sort_values([config.COL_YEAR, config.COL_MONTH])
+        .reset_index(drop=True)
     )
 
-    trend_df["Periodo"] = (
-        trend_df[config.COL_YEAR].astype(str)
-        + "-"
-        + trend_df[config.COL_MONTH].astype(str).str.zfill(2)
+    month_labels = {
+        1: "Ene",
+        2: "Feb",
+        3: "Mar",
+        4: "Abr",
+        5: "May",
+        6: "Jun",
+        7: "Jul",
+        8: "Ago",
+        9: "Sep",
+        10: "Oct",
+        11: "Nov",
+        12: "Dic",
+    }
+
+    trend_df["Periodo"] = trend_df.apply(
+        lambda row: (
+            f"{month_labels.get(int(row[config.COL_MONTH]), int(row[config.COL_MONTH]))} "
+            f"{int(row[config.COL_YEAR])}"
+        ),
+        axis=1,
     )
 
     trend_df["GSNR K"] = trend_df[config.COL_GSNR].apply(
@@ -604,13 +680,31 @@ def build_monthly_gsnr_trend_chart(
 
     fig = apply_corporate_layout(
         fig,
-        title=f"Tendencia Mensual de GSNR · K {currency_label}",
+        title=f"GSNR · desde Octubre 2022 · K {currency_label}",
         height=430,
     )
+
+    tick_step = 6
+    tick_values = trend_df["Periodo"].tolist()[::tick_step]
+
+    if not trend_df.empty:
+        last_period = trend_df["Periodo"].iloc[-1]
+        if last_period not in tick_values:
+            tick_values.append(last_period)
+
     fig.update_layout(
         hovermode="x unified",
         xaxis_title="Periodo",
         yaxis_title=f"GSNR · K {currency_label}",
+    )
+
+    fig.update_xaxes(
+        type="category",
+        categoryorder="array",
+        categoryarray=trend_df["Periodo"].tolist(),
+        tickmode="array",
+        tickvals=tick_values,
+        ticktext=tick_values,
     )
 
     return fig
