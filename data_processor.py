@@ -3642,16 +3642,17 @@ def build_report_3_channel_payload(
 # CONSTANTES VISIBLES DEL REPORTE 4
 # --------------------------------------------------------------
 REPORT_4_VISIBLE_COLUMNS = [
+    "TOP",
     "Client Name",
     "Cliente",
     "Actual",
     "Plan",
-    "Fcst",
-    "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Fcst",
     "Var VS Fcst",
     "%Var VS Fcst",
+    "PY",
     "Var VS PY",
     "%Var VS PY",
 ]
@@ -5074,6 +5075,7 @@ def build_report_4_detail_table(actual_df, plan_df, fcst_df, py_df, keep_interna
         ascending=[False,False,False,False,True,True],kind="mergesort"
     ).reset_index(drop=True)
     df["__top__"]=range(1,len(df)+1)
+    df["TOP"] = df["__top__"]
     df["__grupo__"]=df["__top__"].apply(get_report_4_group_from_top)
     return finalize_report_4_table(df,keep_internal=keep_internal)
 
@@ -5383,3 +5385,157 @@ def normalize_report_4_client_code(value) -> str:
     if re.fullmatch(r"[-+]?\d+\.0+", text):
         text = text.split(".", 1)[0]
     return text
+
+
+# =========================================================
+# REFINAMIENTO EJECUTIVO 2026-08-13
+# Resumen independiente + orden corporativo de métricas
+# =========================================================
+REPORT_METRIC_COLUMNS_EXECUTIVE_ORDER = [
+    "Actual",
+    "Plan",
+    "Var VS Plan",
+    "%Var VS Plan",
+    "Fcst",
+    "Var VS Fcst",
+    "%Var VS Fcst",
+    "PY",
+    "Var VS PY",
+    "%Var VS PY",
+]
+
+
+def reorder_report_metric_columns(df: pd.DataFrame, dimension_columns: list[str] | None = None) -> pd.DataFrame:
+    """Reordena únicamente columnas visibles; no modifica cálculos ni filas."""
+    if df is None:
+        return df
+    if df.empty:
+        return df.copy()
+
+    work = df.copy()
+    internal = [col for col in work.columns if str(col).startswith("__")]
+
+    if dimension_columns is None:
+        dimension_columns = [
+            col for col in work.columns
+            if col not in REPORT_METRIC_COLUMNS_EXECUTIVE_ORDER
+            and col not in internal
+            and col not in {"Grupo"}
+        ]
+    else:
+        dimension_columns = [col for col in dimension_columns if col in work.columns]
+
+    metric_columns = [col for col in REPORT_METRIC_COLUMNS_EXECUTIVE_ORDER if col in work.columns]
+    remaining_visible = [
+        col for col in work.columns
+        if col not in dimension_columns
+        and col not in metric_columns
+        and col not in internal
+        and col != "Grupo"
+    ]
+    ordered = dimension_columns + metric_columns + remaining_visible + internal
+    ordered = [col for i, col in enumerate(ordered) if col in work.columns and col not in ordered[:i]]
+    return work[ordered].copy()
+
+
+def build_executive_summary_payload(
+    df_processed_sales: pd.DataFrame,
+    df_plan_client: pd.DataFrame,
+    df_plan_sku: pd.DataFrame,
+    df_fcst_client: pd.DataFrame,
+    df_fcst_sku: pd.DataFrame,
+    selected_year: int,
+    selected_month: int,
+) -> dict:
+    """
+    Calcula el Resumen ejecutivo directamente desde las bases cargadas.
+    NO requiere construir Base MTD y NO guarda mtd_payload.
+    """
+    year, month = resolve_reporting_period(
+        df_processed_sales,
+        selected_year=selected_year,
+        selected_month=selected_month,
+    )
+    totals = calculate_actual_and_py_totals(df_processed_sales, year, month)
+    plan = calculate_plan_totals_summary(df_plan_client, df_plan_sku, month)
+    fcst = calculate_fcst_totals_summary(df_fcst_client, df_fcst_sku, month)
+    bts = calculate_bts_totals(df_processed_sales, year, month)
+
+    return {
+        "latest_year": year,
+        "latest_month": month,
+        "mtd_act_total_k": totals["mtd_actual"] / 1000,
+        "ytd_act_total_k": totals["ytd_actual"] / 1000,
+        "mtd_plan_total_k": plan["mtd_plan_total"] / 1000,
+        "ytd_plan_total_k": plan["ytd_plan_total"] / 1000,
+        "mtd_fcst_total_k": fcst["mtd_fcst_total"] / 1000,
+        "ytd_fcst_total_k": fcst["ytd_fcst_total"] / 1000,
+        "bts_actual_k": bts["bts_actual"] / 1000,
+        "bts_py_full_k": bts["bts_py_full"] / 1000,
+        "plan_summary": plan,
+        "fcst_summary": fcst,
+    }
+
+
+# Wrap final payload builders so all report tables share the new column order.
+_build_mtd_payload_before_exec_order = build_mtd_payload
+_build_report_1_payload_before_exec_order = build_report_1_payload
+_build_report_2_segment_region_payload_before_exec_order = build_report_2_segment_region_payload
+_build_report_2_category_payload_before_exec_order = build_report_2_category_payload
+_build_report_3_channel_payload_before_exec_order = build_report_3_channel_payload
+_build_report_4_top_clients_payload_before_exec_order = build_report_4_top_clients_payload
+
+
+def build_mtd_payload(*args, **kwargs):
+    payload = _build_mtd_payload_before_exec_order(*args, **kwargs)
+    for key in ("client_table", "sku_table"):
+        if key in payload:
+            payload[key] = reorder_report_metric_columns(payload[key], ["Periodo"])
+    if "bts_table" in payload:
+        payload["bts_table"] = reorder_report_metric_columns(payload["bts_table"], ["Periodo"])
+    return payload
+
+
+def build_report_1_payload(*args, **kwargs):
+    payload = _build_report_1_payload_before_exec_order(*args, **kwargs)
+    for key in ("mtd_without_kens_table", "ytd_without_kens_table"):
+        payload[key] = reorder_report_metric_columns(payload[key], ["Oficina de Ventas"])
+    return payload
+
+
+def build_report_2_segment_region_payload(*args, **kwargs):
+    payload = _build_report_2_segment_region_payload_before_exec_order(*args, **kwargs)
+    for key in ("mtd_segment_region_table", "ytd_segment_region_table"):
+        payload[key] = reorder_report_metric_columns(payload[key], ["Segmento", "Región"])
+    return payload
+
+
+def build_report_2_category_payload(*args, **kwargs):
+    payload = _build_report_2_category_payload_before_exec_order(*args, **kwargs)
+    dims = ["Category", "Material", "Categoría del Material", "Descripción del Material"]
+    for key in ("mtd_category_table", "ytd_category_table"):
+        payload[key] = reorder_report_metric_columns(payload[key], dims)
+    return payload
+
+
+def build_report_3_channel_payload(*args, **kwargs):
+    payload = _build_report_3_channel_payload_before_exec_order(*args, **kwargs)
+    for key in ("mtd_channel_table", "ytd_channel_table"):
+        payload[key] = reorder_report_metric_columns(payload[key], ["Channel"])
+    return payload
+
+
+def build_report_4_top_clients_payload(*args, **kwargs):
+    payload = _build_report_4_top_clients_payload_before_exec_order(*args, **kwargs)
+    ranking_keys = (
+        "mtd_top_clients_table", "ytd_top_clients_table",
+        "mtd_detail_table", "ytd_detail_table",
+        "mtd_summary_table", "ytd_summary_table",
+        "mtd_group_16_50_table", "ytd_group_16_50_table",
+        "mtd_group_51_100_table", "ytd_group_51_100_table",
+        "mtd_group_other_table", "ytd_group_other_table",
+    )
+    for key in ranking_keys:
+        if key in payload and payload[key] is not None:
+            payload[key] = reorder_report_metric_columns(payload[key], ["TOP", "Client Name", "Cliente"])
+    return payload

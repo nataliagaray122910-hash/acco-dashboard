@@ -86,25 +86,44 @@ NUMERIC_COLUMNS = {
 
 INTERNAL_COLUMNS_PREFIX = "__"
 
+
+REPORT_METRIC_COLUMNS_EXECUTIVE_ORDER = [
+    "Actual", "Plan", "Var VS Plan", "%Var VS Plan",
+    "Fcst", "Var VS Fcst", "%Var VS Fcst",
+    "PY", "Var VS PY", "%Var VS PY",
+]
+
+
+def reorder_export_metrics(df: pd.DataFrame) -> pd.DataFrame:
+    """Mantiene dimensiones al inicio y acerca cada referencia a sus variaciones."""
+    if df is None or df.empty:
+        return df
+    cols = list(df.columns)
+    internal = [c for c in cols if is_internal_column(str(c))]
+    metrics = [c for c in REPORT_METRIC_COLUMNS_EXECUTIVE_ORDER if c in cols]
+    dimensions = [c for c in cols if c not in metrics and c not in internal]
+    return df[dimensions + metrics + internal].copy()
+
 # ---------------------------------------------------------
 # CONFIGURACIÓN ESPECÍFICA REPORTE 4
 # ---------------------------------------------------------
 REPORT_4_VISIBLE_COLUMNS = [
+    "TOP",
     "Client Name",
     "Cliente",
     "Actual",
     "Plan",
-    "Fcst",
-    "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Fcst",
     "Var VS Fcst",
     "%Var VS Fcst",
+    "PY",
     "Var VS PY",
     "%Var VS PY",
 ]
 
-REPORT_4_HIDDEN_EXPORT_COLUMNS = {"TOP", "Grupo"}
+REPORT_4_HIDDEN_EXPORT_COLUMNS = {"Grupo"}
 
 
 # ---------------------------------------------------------
@@ -160,7 +179,7 @@ def sanitize_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
     if df is None:
         return pd.DataFrame()
 
-    clean_df = df.copy()
+    clean_df = reorder_export_metrics(df.copy())
     visible_columns = [
         col for col in clean_df.columns
         if not is_internal_column(str(col))
@@ -174,8 +193,8 @@ def prepare_report_4_export_dataframe(df: pd.DataFrame | None) -> pd.DataFrame:
 
     Reglas:
     - No exporta columnas internas.
-    - No exporta TOP ni Grupo.
-    - Fuerza el mismo orden visible que la app: Client Name, Cliente y métricas.
+    - Exporta TOP como primera columna y oculta únicamente Grupo.
+    - Fuerza el mismo orden visible que la app: TOP, Client Name, Cliente y métricas.
     """
     if df is None:
         return pd.DataFrame(columns=REPORT_4_VISIBLE_COLUMNS)
@@ -2108,16 +2127,17 @@ NUMERIC_COLUMNS.update({"Fcst", "Var VS Fcst"})
 
 # Ranking: conserva exactamente el orden visual acordado.
 REPORT_4_VISIBLE_COLUMNS = [
+    "TOP",
     "Client Name",
     "Cliente",
     "Actual",
     "Plan",
-    "Fcst",
-    "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Fcst",
     "Var VS Fcst",
     "%Var VS Fcst",
+    "PY",
     "Var VS PY",
     "%Var VS PY",
 ]
@@ -2141,3 +2161,4 @@ def get_header_fill(column_name: str):
         return HEADER_VAR_PY_FILL
 
     return HEADER_NEUTRAL_FILL
+

@@ -856,12 +856,12 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
 REPORT_METRIC_COLUMNS_WITH_FORECAST = [
     "Actual",
     "Plan",
-    "Fcst",
-    "PY",
     "Var VS Plan",
     "%Var VS Plan",
+    "Fcst",
     "Var VS Fcst",
     "%Var VS Fcst",
+    "PY",
     "Var VS PY",
     "%Var VS PY",
 ]

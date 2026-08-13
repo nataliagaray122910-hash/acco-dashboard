@@ -171,7 +171,7 @@ if "login_error_message" not in st.session_state:
 # parezca que el código nuevo no cambió nada.
 # Esta llave fuerza a limpiar SOLO los reportes y filtros de R1/R2/R3 para que
 # se reconstruyan con la lógica actual. No toca archivos cargados ni Reporte 4.
-REPORT_LOGIC_VERSION_R123 = "forecast_integral_conservador_v20260724_02"
+REPORT_LOGIC_VERSION_R123 = "filters_applied_state_v20260813_04"
 if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R123:
     for _key in [
         "mtd_payload",
@@ -195,7 +195,7 @@ if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R12
 
 # La lógica del Ranking de Clientes se versiona por separado para invalidar
 # payloads construidos antes de conservar clientes sin código y corregir O16/O18.
-REPORT_LOGIC_VERSION_R4 = "ranking_clientes_blank_code_v20260729_01"
+REPORT_LOGIC_VERSION_R4 = "ranking_search_clean_v20260813_02"
 if st.session_state.get("report_logic_version_r4") != REPORT_LOGIC_VERSION_R4:
     st.session_state["report4_payload"] = None
 
@@ -2864,63 +2864,37 @@ def render_report_1_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### Construir Reporte")
-    st.markdown(
-        '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del reporte.</div>',
-        unsafe_allow_html=True,
-    )
-
-    if st.button("Construir Reporte 1", use_container_width=True):
-        build_ok = execute_with_status(
-            "Construyendo Reporte 1...",
-            lambda progress: run_report_1_build(progress=progress),
-        )
-        if build_ok:
-            st.rerun()
-
     payload = st.session_state.get("report1_payload")
 
     if payload is None:
+        st.markdown("### Construir Reporte")
+        st.markdown(
+            '<div class="report-note">Primero construye el reporte para habilitar la vista. Después podrás cambiar el Año, el Mes y la primera columna del reporte.</div>',
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Construir Reporte 1", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Reporte 1...",
+                lambda progress: run_report_1_build(progress=progress),
+            )
+            if build_ok:
+                st.rerun()
+
         st.markdown("---")
         st.info("Aún no se ha construido el Reporte 1.")
         return
 
-    st.markdown("---")
-    st.markdown("### Resumen ejecutivo")
-
-    latest_month = payload["summary"]["latest_month"]
-    latest_year = payload["summary"]["latest_year"]
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-        st.markdown(
-            styles.build_info_card(
-                "Periodo actual",
-                f"{latest_month:02d}/{latest_year}",
-                "Periodo de corte seleccionado desde BASE SAP",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            styles.build_info_card(
-                "Bloque completo",
-                "ACCO + BARR + KENS",
-                "Comparativo completo",
-            ),
-            unsafe_allow_html=True,
-        )
+    selected_year_without_kens, selected_month_without_kens = render_report_period_row(
+        "report1_without_kens_year", "report1_without_kens_month",
+        "btn_report1_period_top",
+        lambda year, month: run_report_1_build(selected_year=year, selected_month=month),
+    )
+    if selected_year_without_kens is not None and selected_month_without_kens is not None:
+        render_independent_executive_summary(selected_year_without_kens, selected_month_without_kens)
 
     st.markdown("---")
     st.markdown("### Oficina de ventas MTD / YTD")
-
-    selected_year_without_kens, selected_month_without_kens = render_period_filter_block(
-        "Filtro del bloque: Oficina de ventas",
-        "report1_without_kens_year",
-        "report1_without_kens_month",
-    )
 
     payload = st.session_state.get("report1_payload")
 
@@ -2932,77 +2906,24 @@ def render_report_1_view() -> None:
         lambda row: str(row.get("Oficina de Ventas", "")).strip(),
     )
 
-    render_dimension_filter_block(
-        "OFICINA DE VENTAS",
-        "report1_without_kens_dimension_widget",
-        "report1_without_kens_dimension_applied",
-        without_kens_options,
-    )
-
-    if selected_year_without_kens is not None and selected_month_without_kens is not None:
-        if st.button(
-            "Aplicar filtro",
-            key="btn_report1_without_kens",
-            use_container_width=False,
-        ):
-            old_without_kens_options = without_kens_options.copy()
-            selected_without_kens_before = st.session_state.get(
-                "report1_without_kens_dimension_widget",
-                old_without_kens_options.copy(),
-            )
-            rebuild_ok = run_report_1_build(
-                selected_year=selected_year_without_kens,
-                selected_month=selected_month_without_kens,
-            )
-            if not rebuild_ok:
-                st.rerun()
-            payload_after = st.session_state.get("report1_payload")
-            new_without_kens_options = get_filter_options_from_multiple_tables(
-                [
-                    payload_after["mtd_without_kens_table"],
-                    payload_after["ytd_without_kens_table"],
-                ],
-                lambda row: str(row.get("Oficina de Ventas", "")).strip(),
-            )
-            apply_dimension_filter_after_rebuild(
-                "report1_without_kens_dimension_widget",
-                "report1_without_kens_dimension_applied",
-                old_without_kens_options,
-                new_without_kens_options,
-                selected_without_kens_before,
-            )
-            st.rerun()
-
-    payload = st.session_state.get("report1_payload")
-
     active_year_report1 = payload["summary"]["latest_year"]
     active_month_report1 = payload["summary"]["latest_month"]
 
-    applied_without_kens_labels = get_valid_applied_filter_values(
-        "report1_without_kens_dimension_applied",
-        without_kens_options,
+    report_1_bytes = exports.build_report_1_excel_bytes(
+        mtd_without_kens_df=convert_report_table_for_export(
+            payload["mtd_without_kens_table"]
+        ),
+        ytd_without_kens_df=convert_report_table_for_export(
+            payload["ytd_without_kens_table"]
+        ),
+        report_title=build_report_context_title(
+            "Reporte 1 - Oficina de ventas",
+            active_year_report1,
+            active_month_report1,
+        ),
     )
 
-    filtered_mtd_without_kens = filter_report_1_without_kens_table(
-        payload["mtd_without_kens_table"],
-        applied_without_kens_labels,
-    )
-    filtered_ytd_without_kens = filter_report_1_without_kens_table(
-        payload["ytd_without_kens_table"],
-        applied_without_kens_labels,
-    )
-
-    export_col_left, export_col_right = st.columns([12, 1])
-    with export_col_right:
-        report_1_bytes = exports.build_report_1_excel_bytes(
-            mtd_without_kens_df=convert_report_table_for_export(payload["mtd_without_kens_table"]),
-            ytd_without_kens_df=convert_report_table_for_export(payload["ytd_without_kens_table"]),
-            report_title=build_report_context_title(
-                "Reporte 1 - Oficina de ventas",
-                active_year_report1,
-                active_month_report1,
-            ),
-        )
+    def _render_report1_download():
         render_icon_download_button(
             data=report_1_bytes,
             file_name=build_excel_filename(
@@ -3014,8 +2935,25 @@ def render_report_1_view() -> None:
             help_text="Descargar Reporte 1",
         )
 
+    applied_without_kens_labels = render_filter_download_row(
+        "OFICINA DE VENTAS",
+        "report1_without_kens_dimension_widget",
+        "report1_without_kens_dimension_applied",
+        without_kens_options,
+        _render_report1_download,
+    )
+
+    filtered_mtd_without_kens = filter_report_1_without_kens_table(
+        payload["mtd_without_kens_table"],
+        applied_without_kens_labels,
+    )
+    filtered_ytd_without_kens = filter_report_1_without_kens_table(
+        payload["ytd_without_kens_table"],
+        applied_without_kens_labels,
+    )
+
     st.markdown(
-        '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
+        '<div class="report-note compact-report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
         unsafe_allow_html=True,
     )
 
@@ -3315,56 +3253,59 @@ def render_report_2_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### Construir Segment x Region")
-    if st.button("Construir Reporte Segment x Region", use_container_width=True):
-        build_ok = execute_with_status(
-            "Construyendo Segment x Region...",
-            lambda progress: run_report_2_build(progress=progress),
-        )
-        if build_ok:
-            st.rerun()
-
     payload = st.session_state.get("report2_payload")
-
-    st.markdown("---")
-    st.markdown("### Resumen ejecutivo")
+    payload_category = st.session_state.get("report2_category_payload")
 
     if payload is None:
-        st.info("Aún no se ha construido el Reporte Segment x Region.")
-    else:
-        latest_month = payload["summary"]["latest_month"]
-        latest_year = payload["summary"]["latest_year"]
-
-        col1, col2, col3 = st.columns(3)
-
-        with col1:
-            st.markdown(
-                styles.build_info_card(
-                    "Periodo actual",
-                    f"{latest_month:02d}/{latest_year}",
-                    "Periodo de corte seleccionado desde BASE SAP",
-                ),
-                unsafe_allow_html=True,
+        st.markdown("### Construir Segment x Region")
+        if st.button("Construir Reporte Segment x Region", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Segment x Region...",
+                lambda progress: run_report_2_build(progress=progress),
             )
+            if build_ok:
+                st.rerun()
 
-        with col2:
-            st.markdown(
-                styles.build_info_card(
-                    "Segmentos visibles",
-                    "Dinámicos",
-                    "Se muestran los segmentos con Actual, Plan o PY",
-                ),
-                unsafe_allow_html=True,
-            )
+    # El periodo y el Resumen ejecutivo solo aparecen cuando el usuario
+    # ya construyó al menos uno de los dos bloques de esta pestaña.
+    selected_year_segment = None
+    selected_month_segment = None
 
-        with col3:
-            st.markdown(
-                styles.build_info_card(
-                    "Regla aplicada",
-                    "AFI excluido",
-                    "Se excluye AFI: Afiliadas en la construcción del reporte",
-                ),
-                unsafe_allow_html=True,
+    if payload is not None or payload_category is not None:
+        def _apply_report2_period(year, month):
+            ok_segment = True
+            ok_category = True
+
+            if st.session_state.get("report2_payload") is not None:
+                ok_segment = run_report_2_build(
+                    selected_year=year,
+                    selected_month=month,
+                )
+
+            if st.session_state.get("report2_category_payload") is not None:
+                ok_category = run_report_2_category_build(
+                    selected_year=year,
+                    selected_month=month,
+                )
+
+            return bool(ok_segment and ok_category)
+
+        selected_year_segment, selected_month_segment = render_report_period_row(
+            "report2_segment_year",
+            "report2_segment_month",
+            "btn_report2_period_top",
+            _apply_report2_period,
+        )
+
+        if (
+            selected_year_segment is not None
+            and selected_month_segment is not None
+        ):
+            st.session_state["report2_category_year"] = selected_year_segment
+            st.session_state["report2_category_month"] = selected_month_segment
+            render_independent_executive_summary(
+                selected_year_segment,
+                selected_month_segment,
             )
 
     st.markdown("---")
@@ -3375,12 +3316,6 @@ def render_report_2_view() -> None:
     if payload is None:
         st.info("Aún no se ha construido el bloque Segment x Region.")
     else:
-        selected_year_segment, selected_month_segment = render_period_filter_block(
-            "Filtro del bloque: Segment x Region",
-            "report2_segment_year",
-            "report2_segment_month",
-        )
-
         segment_region_options = get_filter_options_from_multiple_tables(
             [
                 payload["mtd_segment_region_table"],
@@ -3388,93 +3323,25 @@ def render_report_2_view() -> None:
             ],
             build_report_2_segment_region_display_label,
         )
-
-        render_dimension_filter_block(
-            "SEGMENTO / REGIÓN",
-            "report2_segment_dimension_widget",
-            "report2_segment_dimension_applied",
-            segment_region_options,
-        )
-
-        segment_apply_clicked = False
-
-        if selected_year_segment is not None and selected_month_segment is not None:
-            if st.button(
-                "Aplicar filtro",
-                key="btn_report2_segment",
-                use_container_width=False,
-            ):
-                old_segment_region_options = segment_region_options.copy()
-                selected_segment_before = st.session_state.get(
-                    "report2_segment_dimension_widget",
-                    old_segment_region_options.copy(),
-                )
-                rebuild_ok = run_report_2_build(
-                    selected_year=selected_year_segment,
-                    selected_month=selected_month_segment,
-                )
-                if not rebuild_ok:
-                    st.rerun()
-                payload_after = st.session_state.get("report2_payload")
-                new_segment_region_options = get_filter_options_from_multiple_tables(
-                    [
-                        payload_after["mtd_segment_region_table"],
-                        payload_after["ytd_segment_region_table"],
-                    ],
-                    build_report_2_segment_region_display_label,
-                )
-                apply_dimension_filter_after_rebuild(
-                    "report2_segment_dimension_widget",
-                    "report2_segment_dimension_applied",
-                    old_segment_region_options,
-                    new_segment_region_options,
-                    selected_segment_before,
-                )
-                st.rerun()
-
-        payload = st.session_state.get("report2_payload")
-
-        # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
-        # Esto evita tener que dar dos o tres clics para que aparezcan categorías nuevas como #N/A o VARIOS.
-        segment_region_options = get_filter_options_from_multiple_tables(
-            [
-                payload["mtd_segment_region_table"],
-                payload["ytd_segment_region_table"],
-            ],
-            build_report_2_segment_region_display_label,
-        )
-
-        # No se reinicia la selección aplicada después de reconstruir.
-        # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
         active_year_segment = payload["summary"]["latest_year"]
         active_month_segment = payload["summary"]["latest_month"]
 
-        applied_segment_region_labels = get_valid_applied_filter_values(
-            "report2_segment_dimension_applied",
-            segment_region_options,
+        segment_bytes = exports.build_report_2_segment_excel_bytes(
+            mtd_segment_df=convert_report_table_for_export(
+                payload["mtd_segment_region_table"]
+            ),
+            ytd_segment_df=convert_report_table_for_export(
+                payload["ytd_segment_region_table"]
+            ),
+            report_title=build_report_context_title(
+                "Reporte 2 - Segment x Region",
+                active_year_segment,
+                active_month_segment,
+            ),
         )
 
-        filtered_mtd_segment = filter_report_2_segment_region_table(
-            payload["mtd_segment_region_table"],
-            applied_segment_region_labels,
-        )
-        filtered_ytd_segment = filter_report_2_segment_region_table(
-            payload["ytd_segment_region_table"],
-            applied_segment_region_labels,
-        )
-
-        export_col_left, export_col_right = st.columns([12, 1])
-        with export_col_right:
-            segment_bytes = exports.build_report_2_segment_excel_bytes(
-                mtd_segment_df=convert_report_table_for_export(payload["mtd_segment_region_table"]),
-                ytd_segment_df=convert_report_table_for_export(payload["ytd_segment_region_table"]),
-                report_title=build_report_context_title(
-                    "Reporte 2 - Segment x Region",
-                    active_year_segment,
-                    active_month_segment,
-                ),
-            )
+        def _render_segment_download():
             render_icon_download_button(
                 data=segment_bytes,
                 file_name=build_excel_filename(
@@ -3486,8 +3353,25 @@ def render_report_2_view() -> None:
                 help_text="Descargar Segment x Region",
             )
 
+        applied_segment_region_labels = render_filter_download_row(
+            "SEGMENTO / REGIÓN",
+            "report2_segment_dimension_widget",
+            "report2_segment_dimension_applied",
+            segment_region_options,
+            _render_segment_download,
+        )
+
+        filtered_mtd_segment = filter_report_2_segment_region_table(
+            payload["mtd_segment_region_table"],
+            applied_segment_region_labels,
+        )
+        filtered_ytd_segment = filter_report_2_segment_region_table(
+            payload["ytd_segment_region_table"],
+            applied_segment_region_labels,
+        )
+
         st.markdown(
-            '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
+            '<div class="report-note compact-report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
             unsafe_allow_html=True,
         )
 
@@ -3526,17 +3410,18 @@ def render_report_2_view() -> None:
         # Los heatmaps de Segment x Region se retiraron de la vista ejecutiva
         # para mantener el reporte más limpio y concentrado en las tablas MTD/YTD.
 
-    st.markdown("---")
-    st.markdown("### Construir Category")
-    if st.button("Construir Reporte Category", use_container_width=True):
-        build_ok = execute_with_status(
-            "Construyendo Reporte Category...",
-            lambda progress: run_report_2_category_build(progress=progress),
-        )
-        if build_ok:
-            st.rerun()
-
     payload_category = st.session_state.get("report2_category_payload")
+
+    if payload_category is None:
+        st.markdown("---")
+        st.markdown("### Construir Category")
+        if st.button("Construir Reporte Category", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Reporte Category...",
+                lambda progress: run_report_2_category_build(progress=progress),
+            )
+            if build_ok:
+                st.rerun()
 
     st.markdown("---")
     st.markdown("### Category MTD / YTD")
@@ -3544,10 +3429,15 @@ def render_report_2_view() -> None:
     if payload_category is None:
         st.info("Aún no se ha construido el Reporte Category.")
     else:
-        selected_year_category, selected_month_category = render_period_filter_block(
-            "Filtro del bloque: Category",
-            "report2_category_year",
-            "report2_category_month",
+        selected_year_category = (
+            selected_year_segment
+            if selected_year_segment is not None
+            else payload_category["summary"]["latest_year"]
+        )
+        selected_month_category = (
+            selected_month_segment
+            if selected_month_segment is not None
+            else payload_category["summary"]["latest_month"]
         )
 
         category_options = get_filter_options_from_multiple_tables(
@@ -3557,74 +3447,42 @@ def render_report_2_view() -> None:
             ],
             lambda row: str(row.get("Category", "")).strip(),
         )
-
-        render_dimension_filter_block(
-            "CATEGORY",
-            "report2_category_dimension_widget",
-            "report2_category_dimension_applied",
-            category_options,
-        )
-
-        category_apply_clicked = False
-
-        if selected_year_category is not None and selected_month_category is not None:
-            if st.button(
-                "Aplicar filtro",
-                key="btn_report2_category",
-                use_container_width=False,
-            ):
-                old_category_options = category_options.copy()
-                selected_category_before = st.session_state.get(
-                    "report2_category_dimension_widget",
-                    old_category_options.copy(),
-                )
-                rebuild_ok = run_report_2_category_build(
-                    selected_year=selected_year_category,
-                    selected_month=selected_month_category,
-                )
-                if not rebuild_ok:
-                    st.rerun()
-                payload_category_after = st.session_state.get("report2_category_payload")
-                new_category_options = get_filter_options_from_multiple_tables(
-                    [
-                        payload_category_after["mtd_category_table"],
-                        payload_category_after["ytd_category_table"],
-                    ],
-                    lambda row: str(row.get("Category", "")).strip(),
-                )
-                apply_dimension_filter_after_rebuild(
-                    "report2_category_dimension_widget",
-                    "report2_category_dimension_applied",
-                    old_category_options,
-                    new_category_options,
-                    selected_category_before,
-                )
-                st.rerun()
-
-        payload_category = st.session_state.get("report2_category_payload")
-
-        category_options = get_filter_options_from_multiple_tables(
-            [
-                payload_category["mtd_category_table"],
-                payload_category["ytd_category_table"],
-            ],
-            lambda row: str(row.get("Category", "")).strip(),
-        )
-
-        # No se reinicia la selección aplicada después de reconstruir.
-        # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
         active_year_category = payload_category["summary"]["latest_year"]
         active_month_category = payload_category["summary"]["latest_month"]
 
-        st.markdown(
-            '<div class="report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
-            unsafe_allow_html=True,
+        category_bytes = exports.build_report_2_category_excel_bytes(
+            mtd_category_df=convert_report_table_for_export(
+                payload_category["mtd_category_table"]
+            ),
+            ytd_category_df=convert_report_table_for_export(
+                payload_category["ytd_category_table"]
+            ),
+            report_title=build_report_context_title(
+                "Reporte 2 - Category",
+                active_year_category,
+                active_month_category,
+            ),
         )
 
-        applied_category_labels = get_valid_applied_filter_values(
+        def _render_category_download():
+            render_icon_download_button(
+                data=category_bytes,
+                file_name=build_excel_filename(
+                    "reporte_2_category",
+                    active_year_category,
+                    active_month_category,
+                ),
+                key="download_report_2_category_icon",
+                help_text="Descargar Category",
+            )
+
+        applied_category_labels = render_filter_download_row(
+            "CATEGORY",
+            "report2_category_dimension_widget",
             "report2_category_dimension_applied",
             category_options,
+            _render_category_download,
         )
 
         filtered_mtd_category = filter_report_2_category_table(
@@ -3636,27 +3494,10 @@ def render_report_2_view() -> None:
             applied_category_labels,
         )
 
-        export_col_left, export_col_right = st.columns([12, 1])
-        with export_col_right:
-            category_bytes = exports.build_report_2_category_excel_bytes(
-                mtd_category_df=convert_report_table_for_export(payload_category["mtd_category_table"]),
-                ytd_category_df=convert_report_table_for_export(payload_category["ytd_category_table"]),
-                report_title=build_report_context_title(
-                    "Reporte 2 - Category",
-                    active_year_category,
-                    active_month_category,
-                ),
-            )
-            render_icon_download_button(
-                data=category_bytes,
-                file_name=build_excel_filename(
-                    "reporte_2_category",
-                    active_year_category,
-                    active_month_category,
-                ),
-                key="download_report_2_category_icon",
-                help_text="Descargar Category",
-            )
+        st.markdown(
+            '<div class="report-note compact-report-note">Este bloque es independiente del anterior. Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
+            unsafe_allow_html=True,
+        )
 
         left_col, right_col = st.columns(2)
 
@@ -3848,69 +3689,33 @@ def render_report_3_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### Construir Reporte")
-    if st.button("Construir Reporte 3", use_container_width=True):
-        build_ok = execute_with_status(
-            "Construyendo Reporte 3...",
-            lambda progress: run_report_3_build(progress=progress),
-        )
-        if build_ok:
-            st.rerun()
-
     payload = st.session_state.get("report3_payload")
 
     if payload is None:
+        st.markdown("### Construir Reporte")
+        if st.button("Construir Reporte 3", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Reporte 3...",
+                lambda progress: run_report_3_build(progress=progress),
+            )
+            if build_ok:
+                st.rerun()
+
         st.markdown("---")
         st.info("Aún no se ha construido el Reporte 3.")
         return
 
-    st.markdown("---")
-    st.markdown("### Resumen ejecutivo")
-
-    latest_month = payload["summary"]["latest_month"]
-    latest_year = payload["summary"]["latest_year"]
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            styles.build_info_card(
-                "Periodo actual",
-                f"{latest_month:02d}/{latest_year}",
-                "Periodo de corte seleccionado desde BASE SAP",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            styles.build_info_card(
-                "Canales visibles",
-                "Dinámicos",
-                "Se muestran todos los canales con Actual, Plan o PY",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            styles.build_info_card(
-                "Fuente de plan",
-                "Plan SKU",
-                "Comparativo contra Plan2026 by SKU",
-            ),
-            unsafe_allow_html=True,
-        )
+    selected_year_channel, selected_month_channel = render_report_period_row(
+        "report3_channel_year", "report3_channel_month",
+        "btn_report3_period_top",
+        lambda year, month: run_report_3_build(selected_year=year, selected_month=month),
+    )
+    if selected_year_channel is not None and selected_month_channel is not None:
+        render_independent_executive_summary(selected_year_channel, selected_month_channel)
 
     st.markdown("---")
     st.markdown("### Channel MTD / YTD")
 
-    selected_year_channel, selected_month_channel = render_period_filter_block(
-        "Filtro del bloque: Channel",
-        "report3_channel_year",
-        "report3_channel_month",
-    )
-
     payload = st.session_state.get("report3_payload")
 
     channel_options = get_filter_options_from_multiple_tables(
@@ -3920,71 +3725,38 @@ def render_report_3_view() -> None:
         ],
         build_report_3_display_label,
     )
-
-    render_dimension_filter_block(
-        "CHANNEL",
-        "report3_channel_dimension_widget",
-        "report3_channel_dimension_applied",
-        channel_options,
-    )
-
-    channel_apply_clicked = False
-
-    if selected_year_channel is not None and selected_month_channel is not None:
-        if st.button(
-            "Aplicar filtro",
-            key="btn_report3_channel",
-            use_container_width=False,
-        ):
-            old_channel_options = channel_options.copy()
-            selected_channel_before = st.session_state.get(
-                "report3_channel_dimension_widget",
-                old_channel_options.copy(),
-            )
-            rebuild_ok = run_report_3_build(
-                selected_year=selected_year_channel,
-                selected_month=selected_month_channel,
-            )
-            if not rebuild_ok:
-                st.rerun()
-            payload_after = st.session_state.get("report3_payload")
-            new_channel_options = get_filter_options_from_multiple_tables(
-                [
-                    payload_after["mtd_channel_table"],
-                    payload_after["ytd_channel_table"],
-                ],
-                build_report_3_display_label,
-            )
-            apply_dimension_filter_after_rebuild(
-                "report3_channel_dimension_widget",
-                "report3_channel_dimension_applied",
-                old_channel_options,
-                new_channel_options,
-                selected_channel_before,
-            )
-            st.rerun()
-
-    payload = st.session_state.get("report3_payload")
-
-    # Después de reconstruir el reporte, se recalculan las opciones con el payload nuevo.
-    # Esto evita tener que dar dos o tres clics para que aparezcan canales nuevos como #N/A.
-    channel_options = get_filter_options_from_multiple_tables(
-        [
-            payload["mtd_channel_table"],
-            payload["ytd_channel_table"],
-        ],
-        build_report_3_display_label,
-    )
-
-    # No se reinicia la selección aplicada después de reconstruir.
-    # El filtro seleccionado por el usuario ya se guardó antes de correr el reporte.
 
     active_year_channel = payload["summary"]["latest_year"]
     active_month_channel = payload["summary"]["latest_month"]
 
-    applied_channel_labels = get_valid_applied_filter_values(
+    report_3_bytes = exports.build_report_3_excel_bytes(
+        mtd_channel_df=convert_report_table_for_export(payload["mtd_channel_table"]),
+        ytd_channel_df=convert_report_table_for_export(payload["ytd_channel_table"]),
+        report_title=build_report_context_title(
+            "Reporte 3 - Channel",
+            active_year_channel,
+            active_month_channel,
+        ),
+    )
+
+    def _render_report3_download():
+        render_icon_download_button(
+            data=report_3_bytes,
+            file_name=build_excel_filename(
+                "reporte_3",
+                active_year_channel,
+                active_month_channel,
+            ),
+            key="download_report_3_icon_top",
+            help_text="Descargar Reporte 3",
+        )
+
+    applied_channel_labels = render_filter_download_row(
+        "CHANNEL",
+        "report3_channel_dimension_widget",
         "report3_channel_dimension_applied",
         channel_options,
+        _render_report3_download,
     )
 
     filtered_mtd_channel = filter_report_3_channel_table(
@@ -3996,30 +3768,8 @@ def render_report_3_view() -> None:
         applied_channel_labels,
     )
 
-    export_col_left, export_col_right = st.columns([12, 1])
-    with export_col_right:
-        report_3_bytes = exports.build_report_3_excel_bytes(
-            mtd_channel_df=convert_report_table_for_export(payload["mtd_channel_table"]),
-            ytd_channel_df=convert_report_table_for_export(payload["ytd_channel_table"]),
-            report_title=build_report_context_title(
-                "Reporte 3 - Channel",
-                active_year_channel,
-                active_month_channel,
-            ),
-        )
-        render_icon_download_button(
-            data=report_3_bytes,
-            file_name=build_excel_filename(
-                "reporte_3",
-                active_year_channel,
-                active_month_channel,
-            ),
-            key="download_report_3_icon",
-            help_text="Descargar Reporte 3",
-        )
-
     st.markdown(
-        '<div class="report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva. El Total General permanece visible y se recalcula conforme al filtro seleccionado.</div>',
+        '<div class="report-note compact-report-note">Las tablas MTD y YTD se muestran lado a lado para facilitar la lectura ejecutiva.</div>',
         unsafe_allow_html=True,
     )
 
@@ -4289,86 +4039,41 @@ def render_report_4_view() -> None:
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
 
-    st.markdown("### Construir Reporte")
-    if st.button("Construir Reporte 4", use_container_width=True):
-        build_ok = execute_with_status(
-            "Construyendo Ranking de Clientes...",
-            lambda progress: run_report_4_build(progress=progress),
-        )
-        if build_ok:
-            st.rerun()
-
     payload = st.session_state.get("report4_payload")
 
     if payload is None:
+        st.markdown("### Construir Reporte")
+        if st.button("Construir Reporte 4", use_container_width=True):
+            build_ok = execute_with_status(
+                "Construyendo Ranking de Clientes...",
+                lambda progress: run_report_4_build(progress=progress),
+            )
+            if build_ok:
+                st.rerun()
+
         st.markdown("---")
         st.info("Aún no se ha construido el Reporte 4.")
         return
 
-    st.markdown("---")
-    st.markdown("### Resumen ejecutivo")
-
-    latest_month = payload["summary"]["latest_month"]
-    latest_year = payload["summary"]["latest_year"]
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown(
-            styles.build_info_card(
-                "Periodo actual",
-                f"{latest_month:02d}/{latest_year}",
-                "Periodo de corte seleccionado desde BASE SAP",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col2:
-        st.markdown(
-            styles.build_info_card(
-                "Orden del reporte",
-                "Ranking dinámico",
-                "MTD y YTD se ordenan por Actual de mayor a menor",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    with col3:
-        st.markdown(
-            styles.build_info_card(
-                "Cruce principal",
-                "Código cliente",
-                "Actual, PY y Plan se cruzan por código de cliente",
-            ),
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("---")
-    st.markdown("### Ranking de Clientes MTD / YTD")
-
-    selected_year_clients, selected_month_clients = render_period_filter_block(
-        "Filtro del bloque: Ranking de Clientes",
-        "report4_clients_year",
-        "report4_clients_month",
+    selected_year_clients, selected_month_clients = render_report_period_row(
+        "report4_clients_year", "report4_clients_month",
+        "btn_report4_period_top",
+        lambda year, month: run_report_4_build(selected_year=year, selected_month=month),
     )
-
     if selected_year_clients is not None and selected_month_clients is not None:
-        if st.button(
-            "Aplicar filtro",
-            key="btn_report4_clients",
-            use_container_width=False,
-        ):
-            run_report_4_build(
-                selected_year=selected_year_clients,
-                selected_month=selected_month_clients,
-            )
-            st.rerun()
+        render_independent_executive_summary(selected_year_clients, selected_month_clients)
+
+    st.markdown("---")
 
     payload = st.session_state.get("report4_payload")
 
     report_4_bytes = exports.build_report_4_excel_bytes(
-        mtd_top_clients_df=convert_report_table_for_export(payload["mtd_top_clients_table"]),
-        ytd_top_clients_df=convert_report_table_for_export(payload["ytd_top_clients_table"]),
+        mtd_top_clients_df=convert_report_table_for_export(
+            payload["mtd_top_clients_table"]
+        ),
+        ytd_top_clients_df=convert_report_table_for_export(
+            payload["ytd_top_clients_table"]
+        ),
         report_title=build_report_context_title(
             "Reporte 4 - Ranking de Clientes",
             payload["summary"]["latest_year"],
@@ -4376,8 +4081,10 @@ def render_report_4_view() -> None:
         ),
     )
 
-    export_col_left, export_col_right = st.columns([12, 1])
-    with export_col_right:
+    title_col, download_col = st.columns([12, 1], vertical_alignment="center")
+    with title_col:
+        st.markdown("### Ranking de Clientes MTD / YTD")
+    with download_col:
         render_icon_download_button(
             data=report_4_bytes,
             file_name=build_excel_filename(
@@ -4403,6 +4110,8 @@ def render_report_4_view() -> None:
         payload["summary"]["latest_year"],
         payload["summary"]["latest_month"],
     )
+
+    render_client_search(payload)
 
     st.markdown("---")
     st.markdown("### Ranking Clients")
@@ -6521,18 +6230,21 @@ def render_overview_view() -> None:
     )
     st.markdown(overview_box_html, unsafe_allow_html=True)
 
-    # Botón único de procesamiento, sin crear un apartado adicional.
-    if st.button("Procesar base de ventas", use_container_width=True):
-        process_ok = execute_with_status(
-            "Procesando base de ventas...",
-            lambda progress: run_sales_processing(progress=progress),
-        )
-        if process_ok:
-            st.rerun()
-
     # La base sigue procesándose normalmente, pero se retira de esta vista
     # el resumen de registros / GSNR / Gross Margin para evitar confusión.
     df_processed = st.session_state.get("df_processed_sales")
+
+    # El botón solo aparece antes del primer procesamiento.
+    # Una vez que existe la base procesada, desaparece para evitar que el
+    # usuario interprete que debe volver a procesarla cada vez que entra.
+    if df_processed is None or df_processed.empty:
+        if st.button("Procesar base de ventas", use_container_width=True):
+            process_ok = execute_with_status(
+                "Procesando base de ventas...",
+                lambda progress: run_sales_processing(progress=progress),
+            )
+            if process_ok:
+                st.rerun()
 
     st.markdown(
         '<div class="base-mtd-section-heading">Tendencia Historica</div>',
@@ -7190,7 +6902,7 @@ def run_mtd_build(selected_year: int | None=None, selected_month: int | None=Non
 
 def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) -> str:
     if df_table is None or df_table.empty: return ""
-    visible=["Periodo","Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    visible=["Periodo","Actual","Plan","Var VS Plan","%Var VS Plan","Fcst","Var VS Fcst","%Var VS Fcst","PY","Var VS PY","%Var VS PY"]
     header_class={"Actual":"h-header-real","Plan":"plan-header-client" if plan_variant=="client" else "plan-header-sku","Fcst":"fcst-header-client" if plan_variant=="client" else "fcst-header-sku","PY":"h-header-real","Var VS Plan":"var-header-plan","%Var VS Plan":"var-header-plan","Var VS Fcst":"var-header-fcst","%Var VS Fcst":"var-header-fcst","Var VS PY":"var-header-py","%Var VS PY":"var-header-py"}
     grid="grid-template-columns:1.2fr "+" ".join(["1fr"]*(len(visible)-1))
     heads=''.join([f'<div class="h-cell h-header {header_class.get(c,"h-header-neutral")}">{escape(c)}</div>' for c in visible])
@@ -7283,12 +6995,12 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
     metric_columns = [
         "Actual",
         "Plan",
-        "Fcst",
-        "PY",
         "Var VS Plan",
         "%Var VS Plan",
+        "Fcst",
         "Var VS Fcst",
         "%Var VS Fcst",
+        "PY",
         "Var VS PY",
         "%Var VS PY",
     ]
@@ -7333,7 +7045,7 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
         available_non_metric = [
             c for c in df_table.columns
             if not str(c).startswith("__")
-            and c not in {"TOP", "Grupo"}
+            and c not in {"Grupo"}
             and c not in metric_columns
         ]
         dimension_columns = available_non_metric[:1] or [first_header]
@@ -7525,7 +7237,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
     return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div class="report-table-scroll"><div class="report-grid report-grid-dynamic" style="{grid}">'+"".join(headers)+"".join(rows)+'</div></div></div>'
 
 # Fuerza reconstrucción de reportes con la estructura Forecast actual.
-REPORT_LOGIC_VERSION_R123 = "forecast_integral_conservador_v20260724_02"
+REPORT_LOGIC_VERSION_R123 = "filters_applied_state_v20260813_04"
 if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R123:
     clear_report_payloads()
     for _key in list(st.session_state.keys()):
@@ -7542,7 +7254,7 @@ if st.session_state.get("report_logic_version_r123") != REPORT_LOGIC_VERSION_R12
 def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) -> str:
     if df_table is None or df_table.empty:
         return ""
-    visible=["Periodo","Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    visible=["Periodo","Actual","Plan","Var VS Plan","%Var VS Plan","Fcst","Var VS Fcst","%Var VS Fcst","PY","Var VS PY","%Var VS PY"]
     is_client=plan_variant=="client"
     header_class={
         "Actual":"h-header-real",
@@ -8050,14 +7762,14 @@ def build_report_4_table_html(title: str, df_table) -> str:
         )
 
     preferred = [
-        "Client Name", "Cliente", "Actual", "Plan", "Fcst", "PY",
-        "Var VS Plan", "%Var VS Plan", "Var VS Fcst", "%Var VS Fcst",
-        "Var VS PY", "%Var VS PY",
+        "TOP", "Client Name", "Cliente", "Actual", "Plan",
+        "Var VS Plan", "%Var VS Plan", "Fcst", "Var VS Fcst", "%Var VS Fcst",
+        "PY", "Var VS PY", "%Var VS PY",
     ]
     visible = [c for c in preferred if c in df_table.columns]
     visible += [
         c for c in df_table.columns
-        if c not in visible and not str(c).startswith("__") and c not in {"TOP", "Grupo"}
+        if c not in visible and not str(c).startswith("__") and c not in {"Grupo"}
     ]
 
     metric_classes = {
@@ -8113,6 +7825,535 @@ def build_report_4_table_html(title: str, df_table) -> str:
         + "".join(headers) + "".join(rows)
         + '</div></div></div>'
     )
+
+
+# =========================================================
+# 19.5 REFINAMIENTO EJECUTIVO 2026-08-13
+# =========================================================
+def render_dimension_filter_block(
+    filter_label: str,
+    widget_key: str,
+    applied_key: str,
+    available_options: list[str],
+) -> list[str]:
+    """
+    Filtro compacto tipo Excel.
+
+    Reglas:
+    - Marcar/desmarcar dentro del formulario NO provoca rerun.
+    - "Aplicar selección" usa exactamente las casillas elegidas.
+    - "All / Seleccionar todo" restaura el universo completo.
+    - Valores especiales como VARIOS, #N/A, Blanks u Other NO fuerzan
+      nuevamente la selección total después de que el usuario aplicó
+      explícitamente un subconjunto.
+    """
+    available_options = sorted({
+        str(value).strip()
+        for value in (available_options or [])
+        if str(value).strip()
+        and not is_forbidden_filter_label(str(value).strip())
+    })
+
+    if not available_options:
+        st.info("No hay valores disponibles para filtrar en este bloque.")
+        st.session_state[widget_key] = []
+        st.session_state[applied_key] = []
+        return []
+
+    options_state_key = f"{widget_key}__available_options"
+    pending_key = f"{widget_key}__pending_values"
+
+    previous_options = list(st.session_state.get(options_state_key, []) or [])
+    options_changed = set(previous_options) != set(available_options)
+    had_pending_values = pending_key in st.session_state
+
+    # La selección aplicada se lee directamente; no usamos el helper viejo
+    # que obligaba a volver a "All" si VARIOS/#N/A no estaban seleccionados.
+    stored_applied = st.session_state.get(applied_key)
+    if stored_applied is None:
+        stored_applied = available_options.copy()
+
+    if had_pending_values:
+        candidate_values = list(st.session_state.pop(pending_key) or [])
+        selected = [v for v in candidate_values if v in available_options]
+    elif options_changed:
+        selected = available_options.copy()
+    else:
+        selected = [v for v in list(stored_applied or []) if v in available_options]
+
+    if not selected:
+        selected = available_options.copy()
+
+    selected_set = set(selected)
+
+    draft_keys = {}
+    for idx, option in enumerate(available_options):
+        draft_key = f"{widget_key}__draft_{idx}_{abs(hash(option))}"
+        draft_keys[option] = draft_key
+
+        if had_pending_values or options_changed or draft_key not in st.session_state:
+            st.session_state[draft_key] = option in selected_set
+
+    summary_text = (
+        f"{filter_label} · {len(selected_set)}/{len(available_options)} seleccionados"
+    )
+
+    with st.expander(summary_text, expanded=False):
+        with st.form(
+            key=f"{widget_key}__excel_filter_form",
+            clear_on_submit=False,
+            border=False,
+        ):
+            for option in available_options:
+                st.checkbox(option, key=draft_keys[option])
+
+            action_col_1, action_col_2 = st.columns(2)
+
+            with action_col_1:
+                apply_clicked = st.form_submit_button(
+                    "Aplicar selección",
+                    use_container_width=True,
+                )
+
+            with action_col_2:
+                all_clicked = st.form_submit_button(
+                    "All / Seleccionar todo",
+                    use_container_width=True,
+                )
+
+    if all_clicked:
+        st.session_state[pending_key] = available_options.copy()
+        st.session_state[applied_key] = available_options.copy()
+        st.session_state[widget_key] = available_options.copy()
+        st.session_state[options_state_key] = available_options.copy()
+        st.rerun()
+
+    if apply_clicked:
+        chosen = [
+            option
+            for option in available_options
+            if bool(st.session_state.get(draft_keys[option], False))
+        ]
+
+        # Cero seleccionados se interpreta como All para evitar tabla vacía.
+        if not chosen:
+            st.session_state[pending_key] = available_options.copy()
+            st.session_state[applied_key] = available_options.copy()
+            st.session_state[widget_key] = available_options.copy()
+            st.session_state[options_state_key] = available_options.copy()
+            st.rerun()
+
+        st.session_state[applied_key] = chosen.copy()
+        st.session_state[widget_key] = chosen.copy()
+        st.session_state[options_state_key] = available_options.copy()
+        st.rerun()
+
+    applied_values = [
+        value
+        for value in list(st.session_state.get(applied_key, selected) or [])
+        if value in available_options
+    ]
+    if not applied_values:
+        applied_values = available_options.copy()
+
+    st.session_state[widget_key] = applied_values.copy()
+    st.session_state[options_state_key] = available_options.copy()
+
+    return applied_values
+
+
+def render_filter_download_row(
+    filter_label: str,
+    widget_key: str,
+    applied_key: str,
+    available_options: list[str],
+    download_renderer,
+) -> list[str]:
+    """
+    Coloca el filtro de dimensión y el botón individual de descarga
+    en la misma fila para eliminar espacios verticales innecesarios.
+    """
+    filter_col, download_col = st.columns([12, 1], vertical_alignment="top")
+
+    with filter_col:
+        selected_values = render_dimension_filter_block(
+            filter_label,
+            widget_key,
+            applied_key,
+            available_options,
+        )
+
+    with download_col:
+        download_renderer()
+
+    return selected_values
+
+
+def render_report_period_row(
+    year_key: str,
+    month_key: str,
+    button_key: str,
+    on_apply,
+) -> tuple[int | None, int | None]:
+    """Periodo arriba del resumen, con botón Aplicar como Base MTD."""
+    years, latest_year, latest_month = get_available_year_month_options()
+    if not years:
+        st.info("Primero procesa la base de ventas para habilitar Año y Mes.")
+        return None, None
+
+    current_year = st.session_state.get(year_key, latest_year)
+    if current_year not in years:
+        current_year = latest_year
+    st.session_state[year_key] = current_year
+
+    c1, c2, c3 = st.columns([1.1, 1.25, 0.95])
+    with c1:
+        year = st.selectbox("Año", years, key=year_key)
+    months = get_available_months_for_year(year)
+    if not months:
+        with c2: st.warning("Sin meses disponibles")
+        return year, None
+    fallback = latest_month if year == latest_year and latest_month in months else max(months)
+    current_month = st.session_state.get(month_key, fallback)
+    if current_month not in months:
+        current_month = fallback
+    st.session_state[month_key] = current_month
+    with c2:
+        month = st.selectbox("Mes de corte", months, key=month_key, format_func=get_month_label)
+    with c3:
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("Aplicar", key=button_key, use_container_width=True):
+            if on_apply(year, month):
+                st.rerun()
+    return year, month
+
+
+def get_independent_executive_summary(year: int, month: int) -> dict | None:
+    """Resumen por pestaña sin depender de que Base MTD haya sido construida."""
+    required = [
+        st.session_state.get("df_processed_sales"),
+        st.session_state.get("df_plan_client"),
+        st.session_state.get("df_plan_sku"),
+        st.session_state.get("df_fcst_client"),
+        st.session_state.get("df_fcst_sku"),
+    ]
+    if any(df is None for df in required):
+        return None
+    cache_key = f"__exec_summary_{int(year)}_{int(month)}"
+    if cache_key not in st.session_state:
+        try:
+            st.session_state[cache_key] = data_processor.build_executive_summary_payload(
+                *required,
+                selected_year=int(year),
+                selected_month=int(month),
+            )
+        except Exception as exc:
+            st.warning(f"No fue posible calcular el resumen ejecutivo. Detalle: {exc}")
+            return None
+    return st.session_state.get(cache_key)
+
+
+def render_independent_executive_summary(year: int, month: int) -> None:
+    summary = get_independent_executive_summary(year, month)
+    if not summary:
+        return
+    st.markdown("### Resumen ejecutivo")
+    currency = get_currency_kpi_suffix()
+    cards = [
+        ("MTD ACT TOTAL", summary["mtd_act_total_k"], "Valor real del mes de corte.", "$", "blue"),
+        ("YTD ACT TOTAL", summary["ytd_act_total_k"], "Acumulado real de enero al corte.", "Σ", "blue"),
+        ("MTD PLAN TOTAL", summary["mtd_plan_total_k"], "Plan del mes de corte.", "↗", "orange"),
+        ("YTD PLAN TOTAL", summary["ytd_plan_total_k"], "Plan acumulado de enero al corte.", "Σ", "orange"),
+        ("MTD FCST TOTAL", summary["mtd_fcst_total_k"], "Forecast del mes de corte.", "F", "pink"),
+        ("YTD FCST TOTAL", summary["ytd_fcst_total_k"], "Forecast acumulado de enero al corte.", "Σ", "pink"),
+        ("BTS ACTUAL", summary["bts_actual_k"], "BTS acumulado desde octubre al corte.", "▣", "green"),
+        ("BTS PY COMPLETO", summary["bts_py_full_k"], "Ciclo BTS previo completo como referencia.", "↺", "green"),
+    ]
+    for start in (0, 4):
+        cols = st.columns(4)
+        for col, (title, value, desc, icon, color) in zip(cols, cards[start:start+4]):
+            with col:
+                st.markdown(styles.build_base_mtd_kpi_card(
+                    title=f"{title} ({currency})",
+                    value=f"{convert_monetary_value(value * 1000) / 1000:,.0f}",
+                    description=desc,
+                    icon=icon,
+                    color=color,
+                ), unsafe_allow_html=True)
+
+
+def build_report_4_table_html(title: str, df_table) -> str:
+    """
+    Ranking con TOP visible como primera columna.
+
+    Ajustes visuales:
+    - TOP angosto y centrado.
+    - Client Name con mayor ancho para evitar nombres cortados.
+    - Cliente alineado a la izquierda.
+    - Métricas con ancho uniforme.
+    """
+    if df_table is None or df_table.empty:
+        return (
+            '<div class="report-table-card">'
+            f'<div class="report-table-title">{escape(title)}</div>'
+            '<div class="report-empty-state">-</div></div>'
+        )
+
+    preferred = [
+        "TOP",
+        "Client Name",
+        "Cliente",
+        "Actual",
+        "Plan",
+        "Var VS Plan",
+        "%Var VS Plan",
+        "Fcst",
+        "Var VS Fcst",
+        "%Var VS Fcst",
+        "PY",
+        "Var VS PY",
+        "%Var VS PY",
+    ]
+    visible = [column for column in preferred if column in df_table.columns]
+
+    metric_classes = {
+        "Actual": "report-header-actual",
+        "Plan": "report-header-plan",
+        "Fcst": "report-header-fcst",
+        "PY": "report-header-py",
+        "Var VS Plan": "report-header-var-plan",
+        "%Var VS Plan": "report-header-var-plan",
+        "Var VS Fcst": "report-header-var-fcst",
+        "%Var VS Fcst": "report-header-var-fcst",
+        "Var VS PY": "report-header-var-py",
+        "%Var VS PY": "report-header-var-py",
+    }
+
+    widths = []
+    minimum_width = 0
+
+    for column in visible:
+        if column == "TOP":
+            widths.append("68px")
+            minimum_width += 68
+        elif column == "Client Name":
+            widths.append("320px")
+            minimum_width += 320
+        elif column == "Cliente":
+            widths.append("112px")
+            minimum_width += 112
+        else:
+            widths.append("118px")
+            minimum_width += 118
+
+    grid_style = (
+        f"grid-template-columns:{' '.join(widths)};"
+        f"min-width:{minimum_width}px;"
+        "width:100%;"
+    )
+
+    headers = []
+    for column in visible:
+        header_class = (
+            "report-header-neutral"
+            if column in {"TOP", "Client Name", "Cliente"}
+            else metric_classes.get(column, "report-header-neutral")
+        )
+
+        extra_class = ""
+        if column == "TOP":
+            extra_class = " report4-top-header"
+        elif column == "Client Name":
+            extra_class = " report4-name-display-header"
+        elif column == "Cliente":
+            extra_class = " report4-code-display-header"
+
+        headers.append(
+            f'<div class="report-cell report-header {header_class}{extra_class}">'
+            f'{escape(str(column).upper())}</div>'
+        )
+
+    rows = []
+
+    for _, row in df_table.iterrows():
+        row_class = "report-row"
+
+        if bool(
+            row.get("__is_total__", False)
+            or row.get("__is_group_summary__", False)
+        ):
+            row_class += " report-total"
+
+        if bool(
+            row.get("__is_grand_total__", False)
+            or row.get("__is_highlight__", False)
+        ):
+            row_class += " report-highlight"
+
+        cells = []
+
+        for column in visible:
+            value = row.get(column)
+
+            if column == "TOP":
+                top_value = safe_float(value, 0.0)
+                text = "" if top_value <= 0 else f"{int(top_value):,}"
+                cells.append(
+                    f'<div class="report-cell report4-top-cell">{escape(text)}</div>'
+                )
+                continue
+
+            if column == "Client Name":
+                text = "" if value is None else str(value).strip()
+                cells.append(
+                    f'<div class="report-cell report4-name-display-cell" '
+                    f'title="{escape(text)}">{escape(text)}</div>'
+                )
+                continue
+
+            if column == "Cliente":
+                text = "" if value is None else str(value).strip()
+                cells.append(
+                    f'<div class="report-cell report4-code-display-cell" '
+                    f'title="{escape(text)}">{escape(text)}</div>'
+                )
+                continue
+
+            is_percent = str(column).startswith("%")
+            negative_class = (
+                " report-negative"
+                if safe_float(value) < 0
+                else ""
+            )
+
+            cells.append(
+                f'<div class="report-cell report-value-cell{negative_class}">'
+                f'{format_monetary_value(value, is_percent=is_percent)}</div>'
+            )
+
+        rows.append(
+            f'<div class="{row_class}">'
+            + "".join(cells)
+            + "</div>"
+        )
+
+    return (
+        '<div class="report-table-card report4-card">'
+        f'<div class="report-table-title">{escape(title)}</div>'
+        '<div class="report-table-scroll report4-modern-scroll">'
+        f'<div class="report-grid report-grid-dynamic report4-modern-grid" '
+        f'style="{grid_style}">'
+        + "".join(headers)
+        + "".join(rows)
+        + "</div></div></div>"
+    )
+
+
+def render_client_search(payload: dict) -> None:
+    """
+    Búsqueda parcial tipo Ctrl+F sobre el ranking completo MTD/YTD.
+
+    Los importes se muestran con el mismo formato ejecutivo de los reportes:
+    miles, sin decimales, separador de miles y negativos entre paréntesis.
+    """
+    st.markdown("### Buscar cliente")
+    st.caption(
+        "Escribe una parte del nombre o del código. "
+        "La búsqueda revisa todos los clientes considerados en el periodo, "
+        "no solamente el Top 15."
+    )
+
+    query = st.text_input(
+        "Buscar por nombre o código",
+        key="report4_client_search",
+        placeholder="Ej. amazon, papel, C018",
+    )
+    query = str(query or "").strip().lower()
+
+    if not query:
+        return
+
+    has_match = False
+
+    for label, key in (
+        ("MTD", "mtd_detail_table"),
+        ("YTD", "ytd_detail_table"),
+    ):
+        df = payload.get(key)
+
+        if df is None or df.empty:
+            continue
+
+        client_name_series = (
+            df["Client Name"].astype(str)
+            if "Client Name" in df.columns
+            else data_processor.pd.Series("", index=df.index)
+        )
+        client_code_series = (
+            df["Cliente"].astype(str)
+            if "Cliente" in df.columns
+            else data_processor.pd.Series("", index=df.index)
+        )
+
+        mask = (
+            client_name_series.str.lower().str.contains(query, regex=False)
+            | client_code_series.str.lower().str.contains(query, regex=False)
+        )
+
+        matches = df.loc[mask].copy()
+
+        if matches.empty:
+            continue
+
+        has_match = True
+        st.markdown(f"**{label}: {len(matches)} coincidencia(s)**")
+
+        display_rows = []
+
+        for _, row in matches.head(25).iterrows():
+            top_value = safe_float(row.get("TOP"), 0.0)
+
+            display_rows.append(
+                {
+                    "TOP": "" if top_value <= 0 else f"{int(top_value):,}",
+                    "Client Name": str(row.get("Client Name", "") or "").strip(),
+                    "Cliente": str(row.get("Cliente", "") or "").strip(),
+                    "Actual": format_monetary_value(row.get("Actual")),
+                    "Plan": format_monetary_value(row.get("Plan")),
+                    "Fcst": format_monetary_value(row.get("Fcst")),
+                    "PY": format_monetary_value(row.get("PY")),
+                }
+            )
+
+        display_df = data_processor.pd.DataFrame(display_rows)
+
+        st.dataframe(
+            display_df,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "TOP": st.column_config.TextColumn("TOP", width="small"),
+                "Client Name": st.column_config.TextColumn(
+                    "Client Name",
+                    width="large",
+                ),
+                "Cliente": st.column_config.TextColumn(
+                    "Cliente",
+                    width="small",
+                ),
+                "Actual": st.column_config.TextColumn("Actual", width="small"),
+                "Plan": st.column_config.TextColumn("Plan", width="small"),
+                "Fcst": st.column_config.TextColumn("Fcst", width="small"),
+                "PY": st.column_config.TextColumn("PY", width="small"),
+            },
+        )
+
+    if not has_match:
+        st.info(
+            "No se encontraron clientes que contengan ese texto o código "
+            "dentro del periodo seleccionado."
+        )
+
 
 # =========================================================
 # 20. EJECUCIÓN PRINCIPAL

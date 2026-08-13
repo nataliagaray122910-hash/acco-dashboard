@@ -3692,3 +3692,144 @@ def build_global_css() -> str:
 """
 
     return "<style>\n" + base_css.strip() + "\n" + extra_rules.strip() + "\n</style>"
+
+
+# =========================================================
+# REFINAMIENTO EJECUTIVO 2026-08-13
+# =========================================================
+_build_global_css_before_exec_filters = build_global_css
+
+
+def build_global_css() -> str:
+    css = _build_global_css_before_exec_filters()
+
+    extra = """<style>
+/* =====================================================
+   REFINAMIENTO FINAL DE FILTROS + RANKING
+   ===================================================== */
+
+/* Plan y sus dos variaciones usan exactamente el mismo color. */
+.report-header-plan,
+.report-header-var-plan,
+.var-header-plan {
+    background: #D4A017 !important;
+    color: #FFFFFF !important;
+}
+
+/* El filtro cerrado tiene la misma presencia visual que un control normal. */
+div[data-testid="stExpander"] {
+    border-radius: 14px !important;
+}
+
+/* Evita espacios verticales exagerados entre filtro/descarga y las tablas. */
+.compact-report-note {
+    margin-top: 0.05rem !important;
+    margin-bottom: 0.55rem !important;
+}
+
+/* Botones individuales de descarga: tamaño compacto y alineación con el expander. */
+div[data-testid="stDownloadButton"] > button {
+    min-width: 46px !important;
+    width: 46px !important;
+    height: 46px !important;
+    min-height: 46px !important;
+    padding: 0 !important;
+    border-radius: 14px !important;
+}
+
+/* Formularios dentro de filtros: sin caja adicional ni padding innecesario. */
+div[data-testid="stExpander"] div[data-testid="stForm"] {
+    padding: 0.15rem 0 0 0 !important;
+    margin: 0 !important;
+}
+
+/* Ranking: layout más limpio para TOP / nombre / código. */
+.report4-modern-scroll {
+    overflow-x: auto !important;
+    overflow-y: auto !important;
+    max-height: 590px !important;
+    border-radius: 14px !important;
+}
+
+.report4-modern-grid > .report-cell {
+    min-width: 0 !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    white-space: nowrap !important;
+    box-sizing: border-box !important;
+}
+
+.report4-modern-grid > .report-header {
+    position: sticky !important;
+    top: 0 !important;
+    z-index: 80 !important;
+}
+
+.report4-top-header,
+.report4-top-cell {
+    justify-content: center !important;
+    text-align: center !important;
+}
+
+.report4-name-display-header,
+.report4-name-display-cell,
+.report4-code-display-header,
+.report4-code-display-cell {
+    justify-content: flex-start !important;
+    text-align: left !important;
+}
+
+.report4-name-display-cell,
+.report4-code-display-cell {
+    background: #FBFCFE !important;
+    color: #1F2A44 !important;
+    font-weight: 700 !important;
+}
+
+.report4-modern-grid .report-total .report-cell {
+    background: #F3F6FA !important;
+    font-weight: 800 !important;
+}
+
+.report4-modern-grid .report-highlight .report-cell {
+    background: #DCEFD8 !important;
+    font-weight: 800 !important;
+}
+
+/* Negativos conservan rojo; en filas normales sin peso excesivo. */
+.report4-modern-grid .report-row:not(.report-total):not(.report-highlight)
+.report-cell.report-negative {
+    color: #C0392B !important;
+    font-weight: 500 !important;
+}
+
+/* Buscador del Ranking. */
+.client-search-result {
+    border: 1px solid #E7EAF0;
+    border-left: 5px solid #E60023;
+    border-radius: 16px;
+    padding: 0.85rem 1rem;
+    margin: 0.45rem 0;
+    background: #FFFFFF;
+}
+
+.client-search-result strong {
+    color: #1F2A44;
+}
+
+/* El botón global del sidebar NO debe heredar el tamaño compacto
+   de los botones individuales de descarga del área principal. */
+section[data-testid="stSidebar"] div[data-testid="stDownloadButton"] > button,
+section[data-testid="stSidebar"] .stDownloadButton > button {
+    width: 100% !important;
+    min-width: 100% !important;
+    height: auto !important;
+    min-height: 46px !important;
+    padding: 0.70rem 1.0rem !important;
+    white-space: normal !important;
+    word-break: normal !important;
+    line-height: 1.25 !important;
+}
+</style>"""
+
+    return css + "\n" + extra
