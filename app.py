@@ -7281,9 +7281,17 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
     return f'<div class="horizontal-table-card base-mtd-number-table-card"><div class="horizontal-table-title">{escape(title)}</div><div class="h-table" style="{grid}">{heads}{"".join(rows)}</div></div>'
 
 def build_report_2_table_html(title: str, df_table, first_header: str, view_type: str) -> str:
+    """
+    Render efectivo de Segment x Region y Category.
+
+    Orden ejecutivo:
+    Actual -> Plan -> Var VS Plan -> %Var VS Plan ->
+    Fcst -> Var VS Fcst -> %Var VS Fcst ->
+    PY -> Var VS PY -> %Var VS PY.
+    """
     if df_table is None or df_table.empty:
         return f'<div class="report-table-card"><div class="report-table-title">{escape(title)}</div><div>Sin información disponible</div></div>'
-    metrics=["Actual","Plan","Fcst","PY","Var VS Plan","%Var VS Plan","Var VS Fcst","%Var VS Fcst","Var VS PY","%Var VS PY"]
+    metrics=["Actual","Plan","Var VS Plan","%Var VS Plan","Fcst","Var VS Fcst","%Var VS Fcst","PY","Var VS PY","%Var VS PY"]
     metric_classes={"Actual":"report-header-actual","Plan":"report-header-plan","Fcst":"report-header-fcst","PY":"report-header-py","Var VS Plan":"report-header-var-plan","%Var VS Plan":"report-header-var-plan","Var VS Fcst":"report-header-var-fcst","%Var VS Fcst":"report-header-var-fcst","Var VS PY":"report-header-var-py","%Var VS PY":"report-header-var-py"}
     if view_type=="category":
         dims=["Category","Material","Categoría del Material","Descripción del Material"]
