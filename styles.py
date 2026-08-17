@@ -3833,3 +3833,91 @@ section[data-testid="stSidebar"] .stDownloadButton > button {
 </style>"""
 
     return css + "\n" + extra
+
+
+# =========================================================
+# EXPERIENCIA DE CARGA AUTOMÁTICA INICIAL
+# =========================================================
+_build_global_css_before_initial_loading = build_global_css
+
+def build_global_css() -> str:
+    """
+    Conserva todos los estilos existentes y agrega únicamente el indicador
+    amigable usado durante la preparación automática al entrar a la app.
+    """
+    css = _build_global_css_before_initial_loading()
+
+    loading_rules = """
+<style>
+.initial-loading-card {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem 1.1rem;
+    margin: 0.75rem 0 1rem 0;
+    background: #FFFFFF;
+    border: 1px solid #E7EAF0;
+    border-left: 5px solid #E60023;
+    border-radius: 16px;
+    box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.initial-loading-spinner {
+    width: 30px;
+    height: 30px;
+    min-width: 30px;
+    border-radius: 50%;
+    border: 3px solid #F2D7DC;
+    border-top-color: #E60023;
+    animation: initial-loading-spin 0.85s linear infinite;
+}
+
+.initial-loading-content {
+    min-width: 0;
+}
+
+.initial-loading-title {
+    color: #1F2A44;
+    font-size: 1rem;
+    line-height: 1.3;
+    font-weight: 850;
+    margin-bottom: 0.2rem;
+}
+
+.initial-loading-subtitle {
+    color: #667085;
+    font-size: 0.93rem;
+    line-height: 1.5;
+}
+
+@keyframes initial-loading-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+</style>
+"""
+    return css + "\n" + loading_rules
+
+
+def build_initial_loading_html(
+    title: str = "Cargando información, espere un momento...",
+    subtitle: str = (
+        "Estamos preparando la información más reciente para que puedas "
+        "consultar e interactuar con los reportes."
+    ),
+) -> str:
+    """
+    Bloque visual simple para la preparación automática inicial.
+    No expone etapas técnicas al usuario final.
+    """
+    return f"""
+    <div class="initial-loading-card">
+        <div class="initial-loading-spinner"></div>
+        <div class="initial-loading-content">
+            <div class="initial-loading-title">{title}</div>
+            <div class="initial-loading-subtitle">{subtitle}</div>
+        </div>
+    </div>
+    """

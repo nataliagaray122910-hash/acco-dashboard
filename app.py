@@ -597,6 +597,38 @@ def execute_with_status(title: str, action) -> bool:
     return result
 
 
+def execute_initial_data_loading(action) -> bool:
+    """
+    Indicador amigable para la preparación automática al entrar a la app.
+
+    A diferencia de execute_with_status(), no muestra etapas técnicas ni
+    callbacks de procesamiento. El usuario solo ve que la información se
+    está preparando y, al terminar, el aviso desaparece.
+    """
+    loading_placeholder = st.empty()
+
+    loading_placeholder.markdown(
+        styles.build_initial_loading_html(
+            title="Cargando información, espere un momento...",
+            subtitle=(
+                "Estamos preparando la información más reciente para que "
+                "puedas consultar e interactuar con los reportes."
+            ),
+        ),
+        unsafe_allow_html=True,
+    )
+
+    try:
+        result = bool(action())
+    except Exception as exc:
+        result = False
+        set_error_message(f"Ocurrió un error inesperado. Detalle: {exc}")
+    finally:
+        loading_placeholder.empty()
+
+    return result
+
+
 # =========================================================
 # 4.3 HELPERS DE ROLES Y PERSISTENCIA TEMPORAL
 # =========================================================
@@ -1619,7 +1651,7 @@ def render_period_filter_block(
 
     if not years:
         st.info(
-            "Primero necesitas procesar la base de ventas para habilitar los filtros de Año y Mes."
+            "La información de ventas todavía no está disponible para habilitar los filtros de Año y Mes."
         )
         return None, None
 
@@ -2335,6 +2367,42 @@ def run_sales_processing(progress=None) -> bool:
         set_error_message(f"{config.MSG_PROCESSING_ERROR} Detalle: {exc}")
         return False
 
+
+def ensure_sales_processed_automatically(show_status: bool = True) -> bool:
+    """
+    Procesa BASE SAP automáticamente cuando ya existe una carga válida
+    y la sesión todavía no tiene df_processed_sales.
+
+    Experiencia de usuario:
+    - No reprocesa en cada rerun.
+    - En la preparación automática inicial NO muestra etapas técnicas.
+    - El aviso amigable desaparece al terminar y la vista continúa normalmente.
+    """
+    df_sales = st.session_state.get("df_sales")
+    df_processed = st.session_state.get("df_processed_sales")
+
+    if df_sales is None:
+        return False
+
+    if df_processed is not None and not getattr(df_processed, "empty", False):
+        return True
+
+    if not st.session_state.get("sales_valid", False):
+        return False
+
+    if show_status:
+        result = execute_initial_data_loading(
+            lambda: run_sales_processing(progress=None)
+        )
+    else:
+        result = run_sales_processing(progress=None)
+
+    # El procesamiento fue automático: no mostramos el mensaje técnico
+    # "Procesamiento completado correctamente" después de entrar.
+    if result and st.session_state.get("mensaje_exito") == config.MSG_PROCESSING_SUCCESS:
+        st.session_state["mensaje_exito"] = None
+
+    return result
 
 def render_processed_data_summary() -> None:
     df_processed = st.session_state.get("df_processed_sales")
@@ -4232,7 +4300,7 @@ def get_dashboard_missing_dependencies() -> list[str]:
 
     df_processed = st.session_state.get("df_processed_sales")
     if df_processed is None or getattr(df_processed, "empty", False):
-        missing_dependencies.append("Primero procesa la base de ventas en Visión general.")
+        missing_dependencies.append("La información de ventas todavía no está preparada.")
 
     if st.session_state.get("mtd_payload") is None:
         missing_dependencies.append("Primero construye la Base MTD.")
@@ -5974,10 +6042,23 @@ def render_upload_view() -> None:
                     is_valid_fcst_sku,
                 ]):
                     detected_forecast = payload.get("forecast_name", "Forecast")
-                    st.success(
-                        f"Archivo corporativo cargado correctamente. Las cinco hojas funcionales fueron validadas. "
-                        f"Forecast detectado: {detected_forecast}."
-                    )
+
+                    # La BASE SAP se procesa automáticamente en cuanto la carga
+                    # corporativa queda validada. El usuario ya no necesita ir
+                    # a Visión general ni presionar un botón adicional.
+                    processing_ok = ensure_sales_processed_automatically(show_status=True)
+
+                    if processing_ok:
+                        st.success(
+                            f"Archivo corporativo cargado y preparado correctamente. "
+                            f"Las cinco hojas funcionales fueron validadas. "
+                            f"Forecast detectado: {detected_forecast}."
+                        )
+                    else:
+                        st.warning(
+                            "El archivo corporativo fue validado, pero no fue posible preparar "
+                            "automáticamente la base de ventas. Revisa los avisos mostrados por la app."
+                        )
                 else:
                     st.warning(
                         "El archivo corporativo se cargó, pero alguna hoja no contiene las columnas mínimas esperadas. "
@@ -6230,21 +6311,16 @@ def render_overview_view() -> None:
     )
     st.markdown(overview_box_html, unsafe_allow_html=True)
 
-    # La base sigue procesándose normalmente, pero se retira de esta vista
-    # el resumen de registros / GSNR / Gross Margin para evitar confusión.
+    # La BASE SAP ya se procesa automáticamente después de una carga válida
+    # o al recuperar la carga administrativa de un viewer.
+    # Visión general queda exclusivamente como pantalla de consulta y análisis.
     df_processed = st.session_state.get("df_processed_sales")
 
-    # El botón solo aparece antes del primer procesamiento.
-    # Una vez que existe la base procesada, desaparece para evitar que el
-    # usuario interprete que debe volver a procesarla cada vez que entra.
     if df_processed is None or df_processed.empty:
-        if st.button("Procesar base de ventas", use_container_width=True):
-            process_ok = execute_with_status(
-                "Procesando base de ventas...",
-                lambda progress: run_sales_processing(progress=progress),
-            )
-            if process_ok:
-                st.rerun()
+        st.info(
+            "La información de ventas todavía no está disponible. "
+            "Cuando exista una carga válida, la app la preparará automáticamente."
+        )
 
     st.markdown(
         '<div class="base-mtd-section-heading">Tendencia Historica</div>',
@@ -6275,7 +6351,7 @@ def render_overview_view() -> None:
             convert_currency=True,
         )
     else:
-        st.info("Aún no se ha procesado ninguna base.")
+        st.info("La base de ventas todavía no está disponible.")
 
     # Única línea divisoria de esta vista, para separar la vista previa
     # de la validación visual de columnas clave.
@@ -6304,7 +6380,7 @@ def render_overview_view() -> None:
             convert_currency=True,
         )
     else:
-        st.info("No hay columnas procesadas para mostrar todavía.")
+        st.info("No hay información preparada para mostrar todavía.")
 
 
 def render_mtd_base_view() -> None:
@@ -6367,73 +6443,15 @@ def render_mtd_base_view() -> None:
         unsafe_allow_html=True,
     )
 
-    years, latest_year, latest_month = get_available_year_month_options()
-
-    if years:
-        current_year_mtd = st.session_state.get(
-            "base_mtd_year",
-            payload["latest_year"],
-        )
-        if current_year_mtd not in years:
-            current_year_mtd = latest_year
-        st.session_state["base_mtd_year"] = current_year_mtd
-
-        filter_col_year, filter_col_month, filter_col_apply = st.columns(
-            [1.1, 1.25, 0.95]
-        )
-
-        with filter_col_year:
-            selected_year_mtd = st.selectbox(
-                "Año",
-                options=years,
-                key="base_mtd_year",
-            )
-
-        available_months = get_available_months_for_year(selected_year_mtd)
-
-        selected_month_mtd = None
-        if available_months:
-            current_month_mtd = st.session_state.get(
-                "base_mtd_month",
-                payload["latest_month"],
-            )
-
-            if selected_year_mtd == latest_year:
-                fallback_month = latest_month
-            else:
-                fallback_month = max(available_months)
-
-            if current_month_mtd not in available_months:
-                current_month_mtd = fallback_month
-            st.session_state["base_mtd_month"] = current_month_mtd
-
-            with filter_col_month:
-                selected_month_mtd = st.selectbox(
-                    "Mes de corte",
-                    options=available_months,
-                    key="base_mtd_month",
-                    format_func=get_month_label,
-                )
-        else:
-            with filter_col_month:
-                st.warning("Sin meses disponibles")
-
-        with filter_col_apply:
-            st.markdown("<br>", unsafe_allow_html=True)
-            if st.button(
-                "Aplicar",
-                key="btn_base_mtd_period_filter",
-                use_container_width=True,
-                disabled=selected_month_mtd is None,
-            ):
-                run_mtd_build(
-                    selected_year=selected_year_mtd,
-                    selected_month=selected_month_mtd,
-                )
-                st.rerun()
-
-    else:
-        st.info("Primero necesitas procesar la base de ventas para habilitar los filtros de Año y Mes.")
+    render_report_period_row(
+        "base_mtd_year",
+        "base_mtd_month",
+        "btn_base_mtd_period_filter",
+        lambda year, month: run_mtd_build(
+            selected_year=year,
+            selected_month=month,
+        ),
+    )
 
     payload = st.session_state.get("mtd_payload")
 
@@ -7723,6 +7741,11 @@ def main() -> None:
 
     st.session_state["__last_selected_section"] = selected
 
+    # Si la sesión acaba de recuperar la carga administrativa (por ejemplo,
+    # un usuario viewer después de login/reboot), prepara BASE SAP una sola vez.
+    # Si ya existe df_processed_sales, esta función no vuelve a procesar.
+    ensure_sales_processed_automatically(show_status=True)
+
     render_global_alerts()
 
     # Solo se ejecuta la vista seleccionada.
@@ -8003,38 +8026,131 @@ def render_report_period_row(
     button_key: str,
     on_apply,
 ) -> tuple[int | None, int | None]:
-    """Periodo arriba del resumen, con botón Aplicar como Base MTD."""
+    """
+    Filtro de periodo con estado BORRADOR y estado APLICADO.
+
+    Regla de experiencia:
+    - Cambiar Año o Mes dentro del formulario NO ejecuta el reporte.
+    - El periodo visible en resumen/tablas sigue siendo el último aplicado.
+    - Solo al presionar "Aplicar" se reconstruye el reporte y se confirma
+      el nuevo periodo.
+    """
     years, latest_year, latest_month = get_available_year_month_options()
+
     if not years:
-        st.info("Primero procesa la base de ventas para habilitar Año y Mes.")
+        st.info(
+            "La información de ventas todavía no está disponible para habilitar Año y Mes."
+        )
         return None, None
 
-    current_year = st.session_state.get(year_key, latest_year)
-    if current_year not in years:
-        current_year = latest_year
-    st.session_state[year_key] = current_year
+    applied_year_key = f"{year_key}__applied"
+    applied_month_key = f"{month_key}__applied"
+    draft_year_key = f"{year_key}__draft"
+    draft_month_key = f"{month_key}__draft"
 
-    c1, c2, c3 = st.columns([1.1, 1.25, 0.95])
-    with c1:
-        year = st.selectbox("Año", years, key=year_key)
-    months = get_available_months_for_year(year)
-    if not months:
-        with c2: st.warning("Sin meses disponibles")
-        return year, None
-    fallback = latest_month if year == latest_year and latest_month in months else max(months)
-    current_month = st.session_state.get(month_key, fallback)
-    if current_month not in months:
-        current_month = fallback
-    st.session_state[month_key] = current_month
-    with c2:
-        month = st.selectbox("Mes de corte", months, key=month_key, format_func=get_month_label)
-    with c3:
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("Aplicar", key=button_key, use_container_width=True):
-            if on_apply(year, month):
+    # Estado aplicado: es el único que alimenta resúmenes y contenido visible.
+    applied_year = st.session_state.get(
+        applied_year_key,
+        st.session_state.get(year_key, latest_year),
+    )
+    if applied_year not in years:
+        applied_year = latest_year
+
+    available_applied_months = get_available_months_for_year(int(applied_year))
+    applied_fallback_month = (
+        latest_month
+        if int(applied_year) == int(latest_year)
+        and latest_month in available_applied_months
+        else (max(available_applied_months) if available_applied_months else latest_month)
+    )
+
+    applied_month = st.session_state.get(
+        applied_month_key,
+        st.session_state.get(month_key, applied_fallback_month),
+    )
+    if applied_month not in available_applied_months:
+        applied_month = applied_fallback_month
+
+    st.session_state[applied_year_key] = int(applied_year)
+    st.session_state[applied_month_key] = int(applied_month)
+    # Compatibilidad con el resto del código existente.
+    st.session_state[year_key] = int(applied_year)
+    st.session_state[month_key] = int(applied_month)
+
+    # En un st.form los cambios no provocan rerun hasta presionar Aplicar.
+    # Para permitir cambiar año y mes de una sola vez, el selector de mes usa
+    # la unión de meses existentes en toda la base. La combinación se valida
+    # contra el año elegido únicamente al enviar el formulario.
+    all_months = sorted(
+        {
+            month
+            for year_value in years
+            for month in get_available_months_for_year(int(year_value))
+        }
+    )
+
+    if not all_months:
+        st.warning("No hay meses disponibles en la información procesada.")
+        return int(applied_year), int(applied_month)
+
+    if st.session_state.get(draft_year_key) not in years:
+        st.session_state[draft_year_key] = int(applied_year)
+
+    if st.session_state.get(draft_month_key) not in all_months:
+        st.session_state[draft_month_key] = int(applied_month)
+
+    with st.form(
+        key=f"{button_key}__form",
+        clear_on_submit=False,
+        enter_to_submit=False,
+        border=False,
+    ):
+        c1, c2, c3 = st.columns([1.1, 1.25, 0.95])
+
+        with c1:
+            draft_year = st.selectbox(
+                "Año",
+                options=years,
+                key=draft_year_key,
+            )
+
+        with c2:
+            draft_month = st.selectbox(
+                "Mes de corte",
+                options=all_months,
+                key=draft_month_key,
+                format_func=get_month_label,
+            )
+
+        with c3:
+            st.markdown("<br>", unsafe_allow_html=True)
+            submitted = st.form_submit_button(
+                "Aplicar",
+                use_container_width=True,
+            )
+
+    if submitted:
+        valid_months_for_draft_year = get_available_months_for_year(int(draft_year))
+
+        if int(draft_month) not in valid_months_for_draft_year:
+            st.warning(
+                f"{get_month_label(int(draft_month))} no está disponible para "
+                f"{int(draft_year)}. Selecciona un mes válido antes de aplicar."
+            )
+        else:
+            applied_ok = bool(on_apply(int(draft_year), int(draft_month)))
+
+            if applied_ok:
+                st.session_state[applied_year_key] = int(draft_year)
+                st.session_state[applied_month_key] = int(draft_month)
+                st.session_state[year_key] = int(draft_year)
+                st.session_state[month_key] = int(draft_month)
                 st.rerun()
-    return year, month
 
+    return (
+        int(st.session_state[applied_year_key]),
+        int(st.session_state[applied_month_key]),
+    )
 
 def get_independent_executive_summary(year: int, month: int) -> dict | None:
     """Resumen por pestaña sin depender de que Base MTD haya sido construida."""
