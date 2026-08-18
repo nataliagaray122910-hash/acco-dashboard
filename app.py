@@ -6046,7 +6046,7 @@ def render_upload_view() -> None:
                     # La BASE SAP se procesa automáticamente en cuanto la carga
                     # corporativa queda validada. El usuario ya no necesita ir
                     # a Visión general ni presionar un botón adicional.
-                    processing_ok = ensure_sales_processed_automatically(show_status=True)
+                    processing_ok = ensure_sales_processed_automatically(show_status=False)
 
                     if processing_ok:
                         st.success(
@@ -6256,7 +6256,9 @@ def render_upload_view() -> None:
                 lambda progress: save_current_data_for_viewers(progress=progress),
             )
             if save_ok:
-                st.rerun()
+                # No forzamos un rerun aquí: así el estado de Guardar no puede
+                # reutilizarse visualmente como si fuera el estado de Eliminar.
+                render_global_alerts()
     else:
         st.caption("Carga el archivo corporativo completo para habilitar el guardado administrativo.")
 
@@ -6292,7 +6294,9 @@ def render_upload_view() -> None:
                 lambda progress: delete_persistent_data(progress=progress),
             )
             if delete_ok:
-                st.rerun()
+                # Igual que al guardar, mostramos el resultado en este mismo render
+                # para evitar estados "fantasma" durante un rerun inmediato.
+                render_global_alerts()
 
     render_persistent_data_status()
 
@@ -7744,7 +7748,7 @@ def main() -> None:
     # Si la sesión acaba de recuperar la carga administrativa (por ejemplo,
     # un usuario viewer después de login/reboot), prepara BASE SAP una sola vez.
     # Si ya existe df_processed_sales, esta función no vuelve a procesar.
-    ensure_sales_processed_automatically(show_status=True)
+    ensure_sales_processed_automatically(show_status=(selected == "Inicio"))
 
     render_global_alerts()
 
