@@ -452,25 +452,44 @@ def build_segment_region_heatmap_pair_chart(
     exchange_rate: float = 20.0,
 ):
     """
-    Construye dos mapas lado a lado: vs Plan y vs PY para el mismo periodo.
+    Construye tres mapas lado a lado: vs Plan, vs Forecast y vs PY
+    para el mismo periodo.
     """
-    left_data = _build_segment_region_heatmap_trace(df_segment_region, "plan", currency_mode, exchange_rate)
-    right_data = _build_segment_region_heatmap_trace(df_segment_region, "py", currency_mode, exchange_rate)
+    plan_data = _build_segment_region_heatmap_trace(
+        df_segment_region, "plan", currency_mode, exchange_rate
+    )
+    fcst_data = _build_segment_region_heatmap_trace(
+        df_segment_region, "fcst", currency_mode, exchange_rate
+    )
+    py_data = _build_segment_region_heatmap_trace(
+        df_segment_region, "py", currency_mode, exchange_rate
+    )
 
-    if left_data is None and right_data is None:
+    items = [plan_data, fcst_data, py_data]
+
+    if all(item is None for item in items):
         return None
 
     z_pool = []
-    for item in [left_data, right_data]:
+    for item in items:
         if item is not None:
             z_pool.extend(pd.DataFrame(item["z"]).values.flatten().tolist())
-    max_abs = min(100.0, max(25.0, abs(min(z_pool)), abs(max(z_pool)))) if z_pool else 25.0
+
+    max_abs = (
+        min(100.0, max(25.0, abs(min(z_pool)), abs(max(z_pool))))
+        if z_pool
+        else 25.0
+    )
 
     fig = make_subplots(
         rows=1,
-        cols=2,
-        subplot_titles=(f"{period_label} vs Plan", f"{period_label} vs PY"),
-        horizontal_spacing=0.10,
+        cols=3,
+        subplot_titles=(
+            f"{period_label} vs Plan",
+            f"{period_label} vs Forecast",
+            f"{period_label} vs PY",
+        ),
+        horizontal_spacing=0.08,
     )
 
     colorscale = [
@@ -481,12 +500,15 @@ def build_segment_region_heatmap_pair_chart(
         [1.00, "#0F8B5F"],
     ]
 
-    for col, item in enumerate([left_data, right_data], start=1):
+    for col, item in enumerate(items, start=1):
         if item is None:
             continue
+
         fig.add_trace(
             go.Heatmap(
-                z=pd.DataFrame(item["z"]).clip(lower=-max_abs, upper=max_abs).values,
+                z=pd.DataFrame(item["z"]).clip(
+                    lower=-max_abs, upper=max_abs
+                ).values,
                 x=item["x"],
                 y=item["y"],
                 customdata=item["customdata"],
@@ -494,7 +516,7 @@ def build_segment_region_heatmap_pair_chart(
                 zmin=-max_abs,
                 zmax=max_abs,
                 colorscale=colorscale,
-                showscale=(col == 2),
+                showscale=(col == 3),
                 colorbar=dict(
                     title="% Var",
                     ticksuffix="%",
@@ -523,7 +545,11 @@ def build_segment_region_heatmap_pair_chart(
         hovermode="closest",
     )
     fig.update_xaxes(side="top", tickfont=dict(size=11), showgrid=False)
-    fig.update_yaxes(tickfont=dict(size=11), showgrid=False, autorange="reversed")
+    fig.update_yaxes(
+        tickfont=dict(size=11),
+        showgrid=False,
+        autorange="reversed",
+    )
 
     return fig
 
@@ -843,7 +869,7 @@ def _prepare_channel_grouped_bar_dataframe(
     if df_channel is None or df_channel.empty:
         return pd.DataFrame()
 
-    required_columns = ["Channel", "Actual", "Plan", "PY"]
+    required_columns = ["Channel", "Actual", "Plan", "Fcst", "PY"]
     if any(column not in df_channel.columns for column in required_columns):
         return pd.DataFrame()
 
@@ -854,13 +880,13 @@ def _prepare_channel_grouped_bar_dataframe(
     df = df.copy()
     df["__channel_label__"] = df["Channel"].apply(_display_channel_label)
 
-    for metric_name in ["Actual", "Plan", "PY"]:
+    for metric_name in ["Actual", "Plan", "Fcst", "PY"]:
         df[f"__{metric_name}_k__"] = df[metric_name].apply(
             lambda value: convert_value_by_currency(value, currency_mode, exchange_rate)
         ) / 1000
 
     df = df[
-        df[["__Actual_k__", "__Plan_k__", "__PY_k__"]]
+        df[["__Actual_k__", "__Plan_k__", "__Fcst_k__", "__PY_k__"]]
         .abs()
         .sum(axis=1)
         .apply(lambda value: safe_float(value) != 0)
@@ -882,9 +908,10 @@ def build_channel_mix_grouped_bar_interactive_chart(
     """
     Gráfica de barras verticales con botones MTD/YTD.
 
-    Muestra por Channel tres barras agrupadas:
+    Muestra por Channel cuatro barras agrupadas:
     - Actual
     - Plan
+    - Forecast
     - PY
 
     No usa anotaciones centrales ni cuadros explicativos para mantener la lectura limpia.
@@ -904,6 +931,7 @@ def build_channel_mix_grouped_bar_interactive_chart(
     metric_specs = [
         ("Actual", "__Actual_k__", "#E60023"),
         ("Plan", "__Plan_k__", "#0B5A7A"),
+        ("Forecast", "__Fcst_k__", "#A855F7"),
         ("PY", "__PY_k__", "#D4A017"),
     ]
 
@@ -1062,7 +1090,7 @@ def _comparison_config(comparison_type: str) -> dict:
             "base_col": "Fcst",
             "var_col": "Var VS Fcst",
             "pct_col": "%Var VS Fcst",
-            "label": "Fcst",
+            "label": "Forecast",
         }
 
     if comparison == "py":

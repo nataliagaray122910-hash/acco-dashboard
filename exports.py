@@ -2116,7 +2116,7 @@ def build_full_reports_excel_bytes(
 # =========================================================
 # INTEGRACIÓN FORECAST - EXTENSIÓN DE EXPORTACIONES
 # =========================================================
-HEADER_FCST_FILL = PatternFill(fill_type="solid", fgColor="E83E62")
+HEADER_FCST_FILL = PatternFill(fill_type="solid", fgColor="34A853")
 HEADER_FCST_SKU_FILL = PatternFill(fill_type="solid", fgColor="FFC34D")
 HEADER_VAR_PLAN_FILL = PatternFill(fill_type="solid", fgColor="F4B400")
 HEADER_VAR_FCST_FILL = PatternFill(fill_type="solid", fgColor="34A853")

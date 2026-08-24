@@ -456,10 +456,10 @@ def render_preview_expander(
 
 def remove_private_processed_columns(df_table):
     """
-    Oculta columnas internas/sensibles de la base procesada en vistas previas
+    Oculta columnas internas/sensibles de la información de ventas en vistas previas
     y cualquier descarga directa de esa sección.
 
-    Nota: la base procesada completa se conserva en sesión para cálculos,
+    Nota: la información de ventas completa se conserva en sesión para cálculos,
     reportes, tarjetas y gráficas. Esto solo afecta lo que se muestra/exporta
     desde Visión general.
     """
@@ -797,7 +797,7 @@ def clear_user_generated_work_state() -> None:
 
     Regla de negocio para viewers:
     - La carga administrativa compartida SOLO ahorra el paso de cargar el Excel.
-    - La base procesada, Base MTD, reportes, filtros y descargas construidas
+    - La información de ventas, Base MTD, reportes, filtros y descargas construidas
       deben iniciar vacías para cada sesión/usuario.
     """
     st.session_state["df_processed_sales"] = None
@@ -961,7 +961,7 @@ def load_persistent_data_to_session(show_message: bool = False) -> bool:
 
         # IMPORTANTE:
         # La carga administrativa compartida solo trae las bases originales.
-        # La base procesada, reportes y filtros se limpian para que cada viewer
+        # La información de ventas, reportes y filtros se limpian para que cada viewer
         # viva el flujo completo en su propia sesión.
         clear_user_generated_work_state()
 
@@ -1003,7 +1003,7 @@ def get_menu_options_for_current_user() -> list[str]:
     Admin ve todo. Viewer no ve Carga de datos.
 
     Dashboard se agrega al final del flujo, debajo de Base MTD, porque
-    depende de la base procesada, Base MTD y reportes previamente construidos.
+    depende de la información de ventas, Base MTD y reportes previamente construidos.
     """
     base_options = [option for option in list(config.MAIN_MENU_OPTIONS) if option != "Dashboard"]
 
@@ -2408,7 +2408,7 @@ def render_processed_data_summary() -> None:
     df_processed = st.session_state.get("df_processed_sales")
 
     if df_processed is None or df_processed.empty:
-        st.info("Todavía no existe una base procesada.")
+        st.info("La información de ventas todavía no está disponible.")
         return
 
     total_rows = len(df_processed)
@@ -2430,9 +2430,9 @@ def render_processed_data_summary() -> None:
     with col1:
         st.markdown(
             styles.build_base_mtd_kpi_card(
-                title="REGISTROS PROCESADOS",
+                title="REGISTROS DISPONIBLES",
                 value=f"{total_rows:,}",
-                description="Total de filas en la base procesada.",
+                description="Total de filas disponibles para consulta.",
                 icon="#",
                 color="blue",
             ),
@@ -2927,7 +2927,7 @@ def render_report_1_view() -> None:
     report_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta vista:</b><br>
-        Mostrar el comparativo ejecutivo MTD / YTD de Oficina de ventas, con el bloque completo ACCO + BARR + KENS, usando BASE SAP y Plan2026 by Client.
+        Mostrar el comparativo ejecutivo MTD / YTD de Oficina de ventas, con el bloque completo ACCO + BARR + KENS, usando BASE SAP, Plan2026 by Client y Forecast by Client.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -3316,7 +3316,7 @@ def render_report_2_view() -> None:
         """
         <b>Objetivo de esta vista:</b><br>
         Mostrar el comparativo ejecutivo MTD / YTD por Segmento y Región,
-        usando BASE SAP y Plan2026 by SKU, excluyendo AFI: Afiliadas.
+        usando BASE SAP, Plan2026 by SKU y Forecast by SKU, excluyendo AFI: Afiliadas.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -3752,7 +3752,7 @@ def render_report_3_view() -> None:
         """
         <b>Objetivo de esta vista:</b><br>
         Mostrar el comparativo ejecutivo MTD / YTD por Channel,
-        usando BASE SAP y Plan2026 by SKU.
+        usando BASE SAP, Plan2026 by SKU y Forecast by SKU.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -3872,7 +3872,7 @@ def render_report_3_view() -> None:
     st.markdown("---")
     st.markdown("### Comparativo por Channel")
     st.markdown(
-        '<div class="report-note">Gráfica de barras verticales con dos botones internos: MTD y YTD. Cada vista compara Actual, Plan y PY por Channel con colores diferenciados y valores visibles.</div>',
+        '<div class="report-note">Gráfica de barras verticales con dos botones internos: MTD y YTD. Cada vista compara Actual, Plan, Forecast y PY por Channel con colores diferenciados y valores visibles.</div>',
         unsafe_allow_html=True,
     )
 
@@ -4102,7 +4102,8 @@ def render_report_4_view() -> None:
         """
         <b>Objetivo de esta vista:</b><br>
         Mostrar el comparativo ejecutivo MTD / YTD del ranking dinámico de clientes,
-        ordenado por Actual y cruzando BASE SAP y Plan2026 by Client mediante código de cliente.
+        ordenado por Actual y cruzando BASE SAP, Plan2026 by Client y Forecast by Client
+        mediante código de cliente.
         """
     )
     st.markdown(report_box_html, unsafe_allow_html=True)
@@ -4221,15 +4222,19 @@ def render_report_4_view() -> None:
 
     pareto_tabs = st.tabs([
         "MTD vs Plan",
+        "MTD vs Forecast",
         "MTD vs PY",
         "YTD vs Plan",
+        "YTD vs Forecast",
         "YTD vs PY",
     ])
 
     pareto_specs = [
         (payload["mtd_top_clients_table"], "plan", "MTD vs Plan"),
+        (payload["mtd_top_clients_table"], "fcst", "MTD vs Forecast"),
         (payload["mtd_top_clients_table"], "py", "MTD vs PY"),
         (payload["ytd_top_clients_table"], "plan", "YTD vs Plan"),
+        (payload["ytd_top_clients_table"], "fcst", "YTD vs Forecast"),
         (payload["ytd_top_clients_table"], "py", "YTD vs PY"),
     ]
 
@@ -4292,7 +4297,7 @@ def get_dashboard_missing_dependencies() -> list[str]:
     """
     Valida el flujo completo antes de mostrar el Dashboard.
     Orden requerido:
-    1) Ventas procesadas
+    1) Información de ventas disponible
     2) Base MTD construida
     3) Reportes 1, 2 Segment, 2 Category, 3 y 4 construidos
     """
@@ -6057,7 +6062,7 @@ def render_upload_view() -> None:
                     else:
                         st.warning(
                             "El archivo corporativo fue validado, pero no fue posible preparar "
-                            "automáticamente la base de ventas. Revisa los avisos mostrados por la app."
+                            "la información de ventas. Revisa los avisos mostrados por la app."
                         )
                 else:
                     st.warning(
@@ -6309,8 +6314,8 @@ def render_overview_view() -> None:
     overview_box_html = styles.build_info_box(
         """
         <b>Objetivo de esta etapa:</b><br>
-        Limpiar datos de ventas, transformar la columna Periodo,
-        respetar el GSNR existente de BASE SAP y calcular Gross Margin.
+        Consultar la tendencia histórica de ventas, revisar una vista previa de la información
+        y validar visualmente las columnas clave disponibles.
         """
     )
     st.markdown(overview_box_html, unsafe_allow_html=True)
@@ -6343,13 +6348,13 @@ def render_overview_view() -> None:
         st.info("No hay información suficiente para construir la tendencia histórica.")
 
     st.markdown(
-        '<div class="base-mtd-section-heading">Vista previa de la base procesada</div>',
+        '<div class="base-mtd-section-heading">Vista previa de la información de ventas</div>',
         unsafe_allow_html=True,
     )
 
     if df_processed is not None and not df_processed.empty:
         render_preview_expander(
-            "Vista previa - Base procesada",
+            "Vista previa - Información de ventas",
             remove_private_processed_columns(df_processed),
             rows=20,
             convert_currency=True,
@@ -6397,8 +6402,9 @@ def render_mtd_base_view() -> None:
         styles.build_info_box(
             """
             <b>Objetivo de esta etapa:</b><br>
-            Construir comparativos generales MTD / YTD para Plan2026 by Client
-            y Plan2026 by SKU con base en REAL (BASE SAP).
+            Construir comparativos generales MTD / YTD de Actual vs Plan, Forecast y PY,
+            utilizando REAL (BASE SAP), Plan2026 by Client, Plan2026 by SKU,
+            Forecast by Client y Forecast by SKU.
             """
         ),
         unsafe_allow_html=True,
@@ -6914,7 +6920,7 @@ def filter_report_4_top_clients_table(
 def run_mtd_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     dfs={k:st.session_state.get(k) for k in ["df_processed_sales","df_plan_client","df_plan_sku","df_fcst_client","df_fcst_sku"]}
     if any(v is None for v in dfs.values()):
-        set_error_message("Para construir Base MTD se requieren ventas procesadas, Plan Cliente, Plan SKU, Forecast Cliente y Forecast SKU."); return False
+        set_error_message("Para construir Base MTD se requiere información de ventas disponible, Plan Cliente, Plan SKU, Forecast Cliente y Forecast SKU."); return False
     try:
         payload=data_processor.build_mtd_payload(dfs["df_processed_sales"],dfs["df_plan_client"],dfs["df_plan_sku"],dfs["df_fcst_client"],dfs["df_fcst_sku"],forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         st.session_state["mtd_payload"]=payload; st.session_state["df_mtd_base"]=None; set_success_message(config.MSG_MTD_BUILD_SUCCESS); return True
@@ -6940,7 +6946,7 @@ def build_horizontal_plan_table_html(title: str, df_table, plan_variant: str) ->
 def run_report_1_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_client"); fcst=st.session_state.get("df_fcst_client")
     if sales is None or plan is None or fcst is None:
-        set_error_message("Para construir Reporte 1 se requieren ventas procesadas, Plan Cliente y Forecast Cliente."); return False
+        set_error_message("Para construir Reporte 1 se requiere información de ventas disponible, Plan Cliente y Forecast Cliente."); return False
     try:
         st.session_state["report1_payload"]=data_processor.build_report_1_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         set_success_message(config.MSG_REPORT_1_BUILD_SUCCESS); return True
@@ -6976,7 +6982,7 @@ def build_report_1_table_html(title: str, df_table) -> str:
 def run_report_2_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
     if sales is None or plan is None or fcst is None:
-        set_error_message("Para construir Segment x Region se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+        set_error_message("Para construir Segment x Region se requiere información de ventas disponible, Plan SKU y Forecast SKU."); return False
     try:
         st.session_state["report2_payload"]=data_processor.build_report_2_segment_region_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         set_success_message(config.MSG_REPORT_2_BUILD_SUCCESS); return True
@@ -6987,7 +6993,7 @@ def run_report_2_build(selected_year: int | None=None, selected_month: int | Non
 def run_report_2_category_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
     if sales is None or plan is None or fcst is None:
-        set_error_message("Para construir Category se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+        set_error_message("Para construir Category se requiere información de ventas disponible, Plan SKU y Forecast SKU."); return False
     try:
         st.session_state["report2_category_payload"]=data_processor.build_report_2_category_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         set_success_message(config.MSG_REPORT_2_CATEGORY_BUILD_SUCCESS); return True
@@ -7190,7 +7196,7 @@ def build_report_2_table_html(title: str, df_table, first_header: str, view_type
 def run_report_3_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_sku"); fcst=st.session_state.get("df_fcst_sku")
     if sales is None or plan is None or fcst is None:
-        set_error_message("Para construir Reporte 3 se requieren ventas procesadas, Plan SKU y Forecast SKU."); return False
+        set_error_message("Para construir Reporte 3 se requiere información de ventas disponible, Plan SKU y Forecast SKU."); return False
     try:
         st.session_state["report3_payload"]=data_processor.build_report_3_channel_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         set_success_message(config.MSG_REPORT_3_BUILD_SUCCESS); return True
@@ -7226,7 +7232,7 @@ def build_report_3_table_html(title: str, df_table) -> str:
 def run_report_4_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_client"); fcst=st.session_state.get("df_fcst_client")
     if sales is None or plan is None or fcst is None:
-        set_error_message("Para construir Ranking Clientes se requieren ventas procesadas, Plan Cliente y Forecast Cliente."); return False
+        set_error_message("Para construir Ranking Clientes se requiere información de ventas disponible, Plan Cliente y Forecast Cliente."); return False
     try:
         st.session_state["report4_payload"]=data_processor.build_report_4_top_clients_payload(sales,plan,fcst,forecast_name=st.session_state.get("forecast_name","Fcst"),selected_year=selected_year,selected_month=selected_month,progress_callback=progress)
         set_success_message(config.MSG_REPORT_4_BUILD_SUCCESS); return True
@@ -8094,7 +8100,7 @@ def render_report_period_row(
     )
 
     if not all_months:
-        st.warning("No hay meses disponibles en la información procesada.")
+        st.warning("No hay meses disponibles en la información de ventas.")
         return int(applied_year), int(applied_month)
 
     if st.session_state.get(draft_year_key) not in years:

@@ -82,13 +82,13 @@ HOME_MODULES_SUBTITLE = (
     "de forma simple y eficiente."
 )
 HOME_MODULE_CARDS = [
-    {"title": "Carga de datos", "description": "Carga y valida automáticamente el archivo corporativo de ventas y planes.", "icon": "📁"},
-    {"title": "Visión general", "description": "Procesa la base de ventas y genera indicadores generales de la información.", "icon": "📈"},
-    {"title": "Base MTD", "description": "Construye comparativos MTD, YTD y BTS para Plan Cliente y Plan SKU.", "icon": "📊"},
+    {"title": "Carga de datos", "description": "Carga y valida automáticamente el archivo corporativo de ventas, planes y Forecast.", "icon": "📁"},
+    {"title": "Visión general", "description": "Consulta la tendencia histórica, la información de ventas y sus columnas clave.", "icon": "📈"},
+    {"title": "Base MTD", "description": "Construye comparativos MTD, YTD y BTS para Actual, Plan, Forecast y PY.", "icon": "📊"},
     {"title": "Oficina de ventas", "description": "Analiza el desempeño por oficina de ventas.", "icon": "🏢"},
     {"title": "Segmento y Categoría", "description": "Evalúa resultados por segmento de negocio, región y categoría de material.", "icon": "🌐"},
     {"title": "Canal", "description": "Consulta el desempeño de ventas por canal corporativo.", "icon": "🛒"},
-    {"title": "Ranking Clientes", "description": "Visualiza el Top 15 de clientes y sus variaciones vs Plan y PY.", "icon": "👥"},
+    {"title": "Ranking Clientes", "description": "Visualiza el Top 15 de clientes y sus variaciones vs Plan, Forecast y PY.", "icon": "👥"},
     {"title": "Dashboard", "description": "Accede al resumen ejecutivo con gráficos y KPIs consolidados.", "icon": "🖥️"},
 ]
 HOME_TRUST_ITEMS = [
@@ -207,7 +207,7 @@ EXPORT_SHEET_DASHBOARD = "Dashboard"
 # ---------------------------------------------------------
 # TIPOS DE ARCHIVO
 # ---------------------------------------------------------
-ALLOWED_FILE_TYPES = ["xlsx", "xls", "csv"]
+ALLOWED_FILE_TYPES = ["xlsx", "xls"]
 
 # ---------------------------------------------------------
 # KEYS DE CARGA
@@ -398,7 +398,7 @@ COL_CLIENT_ZONE = "Zona"
 BASE_MTD_TITLE = "Base MTD"
 BASE_MTD_MAIN_HEADING = "Base MTD / YTD"
 BASE_MTD_SUBHEADING = (
-    "Comparativo general entre Actual, Plan y PY para el mes de corte seleccionado, "
+    "Comparativo general entre Actual, Plan, Forecast y PY para el mes de corte seleccionado, "
     "incluyendo validación de Plan Cliente vs Plan SKU y cálculo BTS."
 )
 
@@ -422,7 +422,7 @@ MSG_MTD_BUILD_SUCCESS = "Base MTD construida correctamente."
 MSG_MTD_BUILD_ERROR = "Ocurrió un error al construir la base MTD."
 MSG_MTD_BUILD_MISSING_FILES = (
     "Para construir la Base MTD primero debes tener ventas procesadas, "
-    "plan por cliente y plan por SKU cargados."
+    "plan por cliente, plan por SKU y Forecast cargados."
 )
 
 # =========================================================
@@ -435,7 +435,7 @@ MSG_MTD_BUILD_MISSING_FILES = (
 REPORT_1_TITLE = "Reporte 1"
 REPORT_1_MAIN_HEADING = "Oficina de ventas MTD / YTD"
 REPORT_1_SUBHEADING = (
-    "Comparativo ejecutivo entre Actual, Plan y PY para Oficina de ventas, "
+    "Comparativo ejecutivo entre Actual, Plan, Forecast y PY para Oficina de ventas, "
     "separando ACCO + BARR + KENS."
 )
 
@@ -502,8 +502,8 @@ REPORT_1_TOTAL_LABEL = "Total"
 MSG_REPORT_1_BUILD_SUCCESS = "Reporte 1 construido correctamente."
 MSG_REPORT_1_BUILD_ERROR = "Ocurrió un error al construir el Reporte 1."
 MSG_REPORT_1_BUILD_MISSING_FILES = (
-    "Para construir el Reporte 1 primero debes tener ventas procesadas "
-    "y plan por cliente cargado."
+    "Para construir el Reporte 1 primero debes tener ventas procesadas, "
+    "plan por cliente y Forecast por cliente cargados."
 )
 
 # =========================================================
@@ -516,8 +516,8 @@ MSG_REPORT_1_BUILD_MISSING_FILES = (
 REPORT_2_TITLE = "Reporte 2"
 REPORT_2_MAIN_HEADING = "Comparativo Comercial: Segmento, Región y Categoría"
 REPORT_2_SUBHEADING = (
-    "Comparativo ejecutivo entre Actual, Plan y PY por Segmento x Región "
-    "y por Category, utilizando BASE SAP y Plan2026 by SKU."
+    "Comparativo ejecutivo entre Actual, Plan, Forecast y PY por Segmento x Región "
+    "y por Category, utilizando BASE SAP, Plan2026 by SKU y Forecast by SKU."
 )
 
 # ---------------------------------------------------------
@@ -592,8 +592,8 @@ REPORT_2_GRAND_TOTAL_LABEL = "Total General"
 MSG_REPORT_2_BUILD_SUCCESS = "Reporte 2 construido correctamente."
 MSG_REPORT_2_BUILD_ERROR = "Ocurrió un error al construir el Reporte 2."
 MSG_REPORT_2_BUILD_MISSING_FILES = (
-    "Para construir el Reporte 2 primero debes tener ventas procesadas "
-    "y plan por SKU cargado."
+    "Para construir el Reporte 2 primero debes tener ventas procesadas, "
+    "plan por SKU y Forecast por SKU cargados."
 )
 
 # ---------------------------------------------------------
@@ -617,8 +617,8 @@ REQUIRED_COLUMNS_REPORT_2_CATEGORY_PLAN_SKU = [
 MSG_REPORT_2_CATEGORY_BUILD_SUCCESS = "Reporte Category construido correctamente."
 MSG_REPORT_2_CATEGORY_BUILD_ERROR = "Ocurrió un error al construir el Reporte Category."
 MSG_REPORT_2_CATEGORY_BUILD_MISSING_FILES = (
-    "Para construir el Reporte Category primero debes tener ventas procesadas "
-    "y plan por SKU cargado."
+    "Para construir el Reporte Category primero debes tener ventas procesadas, "
+    "plan por SKU y Forecast por SKU cargados."
 )
 
 # =========================================================
@@ -631,8 +631,8 @@ MSG_REPORT_2_CATEGORY_BUILD_MISSING_FILES = (
 REPORT_3_TITLE = "Reporte 3"
 REPORT_3_MAIN_HEADING = "Canal"
 REPORT_3_SUBHEADING = (
-    "Comparativo ejecutivo entre Actual, Plan y PY por Channel, "
-    "utilizando BASE SAP y Plan2026 by SKU."
+    "Comparativo ejecutivo entre Actual, Plan, Forecast y PY por Channel, "
+    "utilizando BASE SAP, Plan2026 by SKU y Forecast by SKU."
 )
 
 # ---------------------------------------------------------
@@ -683,8 +683,8 @@ REPORT_3_TOTAL_LABEL = "Total General"
 MSG_REPORT_3_BUILD_SUCCESS = "Reporte 3 construido correctamente."
 MSG_REPORT_3_BUILD_ERROR = "Ocurrió un error al construir el Reporte 3."
 MSG_REPORT_3_BUILD_MISSING_FILES = (
-    "Para construir el Reporte 3 primero debes tener ventas procesadas "
-    "y plan por SKU cargado."
+    "Para construir el Reporte 3 primero debes tener ventas procesadas, "
+    "plan por SKU y Forecast por SKU cargados."
 )
 
 # =========================================================
@@ -698,7 +698,7 @@ REPORT_4_TITLE = "Reporte 4"
 REPORT_4_MAIN_HEADING = "Ranking de Clientes"
 REPORT_4_SUBHEADING = (
     "Comparativo ejecutivo MTD / YTD por cliente, construyendo el ranking dinámicamente "
-    "con base en Actual y cruzando Actual/PY/Plan por código de cliente."
+    "con base en Actual y cruzando Actual/Plan/Forecast/PY por código de cliente."
 )
 
 # ---------------------------------------------------------
@@ -845,8 +845,8 @@ REPORT_4_EXCLUDED_MATERIAL_CATEGORY_LABELS = [
 MSG_REPORT_4_BUILD_SUCCESS = "Reporte 4 construido correctamente."
 MSG_REPORT_4_BUILD_ERROR = "Ocurrió un error al construir el Reporte 4."
 MSG_REPORT_4_BUILD_MISSING_FILES = (
-    "Para construir el Reporte 4 primero debes tener ventas procesadas "
-    "y plan por cliente cargado."
+    "Para construir el Reporte 4 primero debes tener ventas procesadas, "
+    "plan por cliente y Forecast por cliente cargados."
 )
 
 # =========================================================
