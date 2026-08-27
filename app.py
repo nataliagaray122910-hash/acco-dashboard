@@ -8122,8 +8122,6 @@ def render_single_dimension_filter_block(
             applied_value = chosen[0]
             st.session_state[applied_key] = applied_value
             st.session_state[widget_key] = applied_value
-            for option in available_options:
-                st.session_state[draft_keys[option]] = option == applied_value
             st.rerun()
 
     st.session_state[applied_key] = applied_value
