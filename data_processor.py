@@ -5539,3 +5539,329 @@ def build_report_4_top_clients_payload(*args, **kwargs):
         if key in payload and payload[key] is not None:
             payload[key] = reorder_report_metric_columns(payload[key], ["TOP", "Client Name", "Cliente"])
     return payload
+
+
+def build_dashboard_payload_bundle(
+    df_processed_sales: pd.DataFrame,
+    df_plan_client: pd.DataFrame,
+    df_plan_sku: pd.DataFrame,
+    df_fcst_client: pd.DataFrame,
+    df_fcst_sku: pd.DataFrame,
+    forecast_name: str | None = None,
+    progress_callback=None,
+) -> dict:
+    """
+    Calcula los mismos insumos del Dashboard sin construir las vistas.
+
+    La Base MTD resuelve primero la fecha de corte más reciente y esa misma
+    fecha se usa en todos los reportes para conservar la lógica aprobada.
+    """
+    total_steps = 6
+    emit_progress(progress_callback, "Calculando Base MTD", 1, total_steps)
+    mtd_payload = build_mtd_payload(
+        df_processed_sales,
+        df_plan_client,
+        df_plan_sku,
+        df_fcst_client,
+        df_fcst_sku,
+        forecast_name=forecast_name,
+        selected_year=None,
+        selected_month=None,
+        progress_callback=None,
+    )
+    year = int(mtd_payload["latest_year"])
+    month = int(mtd_payload["latest_month"])
+
+    emit_progress(progress_callback, "Calculando Oficina de ventas", 2, total_steps)
+    report1_payload = build_report_1_payload(
+        df_processed_sales,
+        df_plan_client,
+        df_fcst_client,
+        forecast_name=forecast_name,
+        selected_year=year,
+        selected_month=month,
+        progress_callback=None,
+    )
+
+    emit_progress(progress_callback, "Calculando Segmento y Categoría", 3, total_steps)
+    report2_payload = build_report_2_segment_region_payload(
+        df_processed_sales,
+        df_plan_sku,
+        df_fcst_sku,
+        forecast_name=forecast_name,
+        selected_year=year,
+        selected_month=month,
+        progress_callback=None,
+    )
+    report2_category_payload = build_report_2_category_payload(
+        df_processed_sales,
+        df_plan_sku,
+        df_fcst_sku,
+        forecast_name=forecast_name,
+        selected_year=year,
+        selected_month=month,
+        progress_callback=None,
+    )
+
+    emit_progress(progress_callback, "Calculando Canal", 4, total_steps)
+    report3_payload = build_report_3_channel_payload(
+        df_processed_sales,
+        df_plan_sku,
+        df_fcst_sku,
+        forecast_name=forecast_name,
+        selected_year=year,
+        selected_month=month,
+        progress_callback=None,
+    )
+
+    emit_progress(progress_callback, "Calculando Ranking de Clientes", 5, total_steps)
+    report4_payload = build_report_4_top_clients_payload(
+        df_processed_sales,
+        df_plan_client,
+        df_fcst_client,
+        forecast_name=forecast_name,
+        selected_year=year,
+        selected_month=month,
+        progress_callback=None,
+    )
+
+    emit_progress(progress_callback, "Preparando Dashboard ejecutivo", 6, total_steps)
+    return {
+        "latest_year": year,
+        "latest_month": month,
+        "mtd": mtd_payload,
+        "report1": report1_payload,
+        "report2": report2_payload,
+        "report2_category": report2_category_payload,
+        "report3": report3_payload,
+        "report4": report4_payload,
+    }
+
+
+# =========================================================
+# EXTENSIÓN PROTEGIDA: RANKING DE CLIENTES POR VISTAS
+# =========================================================
+# El Ranking general permanece intacto. Esta sección filtra copias de las
+# fuentes y después reutiliza build_report_4_top_clients_payload(), de modo que
+# Top 15, bloques, clientes sin código, MTD/YTD, Forecast y orden de columnas
+# conserven exactamente las reglas ya aprobadas.
+
+def normalize_report_4_view_name(view_type) -> str:
+    """Normaliza el nombre visible de la vista sin habilitar Segmento."""
+    text = normalize_text(view_type)
+    aliases = {
+        "region": "Region",
+        "región": "Region",
+        "canal": "Canal",
+        "channel": "Canal",
+    }
+    normalized = aliases.get(text)
+    if normalized is None:
+        raise ValueError("La vista del Ranking debe ser Region o Canal.")
+    return normalized
+
+
+def normalize_report_4_view_selection(selection) -> str:
+    """Conserva una llave estable para una selección individual."""
+    if selection is None or (not isinstance(selection, (list, tuple, set)) and pd.isna(selection)):
+        return str(config.REPORT_4_VIEW_ALL_LABEL)
+    text = re.sub(r"\s+", " ", str(selection).strip())
+    return text or str(config.REPORT_4_VIEW_ALL_LABEL)
+
+
+def normalize_report_4_view_selections(selection) -> list[str]:
+    """Normaliza una o varias selecciones y elimina duplicados conservando orden."""
+    raw_values = (
+        list(selection)
+        if isinstance(selection, (list, tuple, set))
+        else [selection]
+    )
+    normalized = []
+    seen = set()
+    for value in raw_values:
+        item = normalize_report_4_view_selection(value)
+        key = normalize_text(item)
+        if key not in seen:
+            seen.add(key)
+            normalized.append(item)
+    return normalized or [str(config.REPORT_4_VIEW_ALL_LABEL)]
+
+
+def validate_report_4_view_selection(view_type: str, selection: str) -> None:
+    allowed = getattr(config, "REPORT_4_VIEW_SELECTIONS", {}).get(view_type, [])
+    allowed_by_key = {normalize_text(value): value for value in allowed}
+    if normalize_text(selection) not in allowed_by_key:
+        raise ValueError(
+            f"La selección '{selection}' no es válida para la vista {view_type}."
+        )
+
+
+def normalize_report_4_view_value(value) -> str:
+    """Normalización de comparación; no modifica los datos entregados al ranking."""
+    if pd.isna(value):
+        return ""
+    return re.sub(r"\s+", " ", str(value).strip()).upper()
+
+
+def get_report_4_view_target(source_name: str, view_type: str, selection: str) -> str:
+    value_maps = getattr(config, "REPORT_4_VIEW_VALUE_MAPS", {})
+    source_maps = value_maps.get(source_name, {})
+    view_maps = source_maps.get(view_type, {})
+    map_by_key = {normalize_text(key): value for key, value in view_maps.items()}
+    target = map_by_key.get(normalize_text(selection))
+    if target is None:
+        raise ValueError(
+            f"No existe equivalencia para {source_name}, {view_type}, {selection}."
+        )
+    return str(target)
+
+
+def filter_report_4_source_by_view(
+    dataframe: pd.DataFrame,
+    source_name: str,
+    view_type,
+    selection,
+) -> pd.DataFrame:
+    """Filtra una copia de una fuente sin alterar el DataFrame de sesión."""
+    if dataframe is None:
+        raise ValueError(f"No existe base cargada para {source_name}.")
+
+    view = normalize_report_4_view_name(view_type)
+    selected_values = normalize_report_4_view_selections(selection)
+    for selected in selected_values:
+        validate_report_4_view_selection(view, selected)
+
+    work = standardize_columns(dataframe).copy()
+    if any(
+        normalize_text(selected) == normalize_text(config.REPORT_4_VIEW_ALL_LABEL)
+        for selected in selected_values
+    ):
+        return work
+
+    candidates = (
+        getattr(config, "REPORT_4_VIEW_COLUMN_CANDIDATES", {})
+        .get(source_name, {})
+        .get(view, [])
+    )
+    dimension_col = find_first_existing_column(work, candidates)
+    if dimension_col is None:
+        raise ValueError(
+            f"No se encontró la columna de {view} en la fuente {source_name}."
+        )
+
+    targets = {
+        normalize_report_4_view_value(
+            get_report_4_view_target(source_name, view, selected)
+        )
+        for selected in selected_values
+    }
+    mask = work[dimension_col].apply(normalize_report_4_view_value).isin(targets)
+    return work.loc[mask].copy()
+
+
+def filter_sales_for_report_4_view(
+    df_processed_sales: pd.DataFrame,
+    view_type,
+    selection,
+) -> pd.DataFrame:
+    return filter_report_4_source_by_view(
+        df_processed_sales, "sales", view_type, selection
+    )
+
+
+def filter_plan_client_for_report_4_view(
+    df_plan_client: pd.DataFrame,
+    view_type,
+    selection,
+) -> pd.DataFrame:
+    return filter_report_4_source_by_view(
+        df_plan_client, "plan_client", view_type, selection
+    )
+
+
+def filter_fcst_client_for_report_4_view(
+    df_fcst_client: pd.DataFrame,
+    view_type,
+    selection,
+) -> pd.DataFrame:
+    return filter_report_4_source_by_view(
+        df_fcst_client, "fcst_client", view_type, selection
+    )
+
+
+def build_report_4_clients_by_view_payload(
+    df_processed_sales: pd.DataFrame,
+    df_plan_client: pd.DataFrame,
+    df_fcst_client: pd.DataFrame,
+    view_type,
+    selection,
+    forecast_name: str | None = None,
+    selected_year=None,
+    selected_month=None,
+    progress_callback=None,
+) -> dict:
+    """
+    Construye el Ranking por Región o Canal usando el Ranking general aprobado.
+
+    Cuando selection == Todos, las tres fuentes pasan completas y el resultado
+    debe ser idéntico al Ranking general para el mismo año y mes.
+    """
+    view = normalize_report_4_view_name(view_type)
+    selected_values = normalize_report_4_view_selections(selection)
+    for selected in selected_values:
+        validate_report_4_view_selection(view, selected)
+    all_label = str(config.REPORT_4_VIEW_ALL_LABEL)
+    is_all = any(normalize_text(value) == normalize_text(all_label) for value in selected_values)
+    selection_label = all_label if is_all else ", ".join(selected_values)
+
+    # Las tres primeras etapas corresponden al filtro por vista. Las ocho
+    # etapas internas del Ranking se numeran después como 4..11.
+    emit_progress(progress_callback, "Filtrando ventas por vista", 1, 11)
+    filtered_sales = filter_sales_for_report_4_view(
+        df_processed_sales, view, selected_values
+    )
+    emit_progress(progress_callback, "Filtrando Plan por cliente", 2, 11)
+    filtered_plan = filter_plan_client_for_report_4_view(
+        df_plan_client, view, selected_values
+    )
+    emit_progress(progress_callback, "Filtrando Forecast por cliente", 3, 11)
+    filtered_fcst = filter_fcst_client_for_report_4_view(
+        df_fcst_client, view, selected_values
+    )
+
+    def ranking_progress(
+        message=None,
+        step=None,
+        total_steps=None,
+        **_kwargs,
+    ):
+        inner_step = int(step or 1)
+        inner_total = int(total_steps or 8)
+        emit_progress(
+            progress_callback,
+            message or "Construyendo Ranking",
+            3 + inner_step,
+            3 + inner_total,
+        )
+
+    payload = build_report_4_top_clients_payload(
+        filtered_sales,
+        filtered_plan,
+        filtered_fcst,
+        forecast_name=forecast_name,
+        selected_year=selected_year,
+        selected_month=selected_month,
+        progress_callback=ranking_progress if callable(progress_callback) else None,
+    )
+
+    payload.setdefault("summary", {})
+    payload["summary"].update(
+        {
+            "view_type": view,
+            "selection": selection_label,
+            "selections": selected_values,
+            "is_view_ranking": True,
+            "view_title": f"RANKING CLIENTS - {view.upper()} ({selection_label.upper()})",
+        }
+    )
+    return payload

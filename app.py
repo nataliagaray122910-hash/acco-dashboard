@@ -53,6 +53,43 @@ st.markdown(
         visibility: hidden !important;
         pointer-events: none !important;
     }
+
+    /* Indicador animado de cálculo: persona trabajando en computadora. */
+    [data-testid="stStatusWidget"] {
+        width: 54px !important;
+        min-width: 54px !important;
+        height: 42px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        overflow: visible !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+    }
+    [data-testid="stStatusWidget"] svg,
+    [data-testid="stStatusWidget"] > div {
+        display: none !important;
+    }
+    [data-testid="stStatusWidget"]::before {
+        content: "🧑‍💻";
+        display: inline-block;
+        font-size: 29px;
+        line-height: 1;
+        transform-origin: center bottom;
+        animation: accoWorking 0.72s ease-in-out infinite;
+        filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.28));
+    }
+    @keyframes accoWorking {
+        0%, 100% {
+            transform: translateY(1px) rotate(-2deg) scale(1);
+        }
+        50% {
+            transform: translateY(-4px) rotate(2deg) scale(1.06);
+        }
+    }
     </style>
     """,
     unsafe_allow_html=True,
@@ -129,6 +166,15 @@ if "report3_payload" not in st.session_state:
 
 if "report4_payload" not in st.session_state:
     st.session_state["report4_payload"] = None
+
+if "report4_views_payload" not in st.session_state:
+    st.session_state["report4_views_payload"] = None
+
+if "dashboard_payload_bundle" not in st.session_state:
+    st.session_state["dashboard_payload_bundle"] = None
+
+if "dashboard_loaded" not in st.session_state:
+    st.session_state["dashboard_loaded"] = False
 
 if "currency_mode" not in st.session_state:
     st.session_state["currency_mode"] = config.DEFAULT_CURRENCY
@@ -784,8 +830,11 @@ def clear_report_payloads() -> None:
         "report2_category_payload",
         "report3_payload",
         "report4_payload",
+        "dashboard_payload_bundle",
     ]:
         st.session_state[key] = None
+
+    st.session_state["dashboard_loaded"] = False
 
     st.session_state.pop("__global_export_signature", None)
     st.session_state.pop("__global_export_bytes", None)
@@ -1361,12 +1410,16 @@ def get_current_dashboard_export_tables() -> dict | None:
     La descarga individual y la hoja incluida en la descarga global utilizan
     las tablas completas del periodo activo, sin depender de filtros visuales.
     """
-    mtd_payload = st.session_state.get("mtd_payload")
-    report1_payload = st.session_state.get("report1_payload")
-    report2_payload = st.session_state.get("report2_payload")
-    report2_category_payload = st.session_state.get("report2_category_payload")
-    report3_payload = st.session_state.get("report3_payload")
-    report4_payload = st.session_state.get("report4_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle")
+    if bundle is None:
+        return None
+
+    mtd_payload = bundle.get("mtd")
+    report1_payload = bundle.get("report1")
+    report2_payload = bundle.get("report2")
+    report2_category_payload = bundle.get("report2_category")
+    report3_payload = bundle.get("report3")
+    report4_payload = bundle.get("report4")
 
     required_payloads = [
         mtd_payload,
@@ -1419,6 +1472,7 @@ def get_full_reports_export_bytes() -> bytes:
         id(st.session_state.get("report2_category_payload")),
         id(st.session_state.get("report3_payload")),
         id(st.session_state.get("report4_payload")),
+        id(st.session_state.get("dashboard_payload_bundle")),
         bool(st.session_state.get("dashboard_loaded", False)),
         get_active_currency_mode(),
         get_normalized_exchange_rate_4(),
@@ -1960,6 +2014,7 @@ def render_dimension_filter_block(
     widget_key: str,
     applied_key: str,
     available_options: list[str],
+    interaction_callback=None,
 ) -> list[str]:
     """
     Filtro dinámico seguro para Streamlit.
@@ -3879,7 +3934,11 @@ def render_report_3_view() -> None:
     channel_bar_fig = charts.build_channel_mix_grouped_bar_interactive_chart(
         df_mtd_channel=filtered_mtd_channel,
         df_ytd_channel=filtered_ytd_channel,
-        title=get_currency_kpi_suffix(),
+        title=build_report_context_title(
+            "Comparativo por Channel",
+            active_year_channel,
+            active_month_channel,
+        ),
         currency_mode=get_active_currency_mode(),
         exchange_rate=get_active_exchange_rate(),
     )
@@ -4190,7 +4249,11 @@ def render_report_4_view() -> None:
     with chart_tab_mtd:
         mtd_chart = charts.build_report_4_ranking_chart(
             df_report_4=payload["mtd_top_clients_table"],
-            title=f"Ranking Clientes MTD · Top 15 + bloques · {get_currency_kpi_suffix()}",
+            title=build_report_context_title(
+                "Ranking Clientes MTD · Top 15 + bloques",
+                payload["summary"]["latest_year"],
+                payload["summary"]["latest_month"],
+            ),
             currency_mode=get_active_currency_mode(),
             exchange_rate=get_active_exchange_rate(),
         )
@@ -4203,7 +4266,11 @@ def render_report_4_view() -> None:
     with chart_tab_ytd:
         ytd_chart = charts.build_report_4_ranking_chart(
             df_report_4=payload["ytd_top_clients_table"],
-            title=f"Ranking Clientes YTD · Top 15 + bloques · {get_currency_kpi_suffix()}",
+            title=build_report_context_title(
+                "Ranking Clientes YTD · Top 15 + bloques",
+                payload["summary"]["latest_year"],
+                payload["summary"]["latest_month"],
+            ),
             currency_mode=get_active_currency_mode(),
             exchange_rate=get_active_exchange_rate(),
         )
@@ -4242,7 +4309,11 @@ def render_report_4_view() -> None:
         with pareto_tab:
             pareto_fig = charts.build_report_4_pareto_chart(
                 df_report_4=pareto_df,
-                title=f"Pareto Clientes {pareto_title} · {get_currency_kpi_suffix()}",
+                title=build_report_context_title(
+                    f"Pareto Clientes {pareto_title}",
+                    payload["summary"]["latest_year"],
+                    payload["summary"]["latest_month"],
+                ),
                 comparison_type=comparison_type,
                 currency_mode=get_active_currency_mode(),
                 exchange_rate=get_active_exchange_rate(),
@@ -4286,46 +4357,53 @@ def render_report_4_view() -> None:
 # 17.1 DASHBOARD EJECUTIVO - ETAPA 1
 # =========================================================
 def load_dashboard_view_state() -> None:
-    """
-    El Dashboard no calcula ni reconstruye información.
-    Solo habilita la visualización cuando ya existen todos los insumos.
-    """
-    st.session_state["dashboard_loaded"] = True
+    """Conserva compatibilidad con sesiones creadas antes del nuevo flujo."""
+    st.session_state["dashboard_loaded"] = bool(
+        st.session_state.get("dashboard_payload_bundle")
+    )
 
 
-def get_dashboard_missing_dependencies() -> list[str]:
-    """
-    Valida el flujo completo antes de mostrar el Dashboard.
-    Orden requerido:
-    1) Información de ventas disponible
-    2) Base MTD construida
-    3) Reportes 1, 2 Segment, 2 Category, 3 y 4 construidos
-    """
-    missing_dependencies: list[str] = []
+def run_dashboard_build(progress=None) -> bool:
+    """Calcula el Dashboard directamente desde las cinco bases disponibles."""
+    source_keys = (
+        "df_processed_sales",
+        "df_plan_client",
+        "df_plan_sku",
+        "df_fcst_client",
+        "df_fcst_sku",
+    )
+    sources = {key: st.session_state.get(key) for key in source_keys}
+    missing = [key for key, value in sources.items() if value is None]
+    if missing:
+        set_error_message(
+            "Para construir el Dashboard se requiere información de ventas, "
+            "Plan Cliente, Plan SKU, Forecast Cliente y Forecast SKU."
+        )
+        return False
 
-    df_processed = st.session_state.get("df_processed_sales")
-    if df_processed is None or getattr(df_processed, "empty", False):
-        missing_dependencies.append("La información de ventas todavía no está preparada.")
-
-    if st.session_state.get("mtd_payload") is None:
-        missing_dependencies.append("Primero construye la Base MTD.")
-
-    if st.session_state.get("report1_payload") is None:
-        missing_dependencies.append("Primero construye Oficina de ventas.")
-
-    if st.session_state.get("report2_payload") is None:
-        missing_dependencies.append("Primero construye Segmento x Región.")
-
-    if st.session_state.get("report2_category_payload") is None:
-        missing_dependencies.append("Primero construye Category.")
-
-    if st.session_state.get("report3_payload") is None:
-        missing_dependencies.append("Primero construye Canal.")
-
-    if st.session_state.get("report4_payload") is None:
-        missing_dependencies.append("Primero construye Ranking Clientes.")
-
-    return missing_dependencies
+    try:
+        bundle = data_processor.build_dashboard_payload_bundle(
+            sources["df_processed_sales"],
+            sources["df_plan_client"],
+            sources["df_plan_sku"],
+            sources["df_fcst_client"],
+            sources["df_fcst_sku"],
+            forecast_name=st.session_state.get("forecast_name", "Fcst"),
+            progress_callback=progress,
+        )
+        st.session_state["dashboard_payload_bundle"] = bundle
+        st.session_state["dashboard_loaded"] = True
+        st.session_state.pop("__global_export_signature", None)
+        st.session_state.pop("__global_export_bytes", None)
+        set_success_message("Dashboard construido correctamente.")
+        return True
+    except Exception as exc:
+        st.session_state["dashboard_loaded"] = False
+        set_error_message(
+            "No fue posible construir el Dashboard. "
+            f"Detalle: {exc}"
+        )
+        return False
 
 
 def get_dashboard_month_label_en(month_number: int) -> str:
@@ -4489,7 +4567,8 @@ def build_dashboard_css_html() -> str:
     return styles.build_dashboard_css_html()
 
 def dashboard_get_report1_payload() -> dict | None:
-    return st.session_state.get("report1_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle") or {}
+    return bundle.get("report1")
 
 
 def dashboard_is_zero_value(value) -> bool:
@@ -4741,7 +4820,8 @@ def build_dashboard_report1_section_html() -> str:
 
 
 def dashboard_get_report2_payload() -> dict | None:
-    return st.session_state.get("report2_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle") or {}
+    return bundle.get("report2")
 
 
 def build_dashboard_segment_empty_row(segment_value: str, region_value: str) -> dict:
@@ -4966,7 +5046,8 @@ def build_dashboard_report2_segment_section_html() -> str:
 
 
 def dashboard_get_report2_category_payload() -> dict | None:
-    return st.session_state.get("report2_category_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle") or {}
+    return bundle.get("report2_category")
 
 
 def build_dashboard_category_empty_row(category_value: str) -> dict:
@@ -5213,7 +5294,8 @@ def build_dashboard_report2_category_section_html() -> str:
 
 
 def dashboard_get_report3_payload() -> dict | None:
-    return st.session_state.get("report3_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle") or {}
+    return bundle.get("report3")
 
 
 def build_dashboard_report3_empty_row(channel_value: str) -> dict:
@@ -5432,7 +5514,8 @@ def build_dashboard_report3_section_html() -> str:
 
 
 def dashboard_get_report4_payload() -> dict | None:
-    return st.session_state.get("report4_payload")
+    bundle = st.session_state.get("dashboard_payload_bundle") or {}
+    return bundle.get("report4")
 
 
 def build_dashboard_report4_compact_table_html(title: str, df_table) -> str:
@@ -5638,26 +5721,6 @@ def build_dashboard_stage_one_html(payload: dict) -> str:
     )
 
 
-def render_dashboard_dependency_box(missing_dependencies: list[str]) -> None:
-    items_html = "".join(
-        f"<li>{escape(message)}</li>"
-        for message in missing_dependencies
-    )
-
-    st.markdown(
-        (
-            '<div class="dashboard-lock-box">'
-            '<div class="dashboard-lock-title">Dashboard pendiente de cargar</div>'
-            '<div class="dashboard-lock-text">'
-            'Para cargar el Dashboard ejecutivo primero deben existir todos los insumos construidos:'
-            f'<ul>{items_html}</ul>'
-            '</div>'
-            '</div>'
-        ),
-        unsafe_allow_html=True,
-    )
-
-
 def render_dashboard_view() -> None:
     st.markdown(build_dashboard_css_html(), unsafe_allow_html=True)
 
@@ -5670,38 +5733,31 @@ def render_dashboard_view() -> None:
         styles.build_info_box(
             """
             <b>Objetivo de esta vista:</b><br>
-            Mostrar el Dashboard ejecutivo consolidado con KPIs y reportes principales
-            construidos previamente en la app.
+            Mostrar el Dashboard ejecutivo consolidado con sus mismos KPIs y
+            reportes corporativos, calculados únicamente para la fecha de corte
+            más reciente disponible.
             """
         ),
         unsafe_allow_html=True,
     )
 
-    if st.button("Cargar Dashboard", use_container_width=True):
-        execute_with_status(
-            "Validando y cargando Dashboard...",
-            lambda progress: (
-                progress("Verificando que todos los reportes estén construidos") or
-                load_dashboard_view_state() or
-                progress("Preparando la vista ejecutiva") or
-                bool(st.session_state.get("dashboard_loaded", False))
-            ),
-        )
+    dashboard_bundle = st.session_state.get("dashboard_payload_bundle")
+    if dashboard_bundle is None:
+        if st.button("Construir Dashboard", use_container_width=True):
+            dashboard_built = execute_with_status(
+                "Calculando Dashboard para la fecha de corte...",
+                lambda progress: run_dashboard_build(progress=progress),
+            )
+            if dashboard_built:
+                st.rerun()
 
-    if not st.session_state.get("dashboard_loaded", False):
-        st.info("Da clic en Cargar Dashboard para validar los insumos y mostrar la vista ejecutiva.")
-        return
+        if dashboard_bundle is None:
+            return
 
-    missing_dependencies = get_dashboard_missing_dependencies()
-
-    if missing_dependencies:
-        render_dashboard_dependency_box(missing_dependencies)
-        return
-
-    payload = st.session_state.get("mtd_payload")
+    payload = dashboard_bundle.get("mtd")
 
     if payload is None:
-        st.info("Aún no existe información de Base MTD para el Dashboard.")
+        st.info("No existe información disponible para calcular el Dashboard.")
         return
 
     st.markdown(
@@ -7230,6 +7286,7 @@ def build_report_3_table_html(title: str, df_table) -> str:
 
 
 def run_report_4_build(selected_year: int | None=None, selected_month: int | None=None, progress=None) -> bool:
+    st.session_state["report4_active_internal_view"] = "Ranking general"
     sales=st.session_state.get("df_processed_sales"); plan=st.session_state.get("df_plan_client"); fcst=st.session_state.get("df_fcst_client")
     if sales is None or plan is None or fcst is None:
         set_error_message("Para construir Ranking Clientes se requiere información de ventas disponible, Plan Cliente y Forecast Cliente."); return False
@@ -7876,6 +7933,7 @@ def render_dimension_filter_block(
     widget_key: str,
     applied_key: str,
     available_options: list[str],
+    interaction_callback=None,
 ) -> list[str]:
     """
     Filtro compacto tipo Excel.
@@ -7937,6 +7995,8 @@ def render_dimension_filter_block(
 
     summary_text = (
         f"{filter_label} · {len(selected_set)}/{len(available_options)} seleccionados"
+        if str(filter_label).strip()
+        else f"{len(selected_set)}/{len(available_options)} seleccionados"
     )
 
     with st.expander(summary_text, expanded=False):
@@ -7954,12 +8014,14 @@ def render_dimension_filter_block(
                 apply_clicked = st.form_submit_button(
                     "Aplicar selección",
                     use_container_width=True,
+                    on_click=interaction_callback,
                 )
 
             with action_col_2:
                 all_clicked = st.form_submit_button(
                     "All / Seleccionar todo",
                     use_container_width=True,
+                    on_click=interaction_callback,
                 )
 
     if all_clicked:
@@ -8001,6 +8063,72 @@ def render_dimension_filter_block(
     st.session_state[options_state_key] = available_options.copy()
 
     return applied_values
+
+
+def render_single_dimension_filter_block(
+    widget_key: str,
+    applied_key: str,
+    available_options: list[str],
+    default_value: str,
+    display_labels: dict[str, str] | None = None,
+    interaction_callback=None,
+) -> str:
+    """Filtro tipo Excel para elegir exactamente una sola vista."""
+    available_options = [
+        str(value)
+        for value in (available_options or [])
+        if str(value).strip()
+    ]
+    if not available_options:
+        return str(default_value)
+
+    labels = display_labels or {}
+    applied_value = str(st.session_state.get(applied_key, default_value))
+    if applied_value not in available_options:
+        applied_value = available_options[0]
+
+    draft_keys = {}
+    for idx, option in enumerate(available_options):
+        draft_key = f"{widget_key}__draft_{idx}_{abs(hash(option))}"
+        draft_keys[option] = draft_key
+        if draft_key not in st.session_state:
+            st.session_state[draft_key] = option == applied_value
+
+    summary_text = labels.get(applied_value, applied_value)
+    with st.expander(summary_text, expanded=False):
+        with st.form(
+            key=f"{widget_key}__single_filter_form",
+            clear_on_submit=False,
+            border=False,
+        ):
+            for option in available_options:
+                st.checkbox(labels.get(option, option), key=draft_keys[option])
+
+            apply_clicked = st.form_submit_button(
+                "Aplicar selección",
+                use_container_width=True,
+                on_click=interaction_callback,
+            )
+
+    if apply_clicked:
+        chosen = [
+            option
+            for option in available_options
+            if bool(st.session_state.get(draft_keys[option], False))
+        ]
+        if len(chosen) != 1:
+            st.warning("Selecciona únicamente una vista: Región o Canal.")
+        else:
+            applied_value = chosen[0]
+            st.session_state[applied_key] = applied_value
+            st.session_state[widget_key] = applied_value
+            for option in available_options:
+                st.session_state[draft_keys[option]] = option == applied_value
+            st.rerun()
+
+    st.session_state[applied_key] = applied_value
+    st.session_state[widget_key] = applied_value
+    return applied_value
 
 
 def render_filter_download_row(
@@ -8383,7 +8511,7 @@ def build_report_4_table_html(title: str, df_table) -> str:
     )
 
 
-def render_client_search(payload: dict) -> None:
+def render_client_search(payload: dict, key_prefix: str = "report4") -> None:
     """
     Búsqueda parcial tipo Ctrl+F sobre el ranking completo MTD/YTD.
 
@@ -8399,7 +8527,7 @@ def render_client_search(payload: dict) -> None:
 
     query = st.text_input(
         "Buscar por nombre o código",
-        key="report4_client_search",
+        key=f"{key_prefix}_client_search",
         placeholder="Ej. amazon, papel, C018",
     )
     query = str(query or "").strip().lower()
@@ -8487,6 +8615,435 @@ def render_client_search(payload: dict) -> None:
             "No se encontraron clientes que contengan ese texto o código "
             "dentro del periodo seleccionado."
         )
+
+
+# En versiones modernas de Streamlit, el buscador se ejecuta como fragmento:
+# escribir o borrar texto ya no vuelve a renderizar todo el reporte ni manda
+# la página al inicio. En versiones anteriores conserva el comportamiento base.
+if callable(getattr(st, "fragment", None)):
+    render_client_search = st.fragment(render_client_search)
+
+
+# =========================================================
+# 19.9 RANKING DE CLIENTES POR VISTAS
+# =========================================================
+# Se conserva una referencia explícita a la vista general aprobada. La nueva
+# pestaña utiliza otro payload y otras llaves de widgets para no modificar su
+# lógica, sus filtros ni su estado.
+_render_report_4_general_view_protected = render_report_4_view
+
+
+def set_report_4_internal_view(view_name: str) -> None:
+    st.session_state["report4_active_internal_view"] = view_name
+
+
+def execute_report_4_views_with_status(title: str, action) -> bool:
+    """Muestra el avance durante el cálculo y lo retira al completarse."""
+    progress_placeholder = st.empty()
+    with progress_placeholder.container():
+        result = execute_with_status(title, action)
+    if result:
+        progress_placeholder.empty()
+    return result
+
+
+def run_report_4_views_build(
+    view_type: str,
+    selection: str,
+    selected_year: int | None = None,
+    selected_month: int | None = None,
+    progress=None,
+) -> bool:
+    set_report_4_internal_view("Ranking por vistas")
+    sales = st.session_state.get("df_processed_sales")
+    plan = st.session_state.get("df_plan_client")
+    fcst = st.session_state.get("df_fcst_client")
+
+    if sales is None or plan is None or fcst is None:
+        set_error_message(
+            "Para construir el Ranking por vistas se requiere información "
+            "de ventas disponible, Plan Cliente y Forecast Cliente."
+        )
+        return False
+
+    try:
+        payload = data_processor.build_report_4_clients_by_view_payload(
+            sales,
+            plan,
+            fcst,
+            view_type=view_type,
+            selection=selection,
+            forecast_name=st.session_state.get("forecast_name", "Fcst"),
+            selected_year=selected_year,
+            selected_month=selected_month,
+            progress_callback=progress,
+        )
+        st.session_state["report4_views_payload"] = payload
+        set_success_message(
+            getattr(
+                config,
+                "REPORT_4_VIEWS_BUILD_SUCCESS",
+                "Ranking de Clientes por vistas construido correctamente.",
+            )
+        )
+        return True
+    except Exception as exc:
+        set_error_message(
+            "No fue posible construir el Ranking por vistas. "
+            f"Detalle: {exc}"
+        )
+        return False
+
+
+def render_report_4_views_results(payload: dict) -> None:
+    summary = payload.get("summary", {})
+    year_value = summary.get("latest_year")
+    month_value = summary.get("latest_month")
+    view_type = str(summary.get("view_type", "Region"))
+    selection = str(summary.get("selection", "Todos"))
+    selections = list(summary.get("selections", [selection]) or [selection])
+    context_label = f"{view_type} · {selection}"
+
+    report_bytes = exports.build_report_4_excel_bytes(
+        mtd_top_clients_df=convert_report_table_for_export(
+            payload["mtd_top_clients_table"]
+        ),
+        ytd_top_clients_df=convert_report_table_for_export(
+            payload["ytd_top_clients_table"]
+        ),
+        report_title=build_report_context_title(
+            f"Ranking de Clientes por vistas - {context_label}",
+            year_value,
+            month_value,
+        ),
+    )
+
+    title_col, download_col = st.columns([12, 1], vertical_alignment="center")
+    with title_col:
+        st.markdown(f"### {summary.get('view_title', context_label)}")
+    with download_col:
+        safe_view = view_type.lower().replace(" ", "_")
+        safe_selection = selection.lower().replace(" ", "_")
+        render_icon_download_button(
+            data=report_bytes,
+            file_name=build_excel_filename(
+                f"ranking_clientes_{safe_view}_{safe_selection}",
+                year_value,
+                month_value,
+            ),
+            key="download_report_4_views_icon_top",
+            help_text="Descargar Ranking por vistas",
+        )
+
+    st.markdown(
+        '<div class="report-note">Esta pestaña conserva el mismo ranking dinámico, '
+        'universo de clientes, tratamiento de códigos en blanco, Top 15, bloques '
+        '16–50, 51–100, Other clients y Total México del Ranking general. La única '
+        'diferencia es el filtro previo de Región o Canal.</div>',
+        unsafe_allow_html=True,
+    )
+
+    render_report_4_detail_block(
+        "Vista ejecutiva: Top 15 + bloques resumen",
+        payload["mtd_top_clients_table"],
+        payload["ytd_top_clients_table"],
+        year_value,
+        month_value,
+    )
+    render_client_search(payload, key_prefix="report4_views")
+
+    st.markdown("---")
+    st.markdown("### Ranking Clients")
+    chart_tab_mtd, chart_tab_ytd = st.tabs(["MTD", "YTD"])
+    for tab, period_key, period_label in (
+        (chart_tab_mtd, "mtd_top_clients_table", "MTD"),
+        (chart_tab_ytd, "ytd_top_clients_table", "YTD"),
+    ):
+        with tab:
+            figure = charts.build_report_4_ranking_chart(
+                df_report_4=payload[period_key],
+                title=build_report_context_title(
+                    f"Ranking Clientes {period_label} · {context_label}",
+                    year_value,
+                    month_value,
+                ),
+                currency_mode=get_active_currency_mode(),
+                exchange_rate=get_active_exchange_rate(),
+            )
+            if figure is not None:
+                st.plotly_chart(figure, use_container_width=True)
+            else:
+                st.info(
+                    f"No hay información suficiente para graficar el ranking {period_label}."
+                )
+
+    st.markdown("---")
+    st.markdown("### Pareto dinámico de concentración")
+    st.markdown(
+        '<div class="report-note">El Pareto ordena clientes por Actual para mostrar '
+        'la concentración de ventas dentro de la vista seleccionada.</div>',
+        unsafe_allow_html=True,
+    )
+    pareto_tabs = st.tabs([
+        "MTD vs Plan", "MTD vs Forecast", "MTD vs PY",
+        "YTD vs Plan", "YTD vs Forecast", "YTD vs PY",
+    ])
+    pareto_specs = [
+        (payload["mtd_top_clients_table"], "plan", "MTD vs Plan"),
+        (payload["mtd_top_clients_table"], "fcst", "MTD vs Forecast"),
+        (payload["mtd_top_clients_table"], "py", "MTD vs PY"),
+        (payload["ytd_top_clients_table"], "plan", "YTD vs Plan"),
+        (payload["ytd_top_clients_table"], "fcst", "YTD vs Forecast"),
+        (payload["ytd_top_clients_table"], "py", "YTD vs PY"),
+    ]
+    for tab, (table, comparison, title) in zip(pareto_tabs, pareto_specs):
+        with tab:
+            figure = charts.build_report_4_pareto_chart(
+                df_report_4=table,
+                title=build_report_context_title(
+                    f"Pareto Clientes {title} · {context_label}",
+                    year_value,
+                    month_value,
+                ),
+                comparison_type=comparison,
+                currency_mode=get_active_currency_mode(),
+                exchange_rate=get_active_exchange_rate(),
+            )
+            if figure is not None:
+                st.plotly_chart(figure, use_container_width=True)
+            else:
+                st.info("No hay información suficiente para construir este Pareto.")
+
+    for label, mtd_key, ytd_key in (
+        ("Clients 16 to 50", "mtd_group_16_50_table", "ytd_group_16_50_table"),
+        ("Clients 51 to 100", "mtd_group_51_100_table", "ytd_group_51_100_table"),
+        ("Other clients", "mtd_group_other_table", "ytd_group_other_table"),
+    ):
+        with st.expander(f"Ver detalle: {label}", expanded=False):
+            render_report_4_detail_block(
+                label,
+                payload.get(mtd_key, data_processor.pd.DataFrame()),
+                payload.get(ytd_key, data_processor.pd.DataFrame()),
+                year_value,
+                month_value,
+            )
+
+
+def render_report_4_views_content() -> None:
+    st.markdown(
+        f'<div class="section-title">{getattr(config, "REPORT_4_VIEWS_TITLE", "Ranking de Clientes por vistas")}</div>',
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        styles.build_info_box(
+            """
+            <b>Objetivo de esta vista:</b><br>
+            Aplicar Región o Canal al mismo Ranking de Clientes aprobado. Plan y
+            Forecast se toman de sus bases por cliente; Segmento queda fuera hasta
+            confirmar la regla de negocio correspondiente.
+            """
+        ),
+        unsafe_allow_html=True,
+    )
+
+    allowed_views = list(getattr(config, "REPORT_4_VIEWS_ALLOWED", ["Region", "Canal"]))
+    default_view = getattr(config, "REPORT_4_VIEW_DEFAULT", "Region")
+    default_index = allowed_views.index(default_view) if default_view in allowed_views else 0
+    payload = st.session_state.get("report4_views_payload")
+
+    all_label = str(getattr(config, "REPORT_4_VIEW_ALL_LABEL", "Todos"))
+    # Antes de construir solo se muestra el botón, igual que en los demás
+    # reportes. La primera ejecución siempre parte de Región / Todos.
+    if payload is None:
+        build_area = st.empty()
+        with build_area.container():
+            st.markdown("### Construir Reporte")
+            build_clicked = st.button(
+                "Construir Reporte",
+                key="btn_build_report4_views",
+                use_container_width=True,
+            )
+
+        if build_clicked:
+            set_report_4_internal_view("Ranking por vistas")
+            build_ok = execute_report_4_views_with_status(
+                "Construyendo Ranking de Clientes por vistas...",
+                lambda progress: run_report_4_views_build(
+                    view_type=default_view,
+                    selection=[all_label],
+                    progress=progress,
+                ),
+            )
+            if build_ok:
+                build_area.empty()
+                payload = st.session_state.get("report4_views_payload")
+
+        if payload is None:
+            st.markdown("---")
+            st.info("Aún no se ha construido el Ranking por vistas.")
+            return
+
+    current_summary = payload.get("summary", {})
+    current_view = str(current_summary.get("view_type", default_view))
+    if current_view not in allowed_views:
+        current_view = default_view
+
+    current_selections = list(current_summary.get("selections", []) or [])
+    if not current_selections:
+        current_selections = [
+            str(current_summary.get("selection", all_label))
+        ]
+
+    # Mismo orden visual que los demás reportes: periodo, resumen ejecutivo y
+    # después los filtros propios del reporte, justo antes de su título.
+    selected_year, selected_month = render_report_period_row(
+        "report4_views_year",
+        "report4_views_month",
+        "btn_report4_views_period",
+        lambda year, month: run_report_4_views_build(
+            view_type=current_view,
+            selection=current_selections,
+            selected_year=year,
+            selected_month=month,
+        ),
+    )
+    if selected_year is not None and selected_month is not None:
+        render_independent_executive_summary(selected_year, selected_month)
+
+    st.markdown("---")
+
+    # Después de construir aparecen los filtros. Ambos usan el mismo diseño
+    # desplegable tipo Excel para que queden perfectamente alineados.
+    view_col, selection_col = st.columns(2, vertical_alignment="top")
+    with view_col:
+        st.markdown(
+            '<div style="font-size:0.875rem; line-height:1.25rem; '
+            'margin-bottom:0.25rem;">Vista</div>',
+            unsafe_allow_html=True,
+        )
+        view_type = render_single_dimension_filter_block(
+            widget_key="report4_views_draft_view",
+            applied_key="report4_views_applied_view",
+            available_options=allowed_views,
+            default_value=current_view,
+            display_labels={"Region": "Región", "Canal": "Canal"},
+            interaction_callback=lambda: set_report_4_internal_view(
+                "Ranking por vistas"
+            ),
+        )
+
+    selection_options = [
+        value
+        for value in list(
+            getattr(config, "REPORT_4_VIEW_SELECTIONS", {}).get(view_type, [])
+        )
+        if str(value) != all_label
+    ]
+    with selection_col:
+        st.markdown(
+            '<div style="font-size:0.875rem; line-height:1.25rem; '
+            'margin-bottom:0.25rem;">Selección</div>',
+            unsafe_allow_html=True,
+        )
+        applied_selections = render_dimension_filter_block(
+            "",
+            f"report4_views_selection_widget_{view_type}",
+            f"report4_views_selection_applied_{view_type}",
+            selection_options,
+            interaction_callback=lambda: set_report_4_internal_view(
+                "Ranking por vistas"
+            ),
+        )
+
+    selected_for_build = (
+        [all_label]
+        if set(applied_selections) == set(selection_options)
+        else list(applied_selections)
+    )
+    filters_changed = (
+        current_view != view_type
+        or {str(value) for value in current_selections}
+        != {str(value) for value in selected_for_build}
+    )
+    if filters_changed:
+        set_report_4_internal_view("Ranking por vistas")
+        build_ok = execute_report_4_views_with_status(
+            "Actualizando Ranking de Clientes por vistas...",
+            lambda progress: run_report_4_views_build(
+                view_type=view_type,
+                selection=selected_for_build,
+                selected_year=current_summary.get("latest_year"),
+                selected_month=current_summary.get("latest_month"),
+                progress=progress,
+            ),
+        )
+        if build_ok:
+            payload = st.session_state.get("report4_views_payload", payload)
+
+    render_report_4_views_results(payload)
+
+
+def render_report_4_view() -> None:
+    tab_names = ["Ranking general", "Ranking por vistas"]
+    active_view = st.session_state.get(
+        "report4_active_internal_view",
+        "Ranking general",
+    )
+    if active_view not in tab_names:
+        active_view = "Ranking general"
+
+    active_key = (
+        "report4_tab_views"
+        if active_view == "Ranking por vistas"
+        else "report4_tab_general"
+    )
+    st.markdown(
+        f"""
+        <style>
+        .st-key-report4_internal_tabs [data-testid="stButton"] button {{
+            background: transparent !important;
+            border: 0 !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+            color: #1f2937 !important;
+            justify-content: flex-start !important;
+            padding: 0.55rem 0.9rem !important;
+        }}
+        .st-key-report4_internal_tabs .st-key-{active_key} button {{
+            color: #ff4057 !important;
+            border-bottom: 2px solid #ff4057 !important;
+        }}
+        .st-key-report4_internal_tabs {{
+            border-bottom: 1px solid #d9dee7;
+            margin-bottom: 1.5rem;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.container(key="report4_internal_tabs"):
+        general_col, views_col, spacer_col = st.columns([1.15, 1.35, 8])
+        with general_col:
+            st.button(
+                "Ranking general",
+                key="report4_tab_general",
+                on_click=set_report_4_internal_view,
+                args=("Ranking general",),
+                use_container_width=True,
+            )
+        with views_col:
+            st.button(
+                "Ranking por vistas",
+                key="report4_tab_views",
+                on_click=set_report_4_internal_view,
+                args=("Ranking por vistas",),
+                use_container_width=True,
+            )
+
+    if active_view == "Ranking general":
+        _render_report_4_general_view_protected()
+    else:
+        render_report_4_views_content()
 
 
 # =========================================================

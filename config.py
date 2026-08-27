@@ -849,6 +849,78 @@ MSG_REPORT_4_BUILD_MISSING_FILES = (
     "plan por cliente y Forecast por cliente cargados."
 )
 
+# ---------------------------------------------------------
+# RANKING DE CLIENTES POR VISTAS
+# ---------------------------------------------------------
+# Esta extensión NO sustituye el Ranking general. Únicamente define el filtro
+# previo que alimentará una segunda pestaña interna del mismo reporte.
+REPORT_4_VIEWS_ALLOWED = ["Region", "Canal"]
+REPORT_4_VIEW_DEFAULT = "Region"
+REPORT_4_VIEW_ALL_LABEL = "Todos"
+
+REPORT_4_VIEW_SELECTIONS = {
+    "Region": ["Todos", "ECO", "EXP", "KEN", "NORTE", "RETAIL", "SUR", "VARIOS"],
+    "Canal": ["Todos", "ACCO", "BARR", "ECO", "EXP", "KENS"],
+}
+
+# Columnas reales usadas por cada fuente. En Plan/Forecast by Client la
+# columna Segment representa Canal y Sales Region representa Región.
+REPORT_4_VIEW_COLUMN_CANDIDATES = {
+    "sales": {
+        "Region": ["Region", "Región"],
+        "Canal": ["Channel", "Canal"],
+    },
+    "plan_client": {
+        "Region": ["Sales Region"],
+        "Canal": ["Segment"],
+    },
+    "fcst_client": {
+        "Region": ["Sales Region"],
+        "Canal": ["Segment"],
+    },
+}
+
+# Equivalencias aprobadas en el Excel de comprobación. Las llaves son las
+# selecciones visibles; los valores son los textos reales de cada base.
+REPORT_4_VIEW_VALUE_MAPS = {
+    "sales": {
+        "Region": {
+            "ECO": "ECO", "EXP": "EXP", "KEN": "KEN",
+            "NORTE": "NORTE", "RETAIL": "RETAIL", "SUR": "SUR",
+            "VARIOS": "VARIOS",
+        },
+        "Canal": {
+            "ACCO": "ACCO", "BARR": "GOBA", "ECO": "ECO",
+            "EXP": "EXP", "KENS": "KEN",
+        },
+    },
+    "plan_client": {
+        "Region": {
+            "ECO": "ECO", "EXP": "EXP", "KEN": "KEN",
+            "NORTE": "North", "RETAIL": "Retail", "SUR": "South",
+            "VARIOS": "VARIOS",
+        },
+        "Canal": {
+            "ACCO": "ACCO", "BARR": "BARRILITO", "ECO": "Ecommerce",
+            "EXP": "Export", "KENS": "KENSINGTON",
+        },
+    },
+    "fcst_client": {
+        "Region": {
+            "ECO": "ECO", "EXP": "EXP", "KEN": "KEN",
+            "NORTE": "NORTE", "RETAIL": "RETAIL", "SUR": "SUR",
+            "VARIOS": "VARIOS",
+        },
+        "Canal": {
+            "ACCO": "ACCO", "BARR": "BARRILITO", "ECO": "Ecommerce",
+            "EXP": "Export", "KENS": "KENSINGTON",
+        },
+    },
+}
+
+REPORT_4_VIEWS_TITLE = "Ranking de Clientes por vistas"
+REPORT_4_VIEWS_BUILD_SUCCESS = "Ranking de Clientes por vistas construido correctamente."
+
 # =========================================================
 # INTEGRACIÓN FORECAST EN REPORTES
 # =========================================================
